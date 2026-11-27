@@ -384,6 +384,8 @@ namespace geometry3Sharp.Tests
             }, 25, 9103);
         }
 
+        static int Rank(SolidBooleanResultKind kind) => kind == SolidBooleanResultKind.Solid ? 2 : kind == SolidBooleanResultKind.SolidWithContacts ? 1 : 0;
+
         [Fact]
         public void SeparateSelfContacts_KeepsTheContract_AndTheVolume()
         {
@@ -410,6 +412,9 @@ namespace geometry3Sharp.Tests
                 int found = SolidBooleanPipeline.SelfContacts(plain.Result).Count;
                 if (found > 0) withSelfContacts++;
                 if (found > 0 && p.Report.SelfContactsLeft == 0) separated++;
+                // the kind with the option is never worse than without it (Solid > SolidWithContacts > SolidNotClean)
+                if (Rank(p.Report.ResultKind) < Rank(plain.Report.ResultKind))
+                    return $"ResultKind {p.Report.ResultKind} with the option, {plain.Report.ResultKind} without";
                 if (found == 0) {
                     // nothing to separate: the result and the report are the plain ones, bit for bit
                     string same = Invariance.Difference(plain.Result, p.Result);

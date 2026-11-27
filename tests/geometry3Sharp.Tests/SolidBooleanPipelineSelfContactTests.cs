@@ -505,6 +505,94 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, report.SelfContactsLeft);
         }
 
+        // a cube of 10 whose face x = 0 is fanned around the point (0, 5, 5), and a tetrahedral cavity with its apex there and the
+        // base at x = 3, whose corners qa and qb are eps apart: the fan triangle (apex, qa, qb) is a thin one
+        static DMesh3 CubeWithATetCavity(double eps)
+        {
+            DMesh3 m = Box(0, 0, 0, 10, 10, 10);
+            // (Box: x low face = the quad 0, 4, 6, 2, two triangles; rebuilt as a fan around the apex)
+            var rebuilt = new DMesh3();
+            for (int v = 0; v < 8; ++v)
+                rebuilt.AppendVertex(m.GetVertex(v));
+            int apex = rebuilt.AppendVertex(new Vector3d(0, 5, 5));
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                bool onLow = m.GetVertex(tv.a).x == 0 && m.GetVertex(tv.b).x == 0 && m.GetVertex(tv.c).x == 0;
+                if (!onLow)
+                    rebuilt.AppendTriangle(tv.a, tv.b, tv.c);
+            }
+            int[] quad = { 0, 4, 6, 2 };
+            for (int i = 0; i < 4; ++i)
+                rebuilt.AppendTriangle(quad[i], quad[(i + 1) % 4], apex);
+            DMesh3 tet = BooleanFuzzShapes.Tet(new Vector3d(0, 5, 5), new Vector3d(3, 4, 4), new Vector3d(3, 4, 4 + eps), new Vector3d(3, 8, 5));
+            tet.ReverseOrientation();
+            new MeshEditor(rebuilt).AppendMesh(tet);
+            return rebuilt;
+        }
+
+        [Fact]
+        public void MovesThatShrinkATriangleBelowTheTolerance_ArePutBack_AndTheKindIsNotWorse()
+        {
+            // the fan triangle (apex, qa, qb) has 1.002 times the degenerate area of NotCleanReason (1e-12 of the squared diagonal);
+            // the move of the apex shrinks it below, without making it exactly degenerate or crossing or flipping anything
+            const double diagonalSquared = 300;
+            double eps = 1.002 * 1e-12 * diagonalSquared / 1.5811388300841898;
+            DMesh3 cube = CubeWithATetCavity(eps);
+            Assert.True(cube.IsClosed());
+            Assert.Equal("self-intersections", MeshRobustRepair.NotCleanReason(cube));
+            var plain = Run(new List<DMesh3> { cube }, U, 0);
+            Assert.Equal(SolidBooleanResultKind.SolidWithContacts, plain.Report.ResultKind);
+            var onlyTheStep = new DMesh3(plain.Result);
+            var stepReport = new SolidBooleanReport();
+            SolidBooleanPipeline.SeparateSelfContactsOf(onlyTheStep, 0.05, stepReport);
+            Assert.True(stepReport.SelfContactVerticesMoved > 0);
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(onlyTheStep));       // (the step alone would make it worse)
+
+            var p = Run(new List<DMesh3> { cube }, U, 0.05);
+            Assert.True(p.Report.SelfContactMovesRevertedAsWorse);
+            Assert.Equal(0, p.Report.SelfContactVerticesMoved);
+            Assert.Equal(0, p.Report.SelfContactMaxMove);
+            Assert.Equal(p.Report.SelfContactsFound, p.Report.SelfContactsLeft);
+            Assert.Equal(SolidBooleanResultKind.SolidWithContacts, p.Report.ResultKind);
+            Assert.Equal("", Invariance.Difference(plain.Result, p.Result));
+            Assert.Equal(plain.Report.NotCleanReason, p.Report.NotCleanReason);
+            Assert.Equal(plain.Report.ContactsResult, p.Report.ContactsResult);
+            Assert.True(p.Report.OnlyContacts);
+
+            // a smaller move leaves the triangle above the tolerance: it stays, and the result is separated
+            var q = Run(new List<DMesh3> { cube }, U, 1e-4);
+            Assert.False(q.Report.SelfContactMovesRevertedAsWorse);
+            Assert.True(q.Report.SelfContactVerticesMoved > 0);
+            Assert.Equal(SolidBooleanResultKind.Solid, q.Report.ResultKind);
+        }
+
+        [Theory]
+        [InlineData(-400)]
+        [InlineData(-300)]
+        [InlineData(300)]
+        [InlineData(400)]
+        public void TheSeparation_IsTheSameBitForBit_AtTinyAndHugeScales(int k)
+        {
+            // the direction sums the areas times the lengths (a cube of the coordinates): below 1e-108 it would underflow, above
+            // 1e102 overflow; in units of the shortest edge it does neither, and scaling by 2^k stays exact
+            DMesh3 plain = Run(EdgePinch(), D, 0).Result;
+            double f = Math.Pow(2, k);
+            DMesh3 scaled = new DMesh3(plain);
+            foreach (int v in scaled.VertexIndices())
+                scaled.SetVertex(v, scaled.GetVertex(v) * f);
+            DMesh3 reference = new DMesh3(plain);
+            var r0 = new SolidBooleanReport();
+            SolidBooleanPipeline.SeparateSelfContactsOf(reference, 0.01, r0);
+            var r1 = new SolidBooleanReport();
+            SolidBooleanPipeline.SeparateSelfContactsOf(scaled, 0.01 * f, r1);
+            Assert.Equal(4, r0.SelfContactVerticesMoved);
+            Assert.True(r0.SelfContactVerticesMoved == r1.SelfContactVerticesMoved, $"skipped {r1.SelfContactVerticesSkipped} undone {r1.SelfContactMovesUndoneCrossing}/{r1.SelfContactMovesUndoneFlipped} found {r1.SelfContactsFound}");
+            Assert.Equal(0, r1.SelfContactsLeft);
+            foreach (int v in scaled.VertexIndices())
+                Assert.Equal(reference.GetVertex(v) * f, scaled.GetVertex(v));
+            Assert.Equal(r0.SelfContactMaxMove * f, r1.SelfContactMaxMove);
+        }
+
         // ---- the bounds of a move
 
         [Fact]

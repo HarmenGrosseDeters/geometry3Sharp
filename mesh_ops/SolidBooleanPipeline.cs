@@ -310,6 +310,13 @@ namespace gs
         /// degenerate (UndoneCrossing) or turned over (UndoneFlipped)
         /// </summary>
         public int SelfContactVerticesSkipped, SelfContactMovesUndoneCrossing, SelfContactMovesUndoneFlipped;
+        /// <summary>
+        /// with SeparateSelfContacts: true if the moves were all put back because the final check made again after them found the result
+        /// worse (Solid > SolidWithContacts > SolidNotClean, eg a triangle that a move shrank below the tolerance of NotCleanReason without
+        /// making it exactly degenerate); the result is then the one without the option, SelfContactsLeft is SelfContactsFound and
+        /// SelfContactVerticesMoved is 0
+        /// </summary>
+        public bool SelfContactMovesRevertedAsWorse;
         /// <summary> with SeparateSelfContacts: the largest move of a vertex (up to the distance, plus the rounding of the coordinates) </summary>
         public double SelfContactMaxMove;
         /// <summary>
@@ -781,7 +788,7 @@ namespace gs
         /// volume changes by about the moved distance times the area of the triangles around the moved vertices. The step runs
         /// after the reduction and the pair pass; if a vertex moved, the final check is made again (Report.Clean, NotCleanReason,
         /// ContactsResult, OnlyContacts, ResultKind): a result whose self-contacts are all separated and that is otherwise clean
-        /// is a Solid, one with contacts left stays SolidWithContacts. Verification does not see the moves (NoInventedSurface measures the boolean result before the reduction, RoundingVolume is that of the rounding); they are bounded by the distance. FinalCheckMilliseconds includes the time of this step.
+        /// is a Solid, one with contacts left stays SolidWithContacts (also one whose moves are all put back because the check made again after them was worse than before, eg a triangle shrunk below its tolerance: Report.SelfContactMovesRevertedAsWorse; the result is then the one without the option). Verification does not see the moves (NoInventedSurface measures the boolean result before the reduction, RoundingVolume is that of the rounding); they are bounded by the distance. FinalCheckMilliseconds includes the time of this step.
         /// Report.SelfContactsFound / SelfContactsLeft / SelfContactVerticesMoved / SelfContactMaxMove /
         /// SelfContactVerticesSkipped / SelfContactMovesUndoneCrossing / SelfContactMovesUndoneFlipped say what was done.
         /// Negative or not finite: InvalidInput
@@ -1498,11 +1505,25 @@ namespace gs
             // 6. the self-contacts of the result, separated (the final check is made again if a vertex moved)
             if (SeparateSelfContacts > 0 && result.TriangleCount > 0) {
                 clock.Restart();
-                SeparateSelfContactsOf(result, SeparateSelfContacts, Report, Cancellation);
+                var checkedBefore = new SolidBooleanReport();
+                checkedBefore.SetFinalCheck(Report);
+                var movedFrom = new Dictionary<int, Vector3d>();
+                SeparateSelfContactsOf(result, SeparateSelfContacts, Report, Cancellation, movedFrom);
                 if (Cancellation.IsCancellationRequested)
                     return fail(PipelineStatus.Cancelled, "cancelled", total);
-                if (Report.SelfContactVerticesMoved > 0)
+                if (Report.SelfContactVerticesMoved > 0) {
                     FinalCheck(result, Report);
+                    if (CheckRank(Report) < CheckRank(checkedBefore)) {
+                        // (the moves made the result worse: the tolerance test of NotCleanReason finds what the exact tests of the step do not)
+                        foreach (var kv in movedFrom)
+                            result.SetVertex(kv.Key, kv.Value);
+                        Report.SetFinalCheck(checkedBefore);
+                        Report.SelfContactMovesRevertedAsWorse = true;
+                        Report.SelfContactVerticesMoved = 0;
+                        Report.SelfContactMaxMove = 0;
+                        Report.SelfContactsLeft = Report.SelfContactsFound;
+                    }
+                }
                 Report.FinalCheckMilliseconds += clock.ElapsedMilliseconds;
             }
 
@@ -1559,7 +1580,7 @@ namespace gs
         /// repeats until a check finds nothing left to put back: every round puts back at least one move, so this ends, and
         /// the state left is the one the last round checked. The counts go to the report (SelfContacts*)
         /// </summary>
-        internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, SolidBooleanReport report, CancellationToken cancel = default(CancellationToken))
+        internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, SolidBooleanReport report, CancellationToken cancel = default(CancellationToken), Dictionary<int, Vector3d> movedFrom = null)
         {
             List<List<int>> contacts = SelfContacts(mesh);
             report.SelfContactsFound = report.SelfContactsLeft = contacts.Count;
@@ -1578,15 +1599,18 @@ namespace gs
                     // its triangles (along its own surface, away from the other sheet; a normal would be unreliable where thin
                     // layers fold back on themselves)
                     Vector3d p = mesh.GetVertex(v);
-                    Vector3d n = Vector3d.Zero;
-                    foreach (int t in mesh.VtxTrianglesItr(v)) {
-                        Index3i tv = mesh.GetTriangle(t);
-                        Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
-                        n += ((a + b + c) / 3 - p) * (0.5 * (b - a).Cross(c - a).Length);
-                    }
                     double shortest = double.MaxValue;
                     foreach (int w in mesh.VtxVerticesItr(v))
                         shortest = Math.Min(shortest, p.Distance(mesh.GetVertex(w)));
+                    // (in units of the shortest edge, so that the sum neither under- nor overflows at tiny or huge coordinates, and is
+                    // the same bit for bit under scaling by 2^k)
+                    Vector3d n = Vector3d.Zero;
+                    if (shortest > 0 && shortest < double.MaxValue)
+                        foreach (int t in mesh.VtxTrianglesItr(v)) {
+                            Index3i tv = mesh.GetTriangle(t);
+                            Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                            n += (((a + b + c) / 3 - p) / shortest) * (0.5 * ((b - a) / shortest).Cross((c - a) / shortest).Length);
+                        }
                     double largest = Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z)));
                     double len = n.Length;
                     double step = Math.Min(delta, 0.25 * shortest);
@@ -1596,7 +1620,7 @@ namespace gs
                     }
                     foreach (int t in mesh.VtxTrianglesItr(v))
                         if (!oldNormal.ContainsKey(t))
-                            oldNormal[t] = mesh.GetTriNormal(t);
+                            oldNormal[t] = UnitNormal(mesh, t);
                     old[v] = p;
                     target.Add(new KeyValuePair<int, Vector3d>(v, p + n * (step / len)));
                     largestStep = Math.Max(largestStep, step);
@@ -1626,7 +1650,7 @@ namespace gs
                                 undoX.Add(tv[j]);
                     }
                     foreach (var kv in oldNormal)
-                        if (mesh.GetTriNormal(kv.Key).Dot(kv.Value) <= 0) {
+                        if (UnitNormal(mesh, kv.Key).Dot(kv.Value) <= 0) {
                             Index3i tv = mesh.GetTriangle(kv.Key);
                             for (int j = 0; j < 3; ++j)
                                 if (old.ContainsKey(tv[j]) && !undoX.Contains(tv[j]))
@@ -1644,9 +1668,33 @@ namespace gs
                 }
             }
             report.SelfContactVerticesMoved = old.Count;
+            if (movedFrom != null)
+                foreach (var kv in old)
+                    movedFrom[kv.Key] = kv.Value;
             foreach (var kv in old)
                 report.SelfContactMaxMove = Math.Max(report.SelfContactMaxMove, mesh.GetVertex(kv.Key).Distance(kv.Value));
             report.SelfContactsLeft = SelfContacts(mesh).Count;
+        }
+
+        // the unit normal of a triangle, zero if it has none (GetTriNormal has an absolute tolerance, which a mesh of tiny coordinates
+        // would fall below: every triangle would count as turned over)
+        static Vector3d UnitNormal(DMesh3 mesh, int t)
+        {
+            Index3i tv = mesh.GetTriangle(t);
+            Vector3d a = mesh.GetVertex(tv.a);
+            Vector3d e1 = mesh.GetVertex(tv.b) - a, e2 = mesh.GetVertex(tv.c) - a;
+            double scale = Math.Max(e1.MaxAbs, e2.MaxAbs);      // (the edges in their own units: the cross product and its length neither under- nor overflow)
+            if (!(scale > 0))
+                return Vector3d.Zero;
+            Vector3d n = (e1 / scale).Cross(e2 / scale);
+            double len = n.Length;
+            return len > 0 ? n / len : Vector3d.Zero;
+        }
+
+        // the order of the kinds of a result by its final check: clean (Solid) before contacts only (SolidWithContacts) before another defect
+        static int CheckRank(SolidBooleanReport r)
+        {
+            return r.Clean ? 2 : r.OnlyContacts ? 1 : 0;
         }
 
         // how far the boxes of the stale tree of SeparateSelfContactsOf are grown: a triangle is within largestStep of its box there
@@ -2027,7 +2075,10 @@ namespace gs
             public bool[] Open;
             public AxisAlignedBox3d[] Box;
             public int[] Owner;
-            /// <summary> the component of each vertex (-1 for a vertex of no triangle) </summary>
+            /// <summary>
+            /// the component of each vertex (-1 for a vertex of no triangle); a vertex shared by two components that are not connected by
+            /// an edge (a bowtie) names the last one (such a result is flagged by the final check anyway)
+            /// </summary>
             public int[] ComponentOfVertex;
 
             public static ComponentSolids Of(DMesh3 mesh)
