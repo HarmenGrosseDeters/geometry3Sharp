@@ -277,12 +277,14 @@ namespace geometry3Sharp.Tests
                                          "mesh_ops/VectorHeatMethod.cs", "mesh_ops/MeshGeodesicDistance.cs", "mesh_ops/MeshGeodesicPath.cs", "mesh_ops/MeshGeodesicBezier.cs",
                                          "solvers/SparseCholesky.cs", "math/CoreMath/CoreMathSin.cs", "math/CoreMath/CoreMathExp.cs", "math/CoreMath/CoreMathComposed.cs",
                                          "mesh_ops/TerrainSlope.cs", "mesh_ops/TerrainSlopeDesign.cs", "mesh_ops/TerrainSlopeMap.cs", "mesh_ops/TerrainSlopeComposite.cs",
-                                         "mesh_ops/TerrainSlopeOverlay.cs", "mesh_ops/TerrainSlopeLocalFrame.cs", "mesh_ops/TerrainSlopeCatchLineBound.cs" }) {
+                                         "mesh_ops/TerrainSlopeOverlay.cs", "mesh_ops/TerrainSlopeLocalFrame.cs", "mesh_ops/TerrainSlopeCatchLineBound.cs",
+                                         // the quad pipeline (#1713)
+                                         "mesh_ops/CrossField.cs", "mesh_ops/PositionField.cs", "mesh_ops/QuadRemesher.cs", "mesh_ops/IntegrableFrames.cs", "mesh_ops/MeshPrincipalCurvature.cs" }) {
                 Assert.True(File.Exists(Path.Combine(root, f)), f);
                 Assert.True(Severity(set, root, f, ExactCodeApiAnalyzer.LibmId) == ReportDiagnostic.Error, f);
             }
             // (TerrainSafety is not part of the slope design: its Math.Cos of a user angle stays)
-            foreach (string f in new[] { "math/MathUtil.cs", "mesh/DMesh3.cs", "mesh_ops/MeshCurvature.cs", "math/ExactPredicates.cs", "mesh_ops/TerrainSafety.cs" })
+            foreach (string f in new[] { "math/MathUtil.cs", "mesh/DMesh3.cs", "mesh_ops/MeshCurvature.cs", "math/ExactPredicates.cs", "mesh_ops/TerrainSafety.cs", "mesh_ops/MeshTopology.cs" })
                 Assert.True(Severity(set, root, f, ExactCodeApiAnalyzer.LibmId) == ReportDiagnostic.Suppress, f);
         }
 

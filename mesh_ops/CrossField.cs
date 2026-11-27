@@ -257,7 +257,7 @@ namespace gs
             };
             HashSet<long> creaseKeys = null;
             if (AlignCreases) {
-                var topo = new MeshTopology(Mesh) { CreaseAngle = CreaseAngleDegrees };
+                var topo = new MeshTopology(Mesh) { CreaseAngle = CreaseAngleDegrees, CorrectlyRoundedThreshold = true };
                 topo.Compute();
                 creaseKeys = new HashSet<long>();
                 foreach (int eid in topo.CreaseEdges) {

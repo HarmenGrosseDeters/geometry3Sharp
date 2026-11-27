@@ -136,18 +136,19 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Torus_CurvatureAlignedAndSizeAdapted_IsPinned()
         {
+            // (also MeshPrincipalCurvature, the curvature directions of the alignment: CoreMath since #1713)
             // the paths the gear does not take: the curvature alignment of the field (FaceDirectionFrom), the integrable frames of the size
             // adaptation (IntegrableFrames: exp, log, sin, cos) and the rotated orientations of the position field
             DMesh3 m = CrossFieldShapes.TorusMesh();
             var q = new QuadRemesher(new DMesh3(m)) { TargetEdgeLength = 0.1, CurvatureAlignment = 1, SizeAdaptation = SizeAdaptationMode.ScaleAndRotation };
             Assert.Equal(QuadRemeshStatus.Success, q.Compute());
             Assert.True(q.SizeAdaptationApplied);
-            Assert.Equal("4B69ED601A8295F0", PositionHash(q.Positions, m));
-            Assert.Equal("D5AEF8EA7B7BE7E6", PolyHash(q.Result));
+            Assert.Equal("EA066027D9CBCF0B", PositionHash(q.Positions, m));
+            Assert.Equal("412D3758B1F20D7C", PolyHash(q.Result));
             // reuse: the edge factors of IntegrableFrames are built per Compute, a second Compute on the instance gives the same bits
             q.Compute();
-            Assert.Equal("4B69ED601A8295F0", PositionHash(q.Positions, m));
-            Assert.Equal("D5AEF8EA7B7BE7E6", PolyHash(q.Result));
+            Assert.Equal("EA066027D9CBCF0B", PositionHash(q.Positions, m));
+            Assert.Equal("412D3758B1F20D7C", PolyHash(q.Result));
         }
 
         [Fact]

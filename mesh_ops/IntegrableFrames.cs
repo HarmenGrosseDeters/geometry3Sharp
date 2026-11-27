@@ -368,8 +368,6 @@ namespace gs
                 g = new double[ei.Length]; cs = new double[ei.Length]; sn = new double[ei.Length];
             }
 
-            internal int EdgeCount { get { return ei.Length; } }
-
             internal void Fill(double[] sig, double[] phi, bool useRot)
             {
                 for (int k = 0; k < ei.Length; ++k) {

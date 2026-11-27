@@ -214,7 +214,7 @@ namespace gs
             // adjacency, boundary, and (when PreserveCreases) sharp crease constraints
             HashSet<int> creaseEdges = null;
             if (PreserveCreases) {
-                var topo = new MeshTopology(Mesh) { CreaseAngle = CreaseAngleDegrees };
+                var topo = new MeshTopology(Mesh) { CreaseAngle = CreaseAngleDegrees, CorrectlyRoundedThreshold = true };
                 topo.Compute();
                 creaseEdges = topo.CreaseEdges;
             }

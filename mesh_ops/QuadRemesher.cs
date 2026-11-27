@@ -965,7 +965,7 @@ namespace gs
             public CreaseIndex(DMesh3 mesh, double creaseAngleDegrees, double cornerAngleDegrees, double edgeLength)
             {
                 s = edgeLength; cell = Math.Max(2 * edgeLength, double.Epsilon);
-                var topo = new MeshTopology(mesh) { CreaseAngle = creaseAngleDegrees };
+                var topo = new MeshTopology(mesh) { CreaseAngle = creaseAngleDegrees, CorrectlyRoundedThreshold = true };
                 topo.Compute();
                 var nb = new SortedDictionary<int, List<int>>();       // vertex -> crease edges
                 foreach (int eid in topo.CreaseEdges.OrderBy(e => e)) {
