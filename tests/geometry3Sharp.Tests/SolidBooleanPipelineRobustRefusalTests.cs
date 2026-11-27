@@ -159,20 +159,33 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ACancelDuringTheRobustRepair_GivesStatusCancelled_NotARefusal()
+        public void ACancelAfterAFewChecks_StopsTheRobustRepairPromptly_StatusCancelled()
         {
-            // the token is cancelled when the repair is set up (the pipeline checks it before the repair, so only the wiring into the repair
-            // can see it): the repair stops, and the run is Cancelled, not OpenInput with a reason
+            // the token is cancelled from inside the repair's own cancel check, at its CancelAt-th call (by count, not by time). With the pipeline's
+            // token wired into CancelF the repair stops at once: few further checks, Status Cancelled. Without the wiring its CancelF stays false and
+            // the repair runs to its end (many further checks). The pipeline would also see the token after the repair, so the checks are counted
+            const int CancelAt = 3, MaxFurther = 8;
             using (var cts = new System.Threading.CancellationTokenSource()) {
-                bool seenByTheRepair = false;
+                int calls = 0, further = 0;
                 var p = new SolidBooleanPipeline(ShellBowl(), Box(new Vector3d(0.2, 0, -0.3), 0.3), U) {
                     InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, SkipAutoRepairForTests = true,
-                    Cancellation = cts.Token, RobustRepairSetupForTests = r => { Cheap(r); cts.Cancel(); seenByTheRepair = r.CancelF(); } };
+                    Cancellation = cts.Token,
+                    RobustRepairSetupForTests = r => {
+                        Cheap(r);
+                        Func<bool> wired = r.CancelF;
+                        r.CancelF = () => {
+                            if (++calls == CancelAt)
+                                cts.Cancel();
+                            if (calls > CancelAt)
+                                ++further;
+                            return wired();
+                        };
+                    } };
                 Assert.False(p.Compute());
                 Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
                 Assert.Null(p.Result);
-                // (the wiring itself: the pipeline would also see the token after the repair, so the repair's own CancelF is asserted)
-                Assert.True(seenByTheRepair, "the repair's CancelF does not see the pipeline's token");
+                Assert.True(calls >= CancelAt, "setup: the repair checks for a cancel at least " + CancelAt + " times, it made " + calls);
+                Assert.True(further <= MaxFurther, "the repair went on after the cancel: " + further + " further checks");
             }
         }
 
