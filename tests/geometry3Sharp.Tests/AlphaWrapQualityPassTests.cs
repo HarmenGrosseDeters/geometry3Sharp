@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using g3;
 using gs;
 using Xunit;
@@ -899,6 +900,70 @@ namespace geometry3Sharp.Tests
             DMesh3 direct = MeshRobustRepair.ImproveWrapQuality(off.Mesh, off.AlphaWrap.Result, 0.5 * off.AlphaWrap.UsedOffset, true, () => false,
                 (p) => { MeshRobustRepair.DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(MeshRobustRepairTests.ThinPlates(6), true); });
             Assert.Equal("", Invariance.Difference(direct, on.Mesh));
+        }
+
+        [Fact]
+        public void UnitNormalAndAngle_ExtremeScales_AvoidOverflowAndUnderflow()
+        {
+            MethodInfo unitNormalMi = typeof(AlphaWrapQualityPass).GetMethod("unit_normal", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo angleMi = typeof(AlphaWrapQualityPass).GetMethod("angle", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(unitNormalMi);
+            Assert.NotNull(angleMi);
+
+            double[] scales = { 1.0, ExactPoint3.ScaleB(1.0, 600), ExactPoint3.ScaleB(1.0, -600) };
+            var refArgs = new object[] { Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), Vector3d.Zero };
+            Assert.True((bool)unitNormalMi.Invoke(null, refArgs));
+            Vector3d refNormal = (Vector3d)refArgs[3];
+            double refAngle = (double)angleMi.Invoke(null, new object[] { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0) });
+
+            foreach (double s in scales) {
+                var args = new object[] { Vector3d.Zero, new Vector3d(s, 0, 0), new Vector3d(0, s, 0), Vector3d.Zero };
+                Assert.True((bool)unitNormalMi.Invoke(null, args), $"scale {s}: unit_normal failed");
+                Assert.Equal(refNormal, (Vector3d)args[3]);
+
+                double ang = (double)angleMi.Invoke(null, new object[] { new Vector3d(s, 0, 0), new Vector3d(s, s, 0) });
+                Assert.Equal(refAngle, ang);
+            }
+
+            double mixed = (double)angleMi.Invoke(null, new object[] {
+                new Vector3d(ExactPoint3.ScaleB(1.0, 600), 0, 0),
+                new Vector3d(0, ExactPoint3.ScaleB(1.0, -600), 0)
+            });
+            Assert.True(Math.Abs(mixed - 90.0) <= 1e-12, $"mixed-scale angle {mixed}");
+        }
+
+        [Fact]
+        public void ProtectedEdges_ExtremeScales_DoesNotFalseLockOrFalseUnlock()
+        {
+            MethodInfo buildProtectedMi = typeof(AlphaWrapQualityPass).GetMethod("build_protected", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo isProtectedMi = typeof(AlphaWrapQualityPass).GetMethod("is_protected", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(buildProtectedMi);
+            Assert.NotNull(isProtectedMi);
+
+            Func<double, double, double, bool> check = (scale, distRatio, originShift) => {
+                Vector3d o = new Vector3d(originShift, 0, 0);
+                var m = new DMesh3();
+                m.AppendTriangle(
+                    m.AppendVertex(o),
+                    m.AppendVertex(o + new Vector3d(scale, 0, 0)),
+                    m.AppendVertex(o + new Vector3d(0, scale, 0)));
+                double r = 0.25 * scale;
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), r) { ProtectedDistance = r };
+                pass.ProtectedEdges.Add(new Segment3d(o + new Vector3d(0.25 * scale, 0.25 * scale, distRatio * r), Vector3d.AxisX, 0.25 * scale));
+                buildProtectedMi.Invoke(pass, null);
+                return (bool)isProtectedMi.Invoke(pass, new object[] { 0 });
+            };
+
+            // Extreme scales: 2^600 (r^2 overflows to +Inf on base) and 2^-538 (r^2 underflows to 0 on base)
+            foreach (int exp in new[] { 600, -538 }) {
+                double s = ExactPoint3.ScaleB(1.0, exp);
+                Assert.True(check(s, 0.5, 0.0), $"exp {exp}: segment at 0.5*r must protect triangle");
+                Assert.False(check(s, 4.0, 0.0), $"exp {exp}: segment at 4*r must not falsely lock triangle");
+            }
+
+            // Large UTM-like coordinate offset near a cell boundary
+            Assert.True(check(1.0, 0.5, 1e7));
+            Assert.False(check(1.0, 4.0, 1e7));
         }
     }
 }

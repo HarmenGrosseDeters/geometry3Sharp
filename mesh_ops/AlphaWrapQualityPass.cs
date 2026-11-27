@@ -136,18 +136,96 @@ namespace gs
             build_protected();
         }
 
+        const double MinNormal = 2.2250738585072014e-308; // 2^-1022
+        const double FastScaleMin = 7.888609052210118e-31; // 2^-100
+        const double FastScaleMax = 1.2676506002282294e30; // 2^100
+
+        static int Pow2Exp(double v)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int biased = (int)((bits >> 52) & 0x7FFL);
+            if (biased != 0)
+                return biased - 1023;
+            long sbits = BitConverter.DoubleToInt64Bits(v * 18014398509481984.0); // 2^54
+            return (int)((sbits >> 52) & 0x7FFL) - 1023 - 54;
+        }
+
+        static Vector3d ScaleVec(Vector3d v, int n)
+        {
+            return new Vector3d(ExactPoint3.ScaleB(v.x, n), ExactPoint3.ScaleB(v.y, n), ExactPoint3.ScaleB(v.z, n));
+        }
+
+        static double SafeLength(Vector3d d)
+        {
+            double d2 = d.LengthSquared;
+            if (d2 >= 4 * MinNormal && !double.IsInfinity(d2))
+                return Math.Sqrt(d2);
+            double m = d.MaxAbs;
+            if (double.IsNaN(m)) return double.NaN;
+            if (m == 0) return 0;
+            if (double.IsInfinity(m)) return double.PositiveInfinity;
+            int e = Pow2Exp(m);
+            Vector3d ds = ScaleVec(d, -e);
+            return ExactPoint3.ScaleB(Math.Sqrt(ds.LengthSquared), e);
+        }
+
+        static double SafeMaxDimDiv64(AxisAlignedBox3d b)
+        {
+            Vector3d d = b.Max - b.Min;
+            if (d.IsFinite)
+                return b.MaxDim / 64;
+            double dx = Math.Max(0, 0.015625 * b.Max.x - 0.015625 * b.Min.x);
+            double dy = Math.Max(0, 0.015625 * b.Max.y - 0.015625 * b.Min.y);
+            double dz = Math.Max(0, 0.015625 * b.Max.z - 0.015625 * b.Min.z);
+            return Math.Max(dx, Math.Max(dy, dz));
+        }
+
+        static Segment3d SafeSegment(Vector3d p0, Vector3d p1)
+        {
+            Vector3d d = p1 - p0;
+            double s = d.MaxAbs;
+            if (s >= FastScaleMin && s <= FastScaleMax && p0.MaxAbs <= FastScaleMax && p1.MaxAbs <= FastScaleMax)
+                return new Segment3d(p0, p1);
+            Vector3d center = 0.5 * p0 + 0.5 * p1;
+            if (!d.IsFinite) {
+                d = 0.5 * p1 - 0.5 * p0;
+                double halfLen = SafeLength(d);
+                if (!(halfLen > 0) || double.IsInfinity(halfLen))
+                    return new Segment3d(center, Vector3d.AxisX, 0);
+                int hexp = Pow2Exp(d.MaxAbs);
+                Vector3d hds = ScaleVec(d, -hexp);
+                return new Segment3d(center, hds / Math.Sqrt(hds.LengthSquared), halfLen);
+            }
+            double len = SafeLength(d);
+            if (!(len > 0) || double.IsInfinity(len))
+                return new Segment3d(center, Vector3d.AxisX, 0);
+            int exp = Pow2Exp(s);
+            Vector3d ds = ScaleVec(d, -exp);
+            return new Segment3d(center, ds / Math.Sqrt(ds.LengthSquared), 0.5 * len);
+        }
+
+        static Vector3d tri_normal(DMesh3 m, int tid)
+        {
+            Vector3d n = m.GetTriNormal(tid);
+            if (n.LengthSquared >= 0.5) return n;
+            Index3i tv = m.GetTriangle(tid);
+            return unit_normal(m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c), out n) ? n : Vector3d.Zero;
+        }
+
         // the protected segments by grid cells of size ProtectedDistance (at least 1 / 64 of the box)
         void build_protected()
         {
             protectedCells = null;
             if (ProtectedEdges.Count == 0 || !(ProtectedDistance > 0)) return;
-            protectedCell = Math.Max(ProtectedDistance, Mesh.CachedBounds.MaxDim / 64);
+            protectedCell = Math.Max(ProtectedDistance, SafeMaxDimDiv64(Mesh.CachedBounds));
             protectedOrigin = Mesh.CachedBounds.Min;
             protectedCells = new Dictionary<Vector3i, List<int>>();
             for (int i = 0; i < ProtectedEdges.Count; ++i) {
                 Segment3d sg = ProtectedEdges[i];
-                var bx = new AxisAlignedBox3d(sg.P0); bx.Contain(sg.P1);
-                foreach (Vector3i c in cells(bx)) {
+                Vector3d p0 = sg.P0, p1 = sg.P1;
+                if (!p0.IsFinite || !p1.IsFinite) continue;
+                var bx = new AxisAlignedBox3d(p0); bx.Contain(p1);
+                foreach (Vector3i c in cells(bx, 0)) {
                     List<int> l;
                     if (protectedCells.TryGetValue(c, out l) == false) protectedCells[c] = l = new List<int>();
                     l.Add(i);
@@ -155,22 +233,73 @@ namespace gs
             }
         }
 
-        // the cells of a box, relative to the mesh's box (small indices also far from the origin); clamped to one cell
-        // beyond the mesh's box (a segment far outside lands in the border cells, which only costs distance tests)
-        IEnumerable<Vector3i> cells(AxisAlignedBox3d bx)
+        // the cells of a box expanded by expand, relative to the mesh's box (small indices also far from the origin);
+        // rounded outward and clamped monotonically to [-1, 66] so overlapping intervals always share a cell
+        IEnumerable<Vector3i> cells(AxisAlignedBox3d bx, double expand)
         {
-            Vector3i lo = new Vector3i(cell(bx.Min.x - protectedOrigin.x), cell(bx.Min.y - protectedOrigin.y), cell(bx.Min.z - protectedOrigin.z));
-            Vector3i hi = new Vector3i(cell(bx.Max.x - protectedOrigin.x), cell(bx.Max.y - protectedOrigin.y), cell(bx.Max.z - protectedOrigin.z));
+            double lx = expand > 0 ? ExactInterval.Down(ExactInterval.Down(bx.Min.x - expand) - protectedOrigin.x) : ExactInterval.Down(bx.Min.x - protectedOrigin.x);
+            double ly = expand > 0 ? ExactInterval.Down(ExactInterval.Down(bx.Min.y - expand) - protectedOrigin.y) : ExactInterval.Down(bx.Min.y - protectedOrigin.y);
+            double lz = expand > 0 ? ExactInterval.Down(ExactInterval.Down(bx.Min.z - expand) - protectedOrigin.z) : ExactInterval.Down(bx.Min.z - protectedOrigin.z);
+            double hx = expand > 0 ? ExactInterval.Up(ExactInterval.Up(bx.Max.x + expand) - protectedOrigin.x) : ExactInterval.Up(bx.Max.x - protectedOrigin.x);
+            double hy = expand > 0 ? ExactInterval.Up(ExactInterval.Up(bx.Max.y + expand) - protectedOrigin.y) : ExactInterval.Up(bx.Max.y - protectedOrigin.y);
+            double hz = expand > 0 ? ExactInterval.Up(ExactInterval.Up(bx.Max.z + expand) - protectedOrigin.z) : ExactInterval.Up(bx.Max.z - protectedOrigin.z);
+            Vector3i lo = new Vector3i(cell_lo(lx), cell_lo(ly), cell_lo(lz));
+            Vector3i hi = new Vector3i(cell_hi(hx), cell_hi(hy), cell_hi(hz));
             for (int k = lo.z; k <= hi.z; ++k)
                 for (int j = lo.y; j <= hi.y; ++j)
                     for (int i = lo.x; i <= hi.x; ++i)
                         yield return new Vector3i(i, j, k);
         }
 
-        int cell(double d)
+        int cell_lo(double d)
         {
-            // (at most 64 cells across the mesh's box: -1 .. 65 covers it with a border)
-            return MathUtil.ToIntSaturating(MathUtil.Clamp(Math.Floor(d / protectedCell), -1, 66));
+            return ClampProtectedCell(Math.Floor(ExactInterval.Down(d / protectedCell)), -1);
+        }
+
+        int cell_hi(double d)
+        {
+            return ClampProtectedCell(Math.Floor(ExactInterval.Up(d / protectedCell)), 66);
+        }
+
+        static int ClampProtectedCell(double f, int fallback)
+        {
+            if (double.IsNaN(f)) return fallback;
+            if (f <= -1) return -1;
+            if (f >= 66) return 66;
+            return (int)f;
+        }
+
+        static bool SegmentTriangleWithin(Segment3d sg, Triangle3d t, double r)
+        {
+            if (!(r >= 0)) return false;
+            Vector3d p0 = sg.P0, p1 = sg.P1;
+            if (!p0.IsFinite || !p1.IsFinite || !t.V0.IsFinite || !t.V1.IsFinite || !t.V2.IsFinite)
+                return false;
+            if (double.IsInfinity(r)) return true;
+            Vector3d sp0 = p0 - t.V0, sp1 = p1 - t.V0, e1 = t.V1 - t.V0, e2 = t.V2 - t.V0;
+            double maxShift = Math.Max(Math.Max(sp0.MaxAbs, sp1.MaxAbs), Math.Max(e1.MaxAbs, e2.MaxAbs));
+            if (r >= FastScaleMin && r <= FastScaleMax && maxShift <= FastScaleMax && (maxShift == 0 || maxShift >= FastScaleMin)) {
+                double r2 = r * r;
+                return new DistSegment3Triangle3(sg, t).GetSquared() <= r2;
+            }
+            int pre = 0;
+            if (!sp0.IsFinite || !sp1.IsFinite || !e1.IsFinite || !e2.IsFinite) {
+                sp0 = 0.5 * p0 - 0.5 * t.V0;
+                sp1 = 0.5 * p1 - 0.5 * t.V0;
+                e1 = 0.5 * t.V1 - 0.5 * t.V0;
+                e2 = 0.5 * t.V2 - 0.5 * t.V0;
+                pre = 1;
+            }
+            maxShift = Math.Max(Math.Max(sp0.MaxAbs, sp1.MaxAbs), Math.Max(e1.MaxAbs, e2.MaxAbs));
+            if (!(maxShift > 0)) return true;
+            int exp = Pow2Exp(maxShift);
+            Vector3d q0 = ScaleVec(sp0, -exp), q1 = ScaleVec(sp1, -exp);
+            Vector3d v1 = ScaleVec(e1, -exp), v2 = ScaleVec(e2, -exp);
+            double sr = ExactPoint3.ScaleB(r, -(exp + pre));
+            Segment3d ss = SafeSegment(q0, q1);
+            Triangle3d st = new Triangle3d(Vector3d.Zero, v1, v2);
+            double d2 = new DistSegment3Triangle3(ss, st).GetSquared();
+            return Math.Sqrt(Math.Max(0, d2)) <= sr;
         }
 
         // is triangle tid of Mesh within ProtectedDistance of a protected segment?
@@ -179,16 +308,15 @@ namespace gs
             if (protectedCells == null) return false;
             Index3i tv = Mesh.GetTriangle(tid);
             Triangle3d t = new Triangle3d(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
+            if (!t.V0.IsFinite || !t.V1.IsFinite || !t.V2.IsFinite) return false;
             var bx = new AxisAlignedBox3d(t.V0); bx.Contain(t.V1); bx.Contain(t.V2);
-            bx.Expand(ProtectedDistance);
             var seen = new HashSet<int>();
-            foreach (Vector3i c in cells(bx)) {
+            foreach (Vector3i c in cells(bx, ProtectedDistance)) {
                 List<int> l;
                 if (protectedCells.TryGetValue(c, out l) == false) continue;
                 foreach (int i in l) {
                     if (seen.Add(i) == false) continue;
-                    var d = new DistSegment3Triangle3(ProtectedEdges[i], t);
-                    if (d.GetSquared() <= ProtectedDistance * ProtectedDistance) return true;
+                    if (SegmentTriangleWithin(ProtectedEdges[i], t, ProtectedDistance)) return true;
                 }
             }
             return false;
@@ -199,9 +327,11 @@ namespace gs
             double sum = 0; int n = 0;
             foreach (int eid in Mesh.EdgeIndices()) {
                 Index2i ev = Mesh.GetEdgeV(eid);
-                sum += Mesh.GetVertex(ev.a).Distance(Mesh.GetVertex(ev.b)); n++;
+                Vector3d d = Mesh.GetVertex(ev.a) - Mesh.GetVertex(ev.b);
+                sum += d.IsFinite ? SafeLength(d) : 2.0 * SafeLength(0.5 * Mesh.GetVertex(ev.a) - 0.5 * Mesh.GetVertex(ev.b));
+                n++;
             }
-            var g = new TriangleHashGrid(Mesh.CachedBounds.Min, Math.Max(1.5 * sum / Math.Max(1, n), MathUtil.ZeroTolerance));
+            var g = new TriangleHashGrid(Mesh.CachedBounds.Min, Math.Max(1.5 * sum / Math.Max(1, n), MinNormal));
             foreach (int tid in Mesh.TriangleIndices())
                 g.Insert(tid, box(Mesh.GetVertex(Mesh.GetTriangle(tid).a), Mesh.GetVertex(Mesh.GetTriangle(tid).b), Mesh.GetVertex(Mesh.GetTriangle(tid).c)));
             return g;
@@ -222,9 +352,18 @@ namespace gs
         // angle between u and v in degrees (0 for a zero vector)
         static double angle(Vector3d u, Vector3d v)
         {
-            double lu = u.Length, lv = v.Length;
-            if (!(lu > 0 && lv > 0)) return 0;
-            return Math.Acos(MathUtil.Clamp(u.Dot(v) / (lu * lv), -1, 1)) * MathUtil.Rad2Deg;
+            double su = u.MaxAbs, sv = v.MaxAbs;
+            if (su >= FastScaleMin && su <= FastScaleMax && sv >= FastScaleMin && sv <= FastScaleMax) {
+                double lu = u.Length, lv = v.Length;
+                if (!(lu > 0 && lv > 0)) return 0;
+                return Math.Acos(MathUtil.Clamp(u.Dot(v) / (lu * lv), -1, 1)) * MathUtil.Rad2Deg;
+            }
+            if (!(su > 0 && sv > 0) || !u.IsFinite || !v.IsFinite) return 0;
+            Vector3d us = ScaleVec(u, -Pow2Exp(su));
+            Vector3d vs = ScaleVec(v, -Pow2Exp(sv));
+            double lus = us.Length, lvs = vs.Length;
+            if (!(lus > 0 && lvs > 0)) return 0;
+            return Math.Acos(MathUtil.Clamp(us.Dot(vs) / (lus * lvs), -1, 1)) * MathUtil.Rad2Deg;
         }
 
         double min_angle(int tid)
@@ -236,11 +375,32 @@ namespace gs
         // the unit normal of the triangle, or false if it is degenerate (relative to its size)
         static bool unit_normal(Vector3d a, Vector3d b, Vector3d c, out Vector3d n)
         {
-            n = (b - a).Cross(c - a);
-            double l = Math.Max((b - a).LengthSquared, Math.Max((c - b).LengthSquared, (a - c).LengthSquared));
-            double len = n.Length;
-            if (!(len > 1e-12 * l)) return false;
-            n /= len;
+            Vector3d u = b - a, v = c - a, w = c - b;
+            double s = Math.Max(u.MaxAbs, Math.Max(v.MaxAbs, w.MaxAbs));
+            if (s >= FastScaleMin && s <= FastScaleMax) {
+                n = u.Cross(v);
+                double l = Math.Max(u.LengthSquared, Math.Max(w.LengthSquared, v.LengthSquared));
+                double len = n.Length;
+                if (!(len > 1e-12 * l)) return false;
+                n /= len;
+                return true;
+            }
+            n = Vector3d.Zero;
+            if (!a.IsFinite || !b.IsFinite || !c.IsFinite) return false;
+            if (!u.IsFinite || !v.IsFinite || !w.IsFinite) {
+                u = 0.5 * b - 0.5 * a;
+                v = 0.5 * c - 0.5 * a;
+                w = 0.5 * c - 0.5 * b;
+            }
+            s = Math.Max(u.MaxAbs, Math.Max(v.MaxAbs, w.MaxAbs));
+            if (!(s > 0)) return false;
+            int exp = Pow2Exp(s);
+            Vector3d us = ScaleVec(u, -exp), vs = ScaleVec(v, -exp), ws = ScaleVec(w, -exp);
+            n = us.Cross(vs);
+            double ls = Math.Max(us.LengthSquared, Math.Max(ws.LengthSquared, vs.LengthSquared));
+            double lens = SafeLength(n);
+            if (!(lens > 1e-12 * ls)) return false;
+            n /= lens;
             return true;
         }
 
@@ -543,7 +703,7 @@ namespace gs
             foreach (int e in Mesh.VtxEdgesItr(v)) {
                 Index2i et = Mesh.GetEdgeT(e);
                 if (et.b < 0) continue;
-                if (Mesh.GetTriNormal(et.a).Dot(Mesh.GetTriNormal(et.b)) < cos) return true;
+                if (tri_normal(Mesh, et.a).Dot(tri_normal(Mesh, et.b)) < cos) return true;
             }
             return false;
         }
