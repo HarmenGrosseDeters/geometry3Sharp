@@ -191,34 +191,58 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // the default path (no PreserveCreases) over the 72 fixture configurations (4 shapes, 18 pass counts): the repair never makes a result worse
-        // (dropped faces, irregular vertices, quad fraction) and changes none that dropped no face; it runs about 30 s, so nightly
-        [Trait("Category", "Nightly")]
-        [Fact]
-        public void DefaultPath_RepairNeverMakesAResultWorse_AndLeavesTheOthersAlone()
+        // the default path (no PreserveCreases) over the 18 pass counts of each fixture shape (72 configurations, in two halves each: 10 to 26 and 27 to 60
+        // passes, so that each case is within the time of a test): the repair never makes a result worse (dropped faces, boundary vertices, irregular
+        // vertices, quad fraction) and changes none that dropped no face; the measured numbers of results it changes (the table of the PR of #1688):
+        // box 1, cylinder 1, gear 4, l-profile 6, of which newly closed 1, 1, 1, 4 and with fewer dropped faces 0, 0, 3, 2
+        [Theory]
+        [InlineData("sharp-box", 0, 0, 0, 0)]
+        [InlineData("sharp-box", 1, 1, 1, 0)]
+        [InlineData("sharp-cylinder", 0, 1, 1, 0)]
+        [InlineData("sharp-cylinder", 1, 0, 0, 0)]
+        [InlineData("gear", 0, 2, 0, 2)]
+        [InlineData("gear", 1, 2, 1, 1)]
+        [InlineData("l-profile", 0, 3, 2, 1)]
+        [InlineData("l-profile", 1, 3, 2, 1)]
+        public void DefaultPath_RepairNeverMakesAResultWorse_AndLeavesTheOthersAlone(string name, int half, int expectChanged, int expectClosed, int expectFewerDrops)
         {
             var worse = new List<string>();
-            int changed = 0, closedNow = 0;
-            foreach (string name in new[] { "sharp-box", "sharp-cylinder", "gear", "l-profile" })
-                foreach (int passes in new[] { 10, 12, 14, 16, 18, 20, 22, 24, 26, 27, 28, 29, 30, 32, 35, 40, 50, 60 }) {
-                    double s = QuadRemesherClosedOutputTests.TargetOf(name);
-                    var before = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s, SkipCrossingRepair = true };
-                    var after = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s };
-                    Assert.Equal(QuadRemeshStatus.Success, before.Compute());
-                    Assert.Equal(QuadRemeshStatus.Success, after.Compute());
-                    PolyMeshMetrics mb = PolyMeshMetrics.Compute(before.Result), ma = PolyMeshMetrics.Compute(after.Result);
-                    string id = name + "/" + passes;
-                    bool same = before.Result.VertexCount == after.Result.VertexCount && before.Result.FaceIndices.SequenceEqual(after.Result.FaceIndices);
-                    if (before.DroppedFaces == 0 && !same) worse.Add(id + " changed without a dropped face");
-                    if (!same) changed++;
-                    if (after.DroppedFaces > before.DroppedFaces || ma.BoundaryVertices > mb.BoundaryVertices) worse.Add(id + " more dropped faces / boundary vertices");
-                    if (!ma.IsManifold) worse.Add(id + " not manifold");
-                    if (ma.IrregularVertices > mb.IrregularVertices) worse.Add(id + " irregular " + mb.IrregularVertices + " -> " + ma.IrregularVertices);
-                    if (ma.QuadFraction < mb.QuadFraction - 0.005) worse.Add(id + " quads " + mb.QuadFraction.ToString("F4") + " -> " + ma.QuadFraction.ToString("F4"));
-                    if (ma.BoundaryVertices == 0) closedNow++;
-                }
+            int changed = 0, newlyClosed = 0, fewerDrops = 0;
+            foreach (int passes in half == 0 ? new[] { 10, 12, 14, 16, 18, 20, 22, 24, 26 } : new[] { 27, 28, 29, 30, 32, 35, 40, 50, 60 }) {
+                double s = QuadRemesherClosedOutputTests.TargetOf(name);
+                var before = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s, SkipCrossingRepair = true };
+                var after = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s };
+                Assert.Equal(QuadRemeshStatus.Success, before.Compute());
+                Assert.Equal(QuadRemeshStatus.Success, after.Compute());
+                PolyMeshMetrics mb = PolyMeshMetrics.Compute(before.Result), ma = PolyMeshMetrics.Compute(after.Result);
+                string id = name + "/" + passes;
+                bool same = before.Result.VertexCount == after.Result.VertexCount && before.Result.FaceIndices.SequenceEqual(after.Result.FaceIndices);
+                if (before.DroppedFaces == 0 && !same) worse.Add(id + " changed without a dropped face");
+                if (!same) changed++;
+                if (mb.BoundaryVertices > 0 && ma.BoundaryVertices == 0) newlyClosed++;
+                if (after.DroppedFaces > 0 && after.DroppedFaces < before.DroppedFaces) fewerDrops++;
+                if (after.DroppedFaces > before.DroppedFaces || ma.BoundaryVertices > mb.BoundaryVertices) worse.Add(id + " more dropped faces / boundary vertices");
+                if (!ma.IsManifold) worse.Add(id + " not manifold");
+                if (ma.IrregularVertices > mb.IrregularVertices) worse.Add(id + " irregular " + mb.IrregularVertices + " -> " + ma.IrregularVertices);
+                if (ma.QuadFraction < mb.QuadFraction - 0.005) worse.Add(id + " quads " + mb.QuadFraction.ToString("F4") + " -> " + ma.QuadFraction.ToString("F4"));
+            }
             Assert.True(worse.Count == 0, string.Join("; ", worse));
-            Assert.Equal(12, changed);       // the measured number of configurations the repair changes
+            Assert.Equal(expectChanged, changed);
+            Assert.Equal(expectClosed, newlyClosed);
+            Assert.Equal(expectFewerDrops, fewerDrops);
+        }
+
+        [Fact]
+        public void TheCandidateGraphsOfTheCreasePath_AreTheChosenOneThenTheOthersThatAreNotAliases()
+        {
+            var a = Graph(Chord, ChordEdges); var b = Graph(Chord, ChordEdges); var c = Graph(Chord, ChordEdges); var d = Graph(Chord, ChordEdges);
+            // the result was built from a; the repaired graph b was copied before the splits (d is the graph the splits changed); the plain graph is c
+            Assert.Equal(new[] { a, b, c }, QuadRemesher.CandidateGraphs(a, b, d, c));
+            Assert.Equal(new[] { a, c }, QuadRemesher.CandidateGraphs(a, null, d, c));          // the repaired graph was not copied
+            Assert.Equal(new[] { a, c }, QuadRemesher.CandidateGraphs(a, a, d, c));             // the result is the repaired graph
+            Assert.Equal(new[] { a, c }, QuadRemesher.CandidateGraphs(a, d, d, c));             // the repaired graph is the one the splits changed
+            Assert.Equal(new[] { a, b }, QuadRemesher.CandidateGraphs(a, b, d, a));             // the result is the plain graph
+            Assert.Equal(new[] { d, b, c }, QuadRemesher.CandidateGraphs(d, b, d, c));          // the result is the refined graph (the one the splits changed): the repaired copy is still different
         }
 
         [Fact]

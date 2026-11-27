@@ -455,12 +455,22 @@ namespace gs
             // an input without a hole must not get one: edges that cross each other make the faces of the extraction fold (issue #1674)
             if (planarize && droppedFaces > 0) {
                 // the chosen graph first, then the graphs of the other results, if they are not the one tried (the splits changed g after the repaired result was built)
-                var graphs = new List<PolyGraph> { resultGraph };
-                if (repairedGraph != null && repairedGraph != resultGraph && repairedGraph != g) graphs.Add(repairedGraph);
-                if (plainGraph != resultGraph) graphs.Add(plainGraph);
-                result = TryPlanarize(graphs, maxSides, result, ref droppedFaces);
+                result = TryPlanarize(CandidateGraphs(resultGraph, repairedGraph, g, plainGraph), maxSides, result, ref droppedFaces);
             }
             return result;
+        }
+
+        /// <summary>
+        /// The graphs whose crossing edges are repaired, in order: the one the result was built from, then the repaired graph (null: it was not copied;
+        /// the same as the graph the splits changed, g: it is not the state the repaired result was built from) and the plain graph, each if it is not one
+        /// of those before it.
+        /// </summary>
+        internal static List<PolyGraph> CandidateGraphs(PolyGraph resultGraph, PolyGraph repairedGraph, PolyGraph splitGraph, PolyGraph plainGraph)
+        {
+            var graphs = new List<PolyGraph> { resultGraph };
+            if (repairedGraph != null && repairedGraph != resultGraph && repairedGraph != splitGraph) graphs.Add(repairedGraph);
+            if (plainGraph != resultGraph) graphs.Add(plainGraph);
+            return graphs;
         }
 
         /// <summary> TryPlanarize of each graph in turn until no face is dropped (each improvement is the result the next is compared with) </summary>

@@ -43,9 +43,8 @@ namespace geometry3Sharp.Tests
             Assert.True(a.QuadFraction >= 0.95, "quads " + a.QuadFraction);
             // with the repair (the default) neither run has a hole, and the old collapse length gets the same boundary as the new
             QuadRemesher oldRepaired = Run(m, 0.03, q => q.CollapseLength = 0.4);
-            PolyMeshMetrics c = PolyMeshMetrics.Compute(oldRepaired.Result);
             Assert.Equal(0, oldRepaired.DroppedFaces);
-            Assert.Equal(PolyMeshMetrics.Compute(now.Result).BoundaryVertices, c.BoundaryVertices);
+            Assert.Equal(a.BoundaryVertices, PolyMeshMetrics.Compute(oldRepaired.Result).BoundaryVertices);
         }
 
         // a narrow open strip of 1 x 0.1 (width 2.5 target edges): boundary vertices of the two sides are close, the wider collapse must not merge them into a broken mesh

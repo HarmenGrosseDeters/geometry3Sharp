@@ -77,6 +77,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OfTwoGraphsThatReachTheSameCount_TheFirstIsKept()
+        {
+            int d0, d1;
+            Build(Grid(false), out d0);
+            DPolyMesh crossed = Build(Grid(true), out d1);
+            // the second graph is the first moved by 100 along x: both give the same number of dropped faces, the faces are the same, the positions are not
+            QuadRemesher.PolyGraph moved = Grid(true);
+            for (int i = 0; i < moved.Pos.Count; ++i) moved.Pos[i] = moved.Pos[i] + new Vector3d(100, 0, 0);
+            int dropped = d1;
+            DPolyMesh r = QuadRemesher.TryPlanarize(new List<QuadRemesher.PolyGraph> { Grid(true), moved }, 6, crossed, ref dropped);
+            Assert.Equal(d0, dropped);
+            Assert.True(r.GetVertex(0).x < 50, "the result of the second graph was kept: x " + r.GetVertex(0).x);
+            dropped = d1;
+            DPolyMesh r2 = QuadRemesher.TryPlanarize(new List<QuadRemesher.PolyGraph> { moved, Grid(true) }, 6, crossed, ref dropped);
+            Assert.True(r2.GetVertex(0).x > 50, "the result of the first graph was not kept: x " + r2.GetVertex(0).x);
+        }
+
+        [Fact]
         public void AGraphWithoutCrossings_ChangesNothing()
         {
             int d0;
