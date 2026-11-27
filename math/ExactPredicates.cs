@@ -449,6 +449,90 @@ namespace g3
             return (wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx)).Sign;
         }
 
+        // ---- predicates of a line given by a point and an exact direction (ExactRayTriangle: a ray's line is
+        // o + t d with the supplied d, not through a rounded second point, #1672) ----
+
+        /// <summary>
+        /// The sign of (d x (a - o)) . (b - o) = det[d, a - o, b - o], exactly: Orient3d(o, o + d, a, b) for the exact
+        /// point o + d (which need not be a double). The filter is Orient3dFilter with u = d: its error bound holds for
+        /// u, v, w each rounded once, and d is exact (a rounding of zero); the exact stages are those of Orient3d with
+        /// the first difference replaced by d itself (d - 0, exact): 64-bit integers where the differences admit it
+        /// (the bounds of orient3d_int: the same nine integer inputs below 2^62), else BigInteger.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dDirection(Vector3d o, Vector3d d, Vector3d a, Vector3d b)
+        {
+            PredicateStats.Call(PredicateStats.Kind.Orient3d);
+            int s = Orient3dFilter(d.x, d.y, d.z, a.x - o.x, a.y - o.y, a.z - o.z, b.x - o.x, b.y - o.y, b.z - o.z);
+            if (s != 0) return s;
+            PredicateStats.ExactStage(PredicateStats.Kind.Orient3d);
+            return Orient3dDirectionExact(o, d, a, b);
+        }
+
+        /// <summary> the exact stage of Orient3dDirection (no filter) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Orient3dDirectionExact(Vector3d o, Vector3d d, Vector3d a, Vector3d b)
+        {
+            int sign;
+            if (orient3d_direction_int(o, d, a, b, out sign))
+                return sign;
+            return orient3d_direction_bigint(o, d, a, b);
+        }
+
+        /// <summary> the sign of det[d, a - o, b - o] by 64-bit integer arithmetic (as orient3d_int, u = d - 0);
+        /// false if the differences are not admitted </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static bool orient3d_direction_int(Vector3d o, Vector3d d, Vector3d a, Vector3d b, out int sign)
+        {
+            sign = 0;
+            int e = Math.Min(Math.Min(Math.Min(low_exp(o.x), low_exp(o.y)), Math.Min(low_exp(o.z), low_exp(d.x))),
+                Math.Min(Math.Min(low_exp(d.y), low_exp(d.z)), Math.Min(low_exp(a.x), low_exp(a.y))));
+            e = Math.Min(e, Math.Min(Math.Min(low_exp(a.z), low_exp(b.x)), Math.Min(low_exp(b.y), low_exp(b.z))));
+            // 2^-e must be a normal double (e = int.MaxValue: all coordinates zero, then BigInteger gives 0)
+            if (e < -1022 || e > 1022)
+                return false;
+            double scale = BitConverter.Int64BitsToDouble((long)(1023 - e) << 52);
+            long ux, uy, uz, vx, vy, vz, wx, wy, wz;
+            if (diff(d.x, 0, scale, out ux) == false || diff(d.y, 0, scale, out uy) == false || diff(d.z, 0, scale, out uz) == false
+                || diff(a.x, o.x, scale, out vx) == false || diff(a.y, o.y, scale, out vy) == false || diff(a.z, o.z, scale, out vz) == false
+                || diff(b.x, o.x, scale, out wx) == false || diff(b.y, o.y, scale, out wy) == false || diff(b.z, o.z, scale, out wz) == false)
+                return false;
+            ulong m1h, m1l, m2h, m2l, m3h, m3l;
+            minor(uy, vz, uz, vy, out m1h, out m1l);
+            minor(uz, vx, ux, vz, out m2h, out m2l);
+            minor(ux, vy, uy, vx, out m3h, out m3l);
+            ulong s0, s1, s2, t0, t1, t2;
+            term(m1h, m1l, wx, out s2, out s1, out s0);
+            term(m2h, m2l, wy, out t2, out t1, out t0);
+            add192(ref s2, ref s1, ref s0, t2, t1, t0);
+            term(m3h, m3l, wz, out t2, out t1, out t0);
+            add192(ref s2, ref s1, ref s0, t2, t1, t0);
+            sign = ((long)s2 < 0) ? -1 : ((s2 | s1 | s0) == 0) ? 0 : 1;
+            return true;
+        }
+
+        [MethodImpl(JitHints.Optimize)]
+        internal static int orient3d_direction_bigint(Vector3d o, Vector3d d, Vector3d a, Vector3d b)
+        {
+            BigInteger[] p = to_integers(o.x, o.y, o.z, d.x, d.y, d.z, a.x, a.y, a.z, b.x, b.y, b.z);
+            BigInteger ux = p[3], uy = p[4], uz = p[5];
+            BigInteger vx = p[6] - p[0], vy = p[7] - p[1], vz = p[8] - p[2];
+            BigInteger wx = p[9] - p[0], wy = p[10] - p[1], wz = p[11] - p[2];
+            return (wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx)).Sign;
+        }
+
+        /// <summary>
+        /// The sign of (a1 - b1) d2 - (a2 - b2) d1, exactly: the 2D cross product of the difference a - b with the
+        /// direction d (ExactRayTriangle's perturbation of a ray's origin). Rare (an origin on the line of a triangle
+        /// edge), so BigInteger only.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int Cross2Direction(double a1, double a2, double b1, double b2, double d1, double d2)
+        {
+            BigInteger[] v = to_integers(a1, a2, b1, b2, d1, d2);
+            return ((v[0] - v[2]) * v[5] - (v[1] - v[3]) * v[4]).Sign;
+        }
+
         /// <summary>
         /// The sign of a signed volume, exactly: six times it is the sum over the triangles t of det(p_a - o, p_b - o,
         /// p_c - o), where the triangles are the triples corners[3 t .. 3 t + 2] of indices of the points xyz[3 i .. 3 i + 2]

@@ -941,8 +941,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FixedCorner_BothTiersRun_TheProposalsAreThoseOfTheRoundsAndTheBudget()
         {
-            // s3_17 with its fixed corner 108 hard-fixed: no pair with it, the free pairs of rounds 0 and 2 find no move (round 2 has two
-            // bad triangles at the star of its pair: both tiers run). The count is the budget of the stage (1 024 per triangle) and of the
+            // s3_17 with its fixed corner 108 hard-fixed: no pair with it; the free pairs make one move (JointMoves 1) and none for the
+            // triangle that is left, in rounds 0 and 2 (round 2 has two bad triangles at the star of its pair: both tiers run). The count is the budget of the stage (1 024 per triangle) and of the
             // extension (4 096 per triangle) together with the evaluations of the first round 0: pinned as measured (6 144)
             DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 2, 0.02, 5.758742836765129E-07, 0.3, 100.0, false);
             var m = new DMesh3(left);
@@ -994,6 +994,313 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(serial.Rounding.JointMovesWithFixedCorner, parallel.Rounding.JointMovesWithFixedCorner);
                 Assert.Equal(serial.Rounding.MaxDrift, parallel.Rounding.MaxDrift);
             }
+        }
+
+        // ---- the follow-up of the extension (#1465): hand mutants of its review, the cap of the work that makes no move, the hard-fixed corners ----
+
+        public static IEnumerable<object[]> ExtensionCounts()
+        {
+            // (surface, n, dn, t, e, ratio, shift, diff, moves, with a fixed corner, degenerate left, proposals to improves, cheap probes of the stage)
+            // the three states the extension leaves as they were: every round runs to its end (M8: the first tier for a pair with one bad triangle)
+            yield return new object[] { "wave", 2, 2, 0.2, 1.8692150461303523E-09, 0.3, 0.0, true, 0, 0, 1, 5216L, 30748L };
+            yield return new object[] { "wave", 2, 2, 0.2, 2.8027567423689835E-09, 0.3, 100.0, true, 0, 0, 1, 6272L, 32100L };
+            yield return new object[] { "wave", 2, 2, 0.02, 8.780489247846238E-09, 0.3, 10000.0, true, 0, 0, 1, 5168L, 30689L };
+            // the states with moves of fixed corners: which move is the first one found depends on the order of the pair (M17: the free corner first)
+            yield return new object[] { "wave", 2, 2, 0.02, 2.1750569290141938E-09, 0.3, 10000.0, false, 4, 2, 0, 4301L, 23015L };
+            yield return new object[] { "wave", 2, 2, 0.002, 1.6650573737392E-09, 0.3, 10000.0, true, 4, 2, 0, 13699L, 56661L };
+            yield return new object[] { "wave", 2, 2, 0.02, 1.4895744956295086E-09, -1.1, 0.0, false, 1, 1, 0, 2L, 14199L };
+            yield return new object[] { "wave", 3, 3, 0.002, 1.1612562144082896E-09, -1.1, 0.0, false, 1, 1, 0, 3L, 3384L };
+            yield return new object[] { "wave", 2, 2, 0.02, 5.758742836765129E-07, 0.3, 100.0, false, 1, 1, 0, 1945L, 14275L };
+            yield return new object[] { "wave", 2, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true, 2, 2, 0, 3080L, 33112L };
+            yield return new object[] { "dome", 3, 3, 0.02, 1.4941511698034265E-08, 0.3, 100.0, false, 3, 1, 0, 2223L, 15928L };
+        }
+
+        [Theory]
+        [MemberData(nameof(ExtensionCounts))]
+        public void Extension_ProposalsAndProbes_ArePinned(string name, int n, int dn, double t, double e, double ratio, double shift, bool diff, int moves, int withFixed, int left, long proposals, long probes)
+        {
+            ExactMeshBoolean op = RunPlatesStrict(name, n, dn, t, e, ratio, shift, diff, 0);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.Equal(moves, r.JointMoves);
+            Assert.Equal(withFixed, r.JointMovesWithFixedCorner);
+            Assert.Equal(left, r.RemainingDegenerate);
+            Assert.False(r.EvaluationLimitReached);
+            Assert.Equal(proposals, r.JointSearchProposals);
+            Assert.Equal(probes, r.JointProbes);
+            if (left == 0)
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(op.Result, false));
+        }
+
+        [Fact]
+        public void FailedPairsOfTheFreeRounds_AreForgottenWhereAMoveChangedTheirStars()
+        {
+            // search case 598 of seed 14 (tiny): three moves of the free pairs. A pair that failed and has a vertex at the star of a move is
+            // searched again (M15a: only the set of the first tier of round 0, which round 0 does not use, was cleared: the last triangle
+            // then stayed degenerate, 2 moves and 9 627 proposals)
+            ExactMeshBoolean op = RunPlatesStrict("wave", 2, 2, 0.002, 1.2129819912757208E-09, 0.3, 100.0, false, 0);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, op.Status);
+            MeshRoundingRepair r = op.Rounding;
+            Assert.True(r.IsClean);
+            Assert.Equal(3, r.JointMoves);
+            Assert.Equal(5529, r.JointSearchProposals);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(op.Result, false));
+            Assert.True(r.MaxDrift <= r.MaxLength);
+            // (the stage of before makes the same three moves: the extension is not reached)
+            ExactMeshBoolean old = RunPlatesStrict("wave", 2, 2, 0.002, 1.2129819912757208E-09, 0.3, 100.0, false, SkipExtension);
+            Assert.Equal(3, old.Rounding.JointMoves);
+            Assert.Equal("", Invariance.Difference(old.Result, op.Result));
+        }
+
+        [Fact]
+        public void ExtensionBudget_IsSetOnce_ASecondMoveOfTheExtensionHasNoNewBudget()
+        {
+            // s3_18: two moves of fixed corners, both in the extension. With 1 evaluation per triangle (3 in all) the budget is spent by the first
+            // move and the stage ends there. (M16, a budget set again at each return to the extension, is killed by the exact counts of the
+            // states that the extension leaves as they were: ExtensionCounts)
+            DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true);
+            DMesh3 m = new DMesh3(left);
+            MeshRoundingRepair r = Repair(m, isFixed, hard: false, extension: true);
+            r.JointExtensionEvaluationsPerDefect = 1;
+            r.Apply();
+            Assert.Equal(1, r.JointMoves);
+            Assert.Equal(2, r.RemainingDegenerate);
+            Assert.Equal(3747, r.JointSearchProposals);
+            Assert.False(r.EvaluationLimitReached);
+            DMesh3 full = new DMesh3(left);
+            MeshRoundingRepair f = Repair(full, isFixed, hard: false, extension: true);
+            f.Apply();
+            Assert.Equal(2, f.JointMoves);
+            Assert.Equal(0, f.RemainingDegenerate);
+            Assert.Equal(3752, f.JointSearchProposals);
+        }
+
+        // ---- the cap of the work of the extension that makes no move ----
+
+        // (the divisors that make the cap of the constants 1: the search that makes no move ends the stage after its first)
+        const long ProposalsToOne = 32 * 4096, ProbesToOne = 1 << 20;
+
+        static ExactMeshBoolean RunClusterCapped(long proposals, long probes, Similarity s = null, bool serial = false)
+        {
+            DMesh3 m = DegenerateFamilies.Make(DegenerateFamilies.Family.Cluster, 36, 1, 8);
+            if (s != null)
+                m = Invariance.Transformed(m, s);
+            var op = new ExactMeshBoolean(m, new DMesh3(), ExactMeshBoolean.Operations.Union) { RoundingMaxPairTests = 5000000 };
+            MeshRoundingRepair.WastedProposalsDivisorOnThisThread = proposals;
+            MeshRoundingRepair.WastedProbesDivisorOnThisThread = probes;
+            gParallel.SerialOnThisThread = serial;
+            try {
+                op.Compute();
+            } finally {
+                MeshRoundingRepair.WastedProposalsDivisorOnThisThread = MeshRoundingRepair.WastedProbesDivisorOnThisThread = 0;
+                gParallel.SerialOnThisThread = false;
+            }
+            return op;
+        }
+
+        [Fact]
+        public void Cap_Constants_AreThoseOfTheDesign()
+        {
+            Assert.Equal(32 * 4096, MeshRoundingRepair.JointExtensionWastedProposals);
+            Assert.Equal(1 << 20, MeshRoundingRepair.JointExtensionWastedProbes);
+        }
+
+        [Fact]
+        public void Cap_ProposalsOfSearchesWithoutAMove_EndTheStage()
+        {
+            // cluster k36: 13 degenerate triangles no round repairs. With the caps of the constants (not reached) the stage searches all of them
+            // (33 408 proposals, 49 764 probes); with the cap divided to 1 it ends after the first search of the extension that made no move
+            MeshRoundingRepair none = RunClusterCapped(1, 1).Rounding, capped = RunClusterCapped(ProposalsToOne, 0).Rounding;
+            Assert.Equal(13, none.RemainingDegenerate);
+            Assert.Equal(33408, none.JointSearchProposals);
+            Assert.Equal(49764, none.JointProbes);
+            Assert.Equal(13, capped.RemainingDegenerate);
+            Assert.Equal(0, capped.JointMoves);
+            Assert.Equal(29900, capped.JointSearchProposals);
+            Assert.Equal(46125, capped.JointProbes);
+            Assert.False(capped.EvaluationLimitReached);
+        }
+
+        [Fact]
+        public void Cap_ProbesOfSearchesWithoutAMove_EndTheStage()
+        {
+            MeshRoundingRepair capped = RunClusterCapped(0, ProbesToOne).Rounding;
+            Assert.Equal(13, capped.RemainingDegenerate);
+            Assert.Equal(29900, capped.JointSearchProposals);
+            Assert.Equal(46125, capped.JointProbes);
+        }
+
+        // (one run for all frames: the reference of the frames is made once)
+        static readonly Lazy<ExactMeshBoolean> CappedReference = new Lazy<ExactMeshBoolean>(() => RunClusterCapped(ProposalsToOne, 0));
+
+        public static IEnumerable<object[]> CapFrames() { return Similarity.Names(); }
+
+        [Theory]
+        [MemberData(nameof(CapFrames))]
+        public void Cap_IsInvariantUnderSimilarities(string frame)
+        {
+            Similarity s = Similarity.ByName(frame);
+            ExactMeshBoolean reference = CappedReference.Value, op = RunClusterCapped(ProposalsToOne, 0, s);
+            if (s.IsExact) {
+                Assert.Equal(reference.Rounding.RemainingDegenerate, op.Rounding.RemainingDegenerate);
+                Assert.Equal(reference.Rounding.JointSearchProposals, op.Rounding.JointSearchProposals);
+                Assert.Equal(reference.Rounding.JointProbes, op.Rounding.JointProbes);
+                Assert.Equal("", Invariance.Difference(reference.Result, Invariance.MappedBack(op.Result, s)));
+            } else {
+                // (another frame rounds the input differently: a different state; the cap still ends the stage within its bound)
+                Assert.False(op.Rounding.EvaluationLimitReached, s.Name);
+            }
+        }
+
+        [Fact]
+        public void Cap_SerialEqualsParallel_Repeated()
+        {
+            ExactMeshBoolean serial = RunClusterCapped(ProposalsToOne, 0, serial: true);
+            for (int i = 0; i < 2; ++i) {
+                ExactMeshBoolean parallel = i == 0 ? CappedReference.Value : RunClusterCapped(ProposalsToOne, 0);
+                Assert.Equal(serial.Rounding.JointSearchProposals, parallel.Rounding.JointSearchProposals);
+                Assert.Equal(serial.Rounding.JointProbes, parallel.Rounding.JointProbes);
+                Assert.Equal("", Invariance.Difference(serial.Result, parallel.Result));
+            }
+        }
+
+        [Fact]
+        public void HardFixedCorner_WithFixedWhereCoarseFalse_IsInNoPair()
+        {
+            // a coarse component (UlpFactor 1e9) with FixedWhereCoarse false: is_fixed is false for every corner, so a hard-fixed one used to be in
+            // the free list, and the pairs with it were probed and refused by try_move_pair. The same proposals as with FixedWhereCoarse true
+            // (where is_fixed holds, and a hard-fixed corner is in neither list)
+            long[] counts = new long[2];
+            for (int i = 0; i < 2; ++i) {
+                DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true);
+                var r = new MeshRoundingRepair(new DMesh3(left)) {
+                    SharedPositionsTouch = true, FixedVertexF = isFixed, FixedWhereCoarse = i == 1, ExactVertexF = isFixed, UlpFactor = 1e9, FixedHard = true
+                };
+                r.Apply();
+                Assert.Equal(3, r.RemainingDegenerate);
+                Assert.Equal(0, r.JointMoves);
+                counts[i] = r.JointSearchProposals;
+            }
+            Assert.Equal(counts[1], counts[0]);
+            Assert.Equal(9507, counts[0]);
+        }
+
+        [Fact]
+        public void ForgetFailedPairs_ClearsEveryRoundAndTier_OnlyForTheVerticesOfTheStars()
+        {
+            // one set per round and tier (six): a move at u, w makes the pairs that have a vertex of their stars searched again, in every one of the
+            // sets, not only those of round 0 (M15b: the sets of the rounds of the extension kept their stale pairs, which no search of the samples
+            // shows: it needs a second move that a pair of the first state would have made)
+            DMesh3 m = Sphere();
+            var r = new MeshRoundingRepair(m);
+            Edge(m, out int u, out int w);
+            var star = new HashSet<int> { u, w };
+            foreach (int v in new[] { u, w })
+                foreach (int t in m.VtxTrianglesItr(v)) {
+                    Index3i tv = m.GetTriangle(t);
+                    star.Add(tv.a); star.Add(tv.b); star.Add(tv.c);
+                }
+            int[] outside = m.VertexIndices().Where(v => star.Contains(v) == false).Take(2).ToArray();
+            int inStar = star.First(v => v != u && v != w);
+            Assert.Equal(2, outside.Length);
+            Assert.Equal(6, r.pairFailed.Length);
+            foreach (HashSet<long> failed in r.pairFailed) {
+                failed.Add(MeshRoundingRepair.LockedKey(u, outside[0]));
+                failed.Add(MeshRoundingRepair.LockedKey(outside[1], inStar));
+                failed.Add(MeshRoundingRepair.LockedKey(outside[0], outside[1]));
+            }
+            r.forget_failed_pairs(u, w);
+            foreach (HashSet<long> failed in r.pairFailed) {
+                Assert.Equal(new[] { MeshRoundingRepair.LockedKey(outside[0], outside[1]) }, failed.ToArray());
+            }
+        }
+
+        [Fact]
+        public void Cap_SearchesThatMakeAMove_DoNotCount()
+        {
+            // s3_18 with a cap of 1 proposal: both moves of the extension (3 752 proposals) are made, a search that makes a move is not waste
+            DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true);
+            MeshRoundingRepair r = Repair(new DMesh3(left), isFixed, hard: false, extension: true);
+            MeshRoundingRepair.WastedProposalsDivisorOnThisThread = ProposalsToOne;
+            try {
+                r.Apply();
+            } finally {
+                MeshRoundingRepair.WastedProposalsDivisorOnThisThread = 0;
+            }
+            Assert.Equal(2, r.JointMoves);
+            Assert.Equal(0, r.RemainingDegenerate);
+            Assert.Equal(3752, r.JointSearchProposals);
+        }
+
+        [Fact]
+        public void Cap_ReusedInstance_TheWasteOfTheLastApplyIsNotCarried()
+        {
+            // a state the stage leaves as it was (one triangle, every round to its end): with the cap of 1 the extension ends after its first
+            // search, 4 768 proposals; the second Apply on the same instance has the same counts (a waste that stayed from the first would end
+            // the extension before its first search of the second)
+            DMesh3 left = StateWithoutTheStage(out Func<int, bool> isFixed, 2, 0.2, 1.8692150461303523E-09, 0.3, 0.0, true);
+            MeshRoundingRepair r = Repair(new DMesh3(left), isFixed, hard: false, extension: true);
+            MeshRoundingRepair.WastedProposalsDivisorOnThisThread = ProposalsToOne;
+            try {
+                r.Apply();
+                Assert.Equal(1, r.RemainingDegenerate);
+                Assert.Equal(4768, r.JointSearchProposals);
+                Assert.Equal(15307, r.JointProbes);
+                r.Apply();
+                Assert.Equal(1, r.RemainingDegenerate);
+                Assert.Equal(4768, r.JointSearchProposals);
+                Assert.Equal(15307, r.JointProbes);
+            } finally {
+                MeshRoundingRepair.WastedProposalsDivisorOnThisThread = 0;
+            }
+        }
+
+        // the s3_18 state (two moves of the extension) and a state the stage leaves (one triangle no round repairs) in one mesh
+        static MeshRoundingRepair PlateAndStuckTriangle(out DMesh3 mesh)
+        {
+            DMesh3 plate = StateWithoutTheStage(out Func<int, bool> fixedOfPlate, 2, 0.002, 2.4351079875960173E-09, 0.3, 10000.0, true);
+            DMesh3 stuck = StateWithoutTheStage(out Func<int, bool> fixedOfStuck, 2, 0.2, 1.8692150461303523E-09, 0.3, 0.0, true);
+            mesh = new DMesh3(plate);
+            var fromStuck = new Dictionary<int, int>();
+            var map = new int[stuck.MaxVertexID];
+            foreach (int v in stuck.VertexIndices()) {
+                map[v] = mesh.AppendVertex(stuck.GetVertex(v));
+                fromStuck[map[v]] = v;
+            }
+            foreach (int t in stuck.TriangleIndices()) {
+                Index3i tv = stuck.GetTriangle(t);
+                mesh.AppendTriangle(map[tv.a], map[tv.b], map[tv.c]);
+            }
+            MeshRoundingRepair r = Repair(mesh, v => fromStuck.TryGetValue(v, out int o) ? fixedOfStuck(o) : fixedOfPlate(v), hard: false, extension: true);
+            // (a budget of the first rounds that ends round 0 before the stuck triangle has been searched: the round 0 that follows the first
+            // move of the extension has the extension's budget and searches it)
+            r.JointStageEvaluationsPerDefect = 150;
+            return r;
+        }
+
+        [Fact]
+        public void Cap_RoundZeroAfterAnExtensionMove_CountsItsSearchesWithoutAMove()
+        {
+            // the plate state of s3_18 (two moves of the extension) and a triangle that no round repairs, in one mesh. The first round 0 ends by its
+            // budget before the stuck triangle (150 evaluations per triangle); after the first move of the extension the round 0 has the
+            // extension's budget and searches it: 1 872 proposals without a move, which count (mutant: only the rounds after the first counted:
+            // the stuck triangle then goes through rounds 1 and 2 as well, 11 063 proposals). The cap here is 131 072 / 32 = 4 096
+            MeshRoundingRepair none = PlateAndStuckTriangle(out DMesh3 m0);
+            none.Apply();
+            Assert.Equal(2, none.JointMoves);
+            Assert.Equal(1, none.RemainingDegenerate);
+            Assert.Equal(11063, none.JointSearchProposals);
+            MeshRoundingRepair r = PlateAndStuckTriangle(out DMesh3 m);
+            MeshRoundingRepair.WastedProposalsDivisorOnThisThread = 32;
+            try {
+                r.Apply();
+            } finally {
+                MeshRoundingRepair.WastedProposalsDivisorOnThisThread = 0;
+            }
+            Assert.Equal(2, r.JointMoves);
+            Assert.Equal(1, r.RemainingDegenerate);
+            Assert.Equal(6224, r.JointSearchProposals);
+            Assert.Equal(43279, r.JointProbes);
+            Assert.False(r.EvaluationLimitReached);
         }
     }
 }

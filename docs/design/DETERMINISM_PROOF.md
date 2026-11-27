@@ -371,7 +371,9 @@ Conclusions:
    bits there, so in the normal range it rounds as SSE2 does. Intermediate overflow and gradual underflow behave differently.
    - Inside the kernel this reaches only values whose role is approximate: a filter's decision to defer, and the ray's second point.
    - Results that take such a value as their *input* can differ for subnormal or near-overflow coordinates on net48 x86. These are the
-     winding ray of the Boolean, and the public ray queries that define their ray by `SecondPoint` (`DMeshAABBTree3`, `IntrRay3Triangle3`).
+     winding ray of the Boolean. The public ray queries (`DMeshAABBTree3`, `IntrRay3Triangle3`, `IntersectionUtil.Intersects`) defined
+     their ray by `SecondPoint` until #1672; they now decide on `ExactRayTriangle.LineDirection`, which returns only exact multiples of
+     the direction (the same value on every runtime), so their verdicts no longer depend on it.
    - The stage 1 and 2 obligations of these consumers have to show that the result does not depend on the ray chosen, or state the input
      range. Owner decision C4 keeps 32-bit outside the claim for float code; whether it also stays outside for subnormal and
      near-overflow coordinates is an owner decision.
@@ -421,7 +423,7 @@ rest of this table is what the registrations argue):
 
 **The scheduler of `gParallel.ForRange`** (#1502, 2026-11-25): the pinned `ForRange` runs its items caller first (`caller_first_range` and the members of `CallerFirstLoop` / `CallerFirstRange` and the test hook `ChunkForTestsOnThisThread`, 25 pinned entries) instead of `Parallel.For`, which waited for queued worker tasks that had not started (a busy pool, a caller outside the pool). The contract that the site lines rely on is unchanged: every index runs exactly once (disjoint chunks taken by compare-and-swap of one counter, `Take`), on any thread in any order, and the call returns after every item (the caller waits for each participant that joined, `Close`); a failure throws as before. So every `site gParallel.ForRange` line keeps its form and its tests; `GParallelCallerFirstTests` checks the contract (every index once, exceptions, late helpers, nested loops, serial = parallel).
 
-**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 465 external members (220 of them geometry3Sharp members declared outside the scope: 120 pinned, 96 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (254 sites, 151 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
+**Ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`; stages 0 and 1): 465 external members (220 of them geometry3Sharp members declared outside the scope: 120 pinned, 96 assumed as obligations of stage 2; 12 only on the `#if NET` side), 69 restricted to registered sites (255 sites, 151 of them with an argument form and its tests), 1 restricted to `GetHashCode` implementations; 41 conditional-compilation blocks in 33 members; 15 `double` to integer conversions in 13 member(s); 19 `[SkipLocalsInit]` members; 82 delegate calls in 24 members and 66 string concatenations in 10 members, registered; 0 file restricted to a named type.
 
 **Claim.** On every runtime that satisfies T1 to T5, `ExactTriangulation2`, `ExactPlanarSimplify`, `SnapRounding2` and `TriangleBoxTree`
 compute functions of their arguments (and, for the first two, of the values of the callbacks and of the stage 2 members listed
