@@ -101,16 +101,21 @@ namespace geometry3Sharp.Tests
         [InlineData(-600)]
         public void EmptyBallRadius_ExtremeScales_ScalesBitForBit(int exp)
         {
-            Vector3d a0 = Vector3d.Zero, b0 = new Vector3d(1, 0, 0), d0 = new Vector3d(0, 1, 0);
-            Vector3d fc0 = new Vector3d(0.5, 0.5, 0);
-            double refCross = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + new Vector3d(0, 0, -1), fc0 + new Vector3d(0, 0, 2));
-            double refSide = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + new Vector3d(0, 0, 1), fc0 + new Vector3d(0, 0, 2));
-
             Func<Vector3d, Vector3d> sc = p => new Vector3d(ExactPoint3.ScaleB(p.x, exp), ExactPoint3.ScaleB(p.y, exp), ExactPoint3.ScaleB(p.z, exp));
-            double phiCross = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + new Vector3d(0, 0, -1)), sc(fc0 + new Vector3d(0, 0, 2)));
-            double phiSide = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + new Vector3d(0, 0, 1)), sc(fc0 + new Vector3d(0, 0, 2)));
-            Assert.Equal(ExactPoint3.ScaleB(refCross, exp), phiCross);
-            Assert.Equal(ExactPoint3.ScaleB(refSide, exp), phiSide);
+            // Include non-power-of-two edges (4, 6) and non-dyadic normal offset (3) so SafeLength/SafeHypot bit-identity is exercised.
+            foreach (var (b0, d0, fc0, tNear, tFar) in new[] {
+                (new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0.5, 0.5, 0), 1.0, 2.0),
+                (new Vector3d(4, 0, 0), new Vector3d(0, 6, 0), new Vector3d(2.0, 3.0, 0), 3.0, 5.0),
+            }) {
+                Vector3d a0 = Vector3d.Zero;
+                double refCross = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + new Vector3d(0, 0, -tNear), fc0 + new Vector3d(0, 0, tFar));
+                double refSide = MeshAlphaWrap.EmptyBallRadius(a0, b0, d0, fc0 + new Vector3d(0, 0, tNear), fc0 + new Vector3d(0, 0, tFar));
+
+                double phiCross = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + new Vector3d(0, 0, -tNear)), sc(fc0 + new Vector3d(0, 0, tFar)));
+                double phiSide = MeshAlphaWrap.EmptyBallRadius(sc(a0), sc(b0), sc(d0), sc(fc0 + new Vector3d(0, 0, tNear)), sc(fc0 + new Vector3d(0, 0, tFar)));
+                Assert.Equal(ExactPoint3.ScaleB(refCross, exp), phiCross);
+                Assert.Equal(ExactPoint3.ScaleB(refSide, exp), phiSide);
+            }
         }
 
         [Fact]
@@ -124,6 +129,20 @@ namespace geometry3Sharp.Tests
             double phi = MeshAlphaWrap.EmptyBallRadius(a, b, d, from, to);
             Assert.True(!double.IsNaN(phi) && !double.IsInfinity(phi), $"phi={phi}");
             Assert.True(Math.Abs(phi - Math.Abs(yc)) <= 1e-12 * Math.Abs(yc), $"phi={phi} vs {Math.Abs(yc)}");
+
+            // Mixed-exponent right triangle inside [2^-100, 2^100] whose unscaled numerator flushes to 0.
+            double uMix = ExactPoint3.ScaleB(1.0, -55), vMix = ExactPoint3.ScaleB(1.0, -455);
+            double phiMix = MeshAlphaWrap.EmptyBallRadius(
+                Vector3d.Zero, new Vector3d(uMix, 0, 0), new Vector3d(0, vMix, 0),
+                new Vector3d(0.5 * uMix, 0.5 * vMix, -1), new Vector3d(0.5 * uMix, 0.5 * vMix, 1));
+            Assert.True(Math.Abs(phiMix - 0.5 * uMix) <= 1e-12 * (0.5 * uMix), $"phiMix={phiMix} vs {0.5 * uMix}");
+
+            // Extreme edge-length ratio (2^100 vs 2^-974): independent-exponent rescaling avoids flushing xUnit.
+            double uWide = ExactPoint3.ScaleB(1.0, 100), vWide = ExactPoint3.ScaleB(1.0, -974);
+            double phiWide = MeshAlphaWrap.EmptyBallRadius(
+                Vector3d.Zero, new Vector3d(uWide, 0, 0), new Vector3d(0, vWide, 0),
+                new Vector3d(0.5 * uWide, 0.5 * vWide, -1), new Vector3d(0.5 * uWide, 0.5 * vWide, 1));
+            Assert.True(Math.Abs(phiWide - 0.5 * uWide) <= 1e-12 * (0.5 * uWide), $"phiWide={phiWide} vs {0.5 * uWide}");
         }
 
         [Fact]
@@ -156,6 +175,16 @@ namespace geometry3Sharp.Tests
             double phi = MeshAlphaWrap.EmptyBallRadius(a, b, d, new Vector3d(0, 0, -0.5 * s), new Vector3d(0, 0, 0.5 * s));
             Assert.True(!double.IsNaN(phi) && !double.IsInfinity(phi), $"phi={phi}");
             Assert.True(Math.Abs(phi - s) <= 1e-12 * s, $"phi={phi} vs {s}");
+
+            // Overflowing fc = a + x with a zero normal component must not produce Inf * 0 = NaN in SafePlaneSignedOffset.
+            Vector3d oa = new Vector3d(1.5e308, 0, 0);
+            Vector3d ob = new Vector3d(1.500075e308, 0.015e308, 0);
+            Vector3d od = new Vector3d(1.500075e308, -0.015e308, 0);
+            double phiFc = MeshAlphaWrap.EmptyBallRadius(oa, ob, od,
+                new Vector3d(-1.5e308, 0, 0.8e308), new Vector3d(-1.5e308, 0, 1.0e308));
+            double expectedR = 1.5000375e308;
+            double expectedFc = Math.Sqrt((expectedR / 1e308) * (expectedR / 1e308) + 0.8 * 0.8) * 1e308;
+            Assert.True(Math.Abs(phiFc - expectedFc) <= 1e-9 * expectedFc, $"phiFc={phiFc} vs {expectedFc}");
         }
 
         // the quality points count against the point limit (PointLimitReached, with its guarantees); cancelled in the

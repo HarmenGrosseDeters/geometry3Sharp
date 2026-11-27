@@ -1301,6 +1301,7 @@ namespace gs
         const double MinNormal = 2.2250738585072014e-308; // 2^-1022
         const double FastFacetMin = 7.888609052210118e-31; // 2^-100: s^5 >= 2^-500 >> MinNormal
         const double FastFacetMax = 1.2676506002282294e30; // 2^100:  s^5 <= 2^500 << MaxValue
+        const double FastW2Min = 1.1833923015014174e-271;  // 2^-900: FastFacetMin * FastW2Min = 2^-1000 >> MinNormal
 
         static int Pow2Exp(double v)
         {
@@ -1329,8 +1330,9 @@ namespace gs
                 return 0;
             if (double.IsInfinity(m))
                 return double.PositiveInfinity;
-            double sx = d.x / m, sy = d.y / m, sz = d.z / m;
-            return m * Math.Sqrt(sx * sx + sy * sy + sz * sz);
+            int e = Pow2Exp(m);
+            Vector3d ds = ScaleVec(d, -e);
+            return ExactPoint3.ScaleB(Math.Sqrt(ds.LengthSquared), e);
         }
 
         static double SafeHypot(double a, double b)
@@ -1345,12 +1347,13 @@ namespace gs
                 return 0;
             if (double.IsInfinity(m))
                 return double.PositiveInfinity;
-            double sa = a / m, sb = b / m;
-            return m * Math.Sqrt(sa * sa + sb * sb);
+            int e = Pow2Exp(m);
+            double sa = ExactPoint3.ScaleB(a, -e), sb = ExactPoint3.ScaleB(b, -e);
+            return ExactPoint3.ScaleB(Math.Sqrt(sa * sa + sb * sb), e);
         }
 
         // Circumcenter offset x = fc - a and outward unit normal nrm of facet (a, b, d).
-        // Ordinary scales execute the exact unscaled formula bit-for-bit; extreme scales and slivers rescale by exact powers of two.
+        // Ordinary scales execute the exact unscaled formula bit-for-bit; extreme scales, mixed exponents, and slivers rescale by exact powers of two.
         static bool FacetCircumcenter(Vector3d a, Vector3d b, Vector3d d, out Vector3d x, out Vector3d nrm)
         {
             Vector3d u = b - a, v = d - a;
@@ -1358,7 +1361,7 @@ namespace gs
             if (s >= FastFacetMin && s <= FastFacetMax) {
                 Vector3d w = u.Cross(v);
                 double w2 = w.LengthSquared;
-                if (w2 >= 4 * MinNormal && !double.IsInfinity(w2)) {
+                if (w2 >= FastW2Min && !double.IsInfinity(w2)) {
                     Vector3d xf = (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
                     if (xf.IsFinite) {
                         x = xf;
@@ -1377,13 +1380,13 @@ namespace gs
                 v = 0.5 * d - 0.5 * a;
                 preShift = 1;
             }
-            s = Math.Max(u.MaxAbs, v.MaxAbs);
-            if (!(s > 0)) {
+            double su = u.MaxAbs, sv = v.MaxAbs;
+            if (!(su > 0) || !(sv > 0)) {
                 x = new Vector3d(double.NaN); nrm = new Vector3d(double.NaN);
                 return false;
             }
-            int exp = Pow2Exp(s);
-            Vector3d us = ScaleVec(u, -exp), vs = ScaleVec(v, -exp);
+            int eu = Pow2Exp(su), ev = Pow2Exp(sv);
+            Vector3d us = ScaleVec(u, -eu), vs = ScaleVec(v, -ev);
             Vector3d ws = us.Cross(vs);
             double wm = ws.MaxAbs;
             if (!(wm > 0)) {
@@ -1393,8 +1396,17 @@ namespace gs
             int wExp = Pow2Exp(wm);
             Vector3d wn = ScaleVec(ws, -wExp);
             double wn2 = wn.LengthSquared;
-            Vector3d xUnit = (us.LengthSquared * vs.Cross(wn) + vs.LengthSquared * wn.Cross(us)) / (2 * wn2);
-            x = ScaleVec(xUnit, exp + preShift - wExp);
+            double denom = 2 * wn2;
+            Vector3d t1 = (us.LengthSquared * vs.Cross(wn)) / denom;
+            Vector3d t2 = (vs.LengthSquared * wn.Cross(us)) / denom;
+            int shift1 = eu + preShift - wExp, shift2 = ev + preShift - wExp;
+            if (Math.Abs(eu - ev) > 60) {
+                x = ScaleVec(t1, shift1) + ScaleVec(t2, shift2);
+            } else if (eu >= ev) {
+                x = ScaleVec(t1 + ScaleVec(t2, ev - eu), shift1);
+            } else {
+                x = ScaleVec(ScaleVec(t1, eu - ev) + t2, shift2);
+            }
             nrm = wn / Math.Sqrt(wn2);
             return true;
         }
@@ -1411,7 +1423,7 @@ namespace gs
             }
             if (!p.IsFinite || !a.IsFinite || !x.IsFinite)
                 return double.NaN;
-            return 2.0 * ((0.5 * p - 0.5 * a) - 0.5 * x).Dot(nrm);
+            return 4.0 * ((0.25 * p - 0.25 * a) - 0.25 * x).Dot(nrm);
         }
 
         /// <summary>
