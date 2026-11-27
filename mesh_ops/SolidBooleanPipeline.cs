@@ -664,8 +664,11 @@ namespace gs
             /// <summary> only a sheet the caller stated in InputRoles (the caller's word that the tool is a cutting surface) </summary>
             StatedSheets = 1,
             /// <summary>
-            /// also an open tool that the pipeline routed to the sheet role by itself (no entry in InputRoles). Such a tool may be a body with a missing
-            /// face, which shape cannot tell from a sheet: it would be continued into the pocket its caller probably meant
+            /// also an open tool that the pipeline routed to the sheet role by itself (no entry in InputRoles). Such a tool may be a closed body that lost a face near
+            /// the surface, which shape cannot tell from a sheet, and it is then continued and cut as an open surface, with Success, instead of being repaired by InputRepair
+            /// (eg a box tool [3,7]^2 x [2,9.95] without its lid in the cube [0,10]^3: AutoRepair without the option gives a closed cavity of volume 872.8; with this mode the
+            /// walls are continued to the surface and the cut is an open pocket of volume 872.0, a clean Solid, and nothing in Status or ResultKind says so). The only signals are
+            /// Report.SheetExtensions: Stated == false and AddedArea. Use StatedSheets where a tool may be such a body
             /// </summary>
             AlsoAutoRoutedTools = 2
         }
@@ -684,8 +687,10 @@ namespace gs
         /// the option (the fallback to solids runs); the helper's reason is in the route step "SheetExtension" and in Report.SheetExtensions. A result with an
         /// extended sheet is a cut along a surface that the caller did not give: Report.SheetExtensions says where, how deep and how much area the strip adds inside the
         /// workpiece, and NoInventedSurface counts the extended sheet as a reference surface (the strip is not invented surface of a repair). The outcome near the depth limit
-        /// can depend on the frame (the limit is a share of the sheet's bounding box diagonal, which a rotation changes): a rim at 4 to 5 % of the diagonal can be continued
-        /// in one orientation of the inputs and refused in another; scalings by powers of two give the same result bit for bit. Only Difference. Not a defined value: InvalidInput
+        /// can depend on the frame (the limit is a share of the sheet's bounding box diagonal, which a rotation changes by up to a factor of sqrt(3) for a curved sheet): a rim between
+        /// about 3 % and 9 % of the diagonal can be continued in one orientation of the inputs and refused in another; scalings by powers of two give the same result bit for bit.
+        /// A run with an extended sheet that fails (the boolean refuses it, RoundingNotClean: no grid retry on extended inputs) is dropped and the run goes on as without the option; a
+        /// result that the Verification then refuses stays that refusal (no fallback). Only Difference. Not a defined value: InvalidInput
         /// </summary>
         public SheetExtensionModes SheetExtension = SheetExtensionModes.Off;
         /// <summary>
@@ -858,6 +863,8 @@ namespace gs
         SortedDictionary<int, DMesh3> extended;
         List<SolidBooleanSheetExtension> sheetExt = new List<SolidBooleanSheetExtension>();
         long sheetExtMs;
+        // the sheets whose own rim is inside the workpiece, by input (the probe of ExtendSheet), for this Compute
+        Dictionary<int, bool> pendingProbe = new Dictionary<int, bool>();
         // the steps of the run so far (they outlive the report of a refused sheet route)
         List<SolidBooleanRouteStep> route;
         // the first step of the current run in route (the steps before it belong to an earlier run of this Compute)
@@ -930,11 +937,20 @@ namespace gs
         // the run with its steps (sheet route, Grid step, fallback); the result is checked by Compute (Verification)
         bool computeRoute(Stopwatch total)
         {
+            bool result = computeRoute0(total);
+            // (the helper ran in the run that is not the result too, eg before the fallback)
+            Report.SheetExtensionMilliseconds = sheetExtMs;
+            return result;
+        }
+
+        bool computeRoute0(Stopwatch total)
+        {
             route = new List<SolidBooleanRouteStep>();
             grid = InputGrid;
             extended = null;
             sheetExt = new List<SolidBooleanSheetExtension>();
             sheetExtMs = 0;
+            pendingProbe = new Dictionary<int, bool>();
             bool gridTried = false;
             bool done = compute(total, true);
             if (autoRefusal != ExactMeshBoolean.SheetRefusal.None) {
@@ -1035,6 +1051,15 @@ namespace gs
                     break;
                 extended = used;
                 bool done = compute(total, true);
+                string meets = null;
+                if (done && used.Count >= 2 && StripsMeetOthers(used, out meets)) {
+                    // (a strip is checked by the helper against the tools as they were then: another short sheet was left out, or not yet extended; the whole is checked here)
+                    var s = new SolidBooleanRouteStep { Name = "SheetExtension", Reason = "the extended sheets of the run are checked against each other and the other tools", Change = "refused: " + meets + "; the run goes on without the extension", SheetReason = ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece };
+                    route.Add(s);
+                    kept.Add(s);
+                    addStageTimes(failedRuns, Report);
+                    break;
+                }
                 if (done || Status == PipelineStatus.Cancelled) {
                     // (the retry is the result, also where it was cancelled: the time of the failed runs is time of this run)
                     addStageTimes(Report, failedRuns);
@@ -1065,6 +1090,53 @@ namespace gs
             return false;
         }
 
+        // The new triangles of each extended sheet against every other tool as the run had it (an extended sheet in full, with its strip, or the input), exact, as the helper's
+        // MeetsOtherTool does. The helper checked each strip against the tools it was given then; a short sheet that was left out of them, or extended later, is covered here
+        bool StripsMeetOthers(SortedDictionary<int, DMesh3> used, out string text)
+        {
+            var trees = new Dictionary<int, DMeshAABBTree3>();
+            foreach (KeyValuePair<int, DMesh3> kv in used) {
+                DMesh3 ext = kv.Value;
+                int firstNew = Inputs[kv.Key].MaxTriangleID;
+                for (int j = 1; j < Inputs.Count; ++j) {
+                    if (j == kv.Key || Inputs[j].TriangleCount == 0 || (ThinInputs == ThinInputModes.TreatAsEmpty && Report.ThinInputs.Exists(x => x.Index == j)))
+                        continue;
+                    DMesh3 other;
+                    if (!used.TryGetValue(j, out other))
+                        other = Inputs[j];
+                    DMeshAABBTree3 tree;
+                    if (!trees.TryGetValue(j, out tree))
+                        trees[j] = tree = new DMeshAABBTree3(other, true);
+                    foreach (int t in ext.TriangleIndices()) {
+                        if (t < firstNew)
+                            continue;
+                        var a = new Triangle3d();
+                        ext.GetTriVertices(t, ref a.V0, ref a.V1, ref a.V2);
+                        var box = new AxisAlignedBox3d(a.V0);
+                        box.Contain(a.V1); box.Contain(a.V2);
+                        bool hit = false;
+                        tree.DoTraversal(new DMeshAABBTree3.TreeTraversal {
+                            NextBoxDF = (bx, depth) => !hit && bx.Intersects(box),
+                            NextTriangleF = tid => {
+                                if (hit)
+                                    return;
+                                var b = new Triangle3d();
+                                other.GetTriVertices(tid, ref b.V0, ref b.V1, ref b.V2);
+                                if (ExactTriangleIntersection.Intersects(ref a, ref b))
+                                    hit = true;
+                            }
+                        });
+                        if (hit) {
+                            text = "the strip of input " + kv.Key + " meets input " + j + " (the other tools were not all there when the helper checked it)";
+                            return true;
+                        }
+                    }
+                }
+            }
+            text = null;
+            return false;
+        }
+
         // The helper for the sheet `input` against the first input, both as given; the tools of the Difference that the strip must not meet are the other inputs
         // (as the boolean gets them: an extended sheet of an earlier try instead of the input, an open tool without a stated role as a sheet; a tool that was left
         // out as thin is not one). On success the extended sheet is put into used. The entry is in sheetExt and the step "SheetExtension" is the last of the route
@@ -1088,11 +1160,16 @@ namespace gs
                 // extended in its turn (the sheet role names one refused sheet at a time), and by then this sheet's extension is one of its tools, so the strips are checked
                 // against each other; and the run with all extended sheets is the check of the whole
                 if (!extendedAlready && role == ExactMeshBoolean.InputRole.Sheet) {
-                    var probe = new MeshSheetExtension { Sheet = Inputs[i], Workpiece = Inputs[0] };
-                    var probeClock = Stopwatch.StartNew();
-                    bool diagnosed = probe.Diagnose();
-                    sheetExtMs += probeClock.ElapsedMilliseconds;
-                    if (diagnosed && probe.Report.ChosenEdges > 0)
+                    // (the probe is of the input as given: once per input in a Compute)
+                    bool pending;
+                    if (!pendingProbe.TryGetValue(i, out pending)) {
+                        var probe = new MeshSheetExtension { Sheet = Inputs[i], Workpiece = Inputs[0] };
+                        var probeClock = Stopwatch.StartNew();
+                        bool diagnosed = probe.Diagnose();
+                        sheetExtMs += probeClock.ElapsedMilliseconds;
+                        pendingProbe[i] = pending = diagnosed && probe.Report.ChosenEdges > 0;
+                    }
+                    if (pending)
                         continue;
                 }
                 tools.Add(extendedAlready ? tool : Inputs[i]);

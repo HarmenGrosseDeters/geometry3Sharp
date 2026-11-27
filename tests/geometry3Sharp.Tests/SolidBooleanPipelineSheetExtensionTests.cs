@@ -541,8 +541,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal("SheetRole,Grid,SheetExtension,SheetRole", Names(shallow));
         }
 
-        // The depth limit is a share of the sheet's bounding box diagonal, which a rotation changes (a rotated copy has a diagonal a quarter to a third smaller): a rim
-        // at 4.5 % of the diagonal in the frame of the axes is within the 5 %, and in a rotated frame it is a larger share of a smaller diagonal. Documented, pinned here
+        // The depth limit is a share of the sheet's bounding box diagonal, which a rotation changes: a rim at 5.5 % of the diagonal in the frame of the axes is above the 5 %,
+        // and the box of the rotated flat sheet is larger, so in a rotated frame the same depth is a smaller share and the sheet is continued (a tilted or curved sheet goes the
+        // other way). Documented, pinned here
         [Fact]
         public void NearTheDepthLimit_TheOutcomeCanDependOnTheFrame_ButNeverTheCutOfAnExtendedSheet()
         {
@@ -569,6 +570,73 @@ namespace geometry3Sharp.Tests
         }
 
         // ---- repeated runs ----
+
+        // a short sheet that another sheet's strip would cut through: a wall at x = 9.95 that is itself short at the top (z up to 9.95)
+        static DMesh3 ShortWall()
+        {
+            var wall = new DMesh3();
+            int a = wall.AppendVertex(new Vector3d(9.95, -2, -2)), b = wall.AppendVertex(new Vector3d(9.95, 12, -2)), c = wall.AppendVertex(new Vector3d(9.95, 12, 9.95)), d = wall.AppendVertex(new Vector3d(9.95, -2, 9.95));
+            wall.AppendTriangle(a, b, c);
+            wall.AppendTriangle(a, c, d);
+            return wall;
+        }
+
+        [Fact]
+        public void TheDecisionDoesNotDependOnTheOrderOfTheSheets_AStripThatMeetsAnotherShortSheetRefusesTheWholeExtension()
+        {
+            var one = Make(new[] { Cube(), Short(0.005), ShortWall() }, Modes.StatedSheets, true);
+            var two = Make(new[] { Cube(), ShortWall(), Short(0.005) }, Modes.StatedSheets, true);
+            Assert.False(one.Compute());
+            Assert.False(two.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, one.Status);
+            Assert.Equal(one.Status, two.Status);
+            Assert.Equal(Rim, one.SheetReason);
+            Assert.Equal(Rim, two.SheetReason);
+            Assert.All(one.Report.SheetExtensions.Concat(two.Report.SheetExtensions), e => Assert.False(e.InResult));
+            // order one: both are extended by the helper, and the final check refuses; order two: the helper refuses the second at once
+            Assert.Equal(2, one.Report.SheetExtensions.Count(e => e.Applied));
+            Assert.Contains("meets", one.Report.Route.Last().Change);
+            Assert.Equal(Status.MeetsOtherTool, two.Report.SheetExtensions.Last().Status);
+        }
+
+        [Fact]
+        public void ALidlessBoxTool_IsContinuedAndCutAsAnOpenPocket_InAutoRoutedMode_WhereTheRepairWouldGiveACavity()
+        {
+            // pinned behaviour of AlsoAutoRoutedTools (see the enum): a closed body that lost its top face just under the surface is continued to the surface
+            var tool = new DMesh3(SheetGeometry.Box(3, 3, 2, 7, 7, 9.95));
+            foreach (int t in tool.TriangleIndices().ToArray()) {
+                Vector3d c = tool.GetTriCentroid(t);
+                if (c.z > 9.9) tool.RemoveTriangle(t, true);
+            }
+            Assert.False(tool.IsClosed());
+            var repaired = Make(new[] { Cube(), tool }, Modes.Off, false, q => q.InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair);
+            Assert.True(repaired.Compute(), repaired.Error);
+            Assert.InRange(Volume(repaired.Result), 872.7, 872.9);
+            var p = Make(new[] { Cube(), tool }, Modes.AlsoAutoRoutedTools, false, q => q.InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair);
+            Assert.True(p.Compute(), p.Error);
+            AssertCut(p, 872.0);
+            SolidBooleanSheetExtension e = p.Report.SheetExtensions.Single();
+            Assert.False(e.Stated);
+            Assert.True(e.AddedArea > 0);
+            // StatedSheets does not do it: the tool goes to the repair
+            var stated = Make(new[] { Cube(), tool }, Modes.StatedSheets, false, q => q.InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair);
+            Assert.True(stated.Compute(), stated.Error);
+            Assert.Empty(stated.Report.SheetExtensions);
+            Assert.InRange(Volume(stated.Result), 872.7, 872.9);
+        }
+
+        [Fact]
+        public void TheHelperTime_IsInTheReport_AlsoWhereTheRunWentOnToTheFallback()
+        {
+            // the too-deep routed tool on a round workpiece (the helper takes a few milliseconds there): the helper ran and refused, the fallback's run has its own report; the time is carried over
+            DMesh3 ball = SheetGeometry.Sphere(new Vector3d(0, 0, 0), 5, 40);
+            DMesh3 sheet = SheetGeometry.Grid(new[] { -6.3, -2, 0, 2, 3.5 }, new[] { -6.3, -3, 0, 3, 6.3 }, (x, y) => 0, true);
+            var p = Make(new[] { ball, sheet }, Modes.AlsoAutoRoutedTools, false, q => q.InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair);
+            p.Compute();
+            Assert.Contains("Fallback", Names(p));
+            Assert.Equal(Status.DepthAboveLimit, p.Report.SheetExtensions.Single().Status);
+            Assert.True(p.Report.SheetExtensionMilliseconds > 0, "the helper time is carried over to the report of the fallback run");
+        }
 
         [Fact]
         public void RepeatedRuns_GiveTheSameResult()
