@@ -41,3 +41,10 @@ The pieces are linear (x2.0 per doubling): that was the goal of the rule. The ti
 which grow x3.8 to x3.9. In these inputs the two apexes of the fans are 2 ulps (or 0.25) apart, so the thin wedges of one fan cross almost every wedge of the other near
 the centre: the pairs are really quadratic, and each is clipped (six clips) and recorded as coplanar, although the pieces they would cut are not cut any more (the flat edges
 are ghosts). What is left is the pair stage (`intersections.intersect`, 0.7 s of 1.4 s at ring 481) and the ghost handling in `prepare_touched`.
+
+## Upper bound for a linear pair stage
+
+A scratch probe (not committed) that skips every coplanar pair of different meshes whose triangle ids differ by more than 8 (only the neighbouring wedges are clipped; the results
+are invalid, only the time means something): case S takes 466 ms at ring 481 (1,401 ms) and 1,338 ms at ring 961 (5,267 ms), with 5,770 and 11,530 intersecting pairs
+(linear). So the coplanar pair stage is about two thirds of the time at ring 481 and three quarters at ring 961: a linear pair stage could save at most that. The
+case R probe is not meaningful (its overlaps are real, the invalid results change the later stages).

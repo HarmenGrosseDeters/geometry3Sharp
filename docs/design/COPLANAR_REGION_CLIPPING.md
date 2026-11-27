@@ -243,12 +243,17 @@ C2's straddle test against the boundary edges of the regions only (an exact segm
 without a coplanar cluster (13 ms against 12 ms, the same pieces and triangles). Against the gate of stage 3:
 
 - **S at ring 481 at most 3 s: met**, 1.4 s warm (27.5 s before; 3.2 s on the first run of a process with the JIT). R: 0.8 s.
-- **Growth at most x2.5 per doubling: not met.** Pieces are x2.0, the time x2.6 / x2.9 / x3.8 on S (ring 241 to 961) and x3.0 / x4.4 / x3.2 on R. The cause is the
+- **Growth at most x2.5 per doubling: NOT MET (stated plainly; decided 2026-11-27 to accept the measurement).** Pieces are x2.0, the time x2.6 / x2.9 / x3.8 on S (ring 241 to 961) and x3.0 / x4.4 / x3.2 on R. The cause is the
   pair stage: the intersecting coplanar pairs are x3.9 per doubling because the 2 ulp shift makes every thin wedge of one fan cross about half of the wedges of the
   other at the common centre (genuinely, not a box artefact), and each pair is clipped six times and recorded. Ring 961: 5.3 s (S).
 - **No regression without clusters: met** (13 ms against 12 ms).
+- **Upper bound for a linear pair stage** (open item, not built; roadmap/exact-boolean.md): a probe that clips only the pairs of neighbouring wedges (the results are invalid, only
+  the time is meaningful) takes S ring 481 in 0.47 s instead of 1.40 s and ring 961 in 1.34 s instead of 5.27 s: the coplanar pair stage (pairs, clipping, recording, ghosts)
+  is about 0.93 s of 1.40 s (two thirds) at ring 481 and 3.9 s of 5.3 s (three quarters) at ring 961; with it linear the time would grow x1.4 and x2.9 per doubling (the
+  rest is the box search and the exact tests of the 351k and 1.39M candidate pairs, still quadratic in count). Option (1) of the PR, stacks by spatial query and no clipping of the
+  pairs that cannot cut, is what it would build; decided 2026-11-27 not to build it now.
 - One cost found on the way and removed: the sort of the ghosts in `prepare_touched` (the defensive sort of the second review round) was 600 ms of 1.7 s at ring 481 for
-  no effect (`ghost_points` only adds points to a set that `touched_points` sorts), so it is gone; the equivalent mutant is the same.
+  no effect (`ghost_points` only adds points to a set that `touched_points` sorts), so it is gone; the equivalent mutant is the same: no sort of the ghosts at all.
 
 ## 9. Prior art (papers only; no code read)
 
