@@ -309,6 +309,8 @@ namespace g3
         /// <summary>
         /// Copy IMesh into this mesh. Currently always compacts.
         /// [TODO] if we get dense hint, we could be smarter w/ vertex map, etc
+        /// A triangle that would give a vertex more than 32,766 triangles (its count is a short, #1684) is not appended: AppendTriangle refuses it, and this copy,
+        /// like the other loops that append triangles one by one, does not report that (the result then has fewer triangles than the source).
         /// </summary>
         public CompactInfo Copy(IMesh copy, MeshHints hints, bool bNormals = true, bool bColors = true, bool bUVs = true)
         {
@@ -1186,7 +1188,7 @@ namespace g3
 
         /// <summary>
         /// A vertex count is a short (the count of RefCountVector, part of the 1.0.324 API: 1 for the vertex and 1 for each triangle at it), so a vertex has
-        /// at most 32,766 triangles. True if the count of vertex vid can take add more without passing short.MaxValue (it would wrap, and the vertex
+        /// at most 32,766 triangles. True if the count of vertex vid can take <paramref name="add"/> more without passing short.MaxValue (it would wrap, and the vertex
         /// would no longer be one: #1684). The operations that add triangles to a vertex check it before they change anything and refuse (MeshResult
         /// Failed_HitValenceLimit, InvalidID from AppendTriangle).
         /// </summary>
@@ -1281,7 +1283,8 @@ namespace g3
 
 
         /// <summary>
-        /// Insert triangle at given index, assuming it is unused.
+        /// Insert triangle at given index, assuming it is unused. Returns Failed_HitValenceLimit if a vertex would get more than 32,766 triangles (its count is a short, #1684): the mesh is then unchanged.
+        ///
         /// If bUnsafe, we use fast id allocation that does not update free list.
         /// You should only be using this between BeginUnsafeTrianglesInsert() / EndUnsafeTrianglesInsert() calls
         /// </summary>
@@ -2313,11 +2316,33 @@ namespace g3
         /// assumes that we have initialized vertices, triangles, and edges buffers,
         /// and edges refcounts. Discards old derived topology and rebuilds vertex and tri refcounts,
         /// triangle edges and vertex edges. Vertices that were live stay live, also without edges.
+        /// Throws InvalidOperationException, before it changes anything, if a vertex would get more than 32,766 triangles (its count is a short, #1684).
         /// </summary>
         public void RebuildFromEdgeRefcounts()
         {
             int MaxVID = vertices.Length / 3;
             int MaxTID = triangles.Length / 3;
+
+            // the vertex counts first, so that nothing is changed when one does not fit: the triangles after the rebuild are those of the valid edges
+            {
+                bool[] seen = new bool[MaxTID];
+                int[] perVertex = new int[MaxVID];
+                for (int eid = 0, MaxEdge = edges.Length / 4; eid < MaxEdge; ++eid) {
+                    if (edges_refcount.isValid(eid) == false)
+                        continue;
+                    for (int j = 2; j <= 3; ++j) {
+                        int t = edges[4 * eid + j];
+                        if (t < 0 || t >= MaxTID || seen[t])
+                            continue;
+                        seen[t] = true;
+                        for (int k = 0; k < 3; ++k) {
+                            int v = triangles[3 * t + k];
+                            if (v >= 0 && v < MaxVID && ++perVertex[v] > short.MaxValue - 1)
+                                throw new InvalidOperationException("DMesh3.RebuildFromEdgeRefcounts: vertex " + v + " has more than " + (short.MaxValue - 1) + " triangles (its count is a short); the mesh is not changed");
+                        }
+                    }
+                }
+            }
 
             triangle_edges.resize(triangles.Length);
             triangles_refcount.RawRefCounts.resize(MaxTID);
@@ -2379,8 +2404,6 @@ namespace g3
                 if (triangles_refcount.isValid(tid) == false)
                     continue;
                 int a = triangles[3 * tid], b = triangles[3 * tid + 1], c = triangles[3 * tid + 2];
-                if (vertex_refs_fit(a, 1) == false || vertex_refs_fit(b, 1) == false || vertex_refs_fit(c, 1) == false)
-                    throw new InvalidOperationException("DMesh3.RebuildFromEdgeRefcounts: a vertex has more than " + (short.MaxValue - 1) + " triangles (its count is a short); the mesh is not rebuilt");
                 vertices_refcount.increment(a);
                 vertices_refcount.increment(b);
                 vertices_refcount.increment(c);

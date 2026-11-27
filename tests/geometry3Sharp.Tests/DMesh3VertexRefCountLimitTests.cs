@@ -259,7 +259,16 @@ namespace geometry3Sharp.Tests
             m.TrianglesBuffer[3 * t + k] = c;
             m.EdgesBuffer[4 * e1] = Math.Min(next, c); m.EdgesBuffer[4 * e1 + 1] = Math.Max(next, c);
             m.EdgesBuffer[4 * e2] = Math.Min(prev, c); m.EdgesBuffer[4 * e2 + 1] = Math.Max(prev, c);
+            long before = Fingerprint(m);
+            int edgesAtC = m.GetVtxEdgeCount(c), trianglesAtC = m.GetVtxTriangleCount(c), vertices = m.VertexCount;
             Assert.Throws<InvalidOperationException>(() => m.RebuildFromEdgeRefcounts());
+            // it throws before it changes anything (the vertex edge lists, the counts and the free lists are the ones of before)
+            Assert.Equal(before, Fingerprint(m));
+            Assert.Equal(edgesAtC, m.GetVtxEdgeCount(c));
+            Assert.Equal(trianglesAtC, m.GetVtxTriangleCount(c));
+            Assert.Equal(vertices, m.VertexCount);
+            Assert.True(m.IsVertex(c));
+            Assert.True(m.IsVertex(u[0]) && m.IsVertex(u[1]) && m.IsVertex(u[2]));
         }
 
         [Fact]
@@ -286,6 +295,170 @@ namespace geometry3Sharp.Tests
             long before = Fingerprint(m);
             Assert.Equal(MeshResult.Failed_HitValenceLimit, m.MergeEdges(eKeep, eDiscard, out DMesh3.MergeEdgesInfo info));
             AssertUnchanged(m, before, c, Max);
+        }
+
+        // ---- the controls at the last fitting count (the refusals must not come too early) ----
+
+        [Fact]
+        public void SetTriangle_ToTheLastFreeCount_Works()
+        {
+            DMesh3 m = Fan(Max - 1, true, out int c);
+            int x = m.AppendVertex(new Vector3d(5, 5, 0)), y = m.AppendVertex(new Vector3d(6, 5, 0)), z = m.AppendVertex(new Vector3d(5, 6, 0));
+            int t = m.AppendTriangle(x, y, z);
+            for (int k = 0; k < 3; ++k) {
+                Assert.Equal(MeshResult.Ok, m.SetTriangle(t, Rot(x, y, c, k), false));
+                Assert.Equal(Max, m.GetVtxTriangleCount(c));
+                Assert.Equal(MeshResult.Ok, m.SetTriangle(t, new Index3i(x, y, z), false));
+                Assert.Equal(Max - 1, m.GetVtxTriangleCount(c));
+            }
+        }
+
+        [Fact]
+        public void InsertTriangle_ToTheLastFreeCount_Works()
+        {
+            DMesh3 m = Fan(Max - 1, true, out int c);
+            int p = m.AppendVertex(new Vector3d(5, 5, 0)), q = m.AppendVertex(new Vector3d(6, 5, 0));
+            Assert.Equal(MeshResult.Ok, m.InsertTriangle(m.MaxTriangleID, Rot(p, q, c, 1)));
+            Assert.Equal(Max, m.GetVtxTriangleCount(c));
+            Assert.True(m.IsVertex(c));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void MergeEdges_ToTheLastFreeCount_Works(bool secondVertex)
+        {
+            // the same two triangles as in the refusals, with one triangle less at the full vertex: c ends with 32,767
+            DMesh3 m = Fan(Max - 1, false, out int c);
+            int eKeep, eDiscard;
+            if (!secondVertex) {
+                int p = m.AppendVertex(m.GetVertex(c)), q = m.AppendVertex(m.GetVertex(0)), s = m.AppendVertex(new Vector3d(0.5, -1.5, 0));
+                Assert.True(m.AppendTriangle(q, p, s) >= 0);
+                eKeep = m.FindEdge(0, c); eDiscard = m.FindEdge(p, q);
+            } else {
+                int p = m.AppendVertex(m.GetVertex(Max - 1)), q = m.AppendVertex(m.GetVertex(c)), s = m.AppendVertex(new Vector3d(0.5, -1.5, 0));
+                Assert.True(m.AppendTriangle(q, p, s) >= 0);
+                eKeep = m.FindEdge(Max - 1, c); eDiscard = m.FindEdge(p, q);
+            }
+            Assert.True(eKeep >= 0 && eDiscard >= 0);
+            Assert.Equal(MeshResult.Ok, m.MergeEdges(eKeep, eDiscard, out DMesh3.MergeEdgesInfo info));
+            Assert.Equal(Max, m.GetVtxTriangleCount(c));
+            Assert.True(m.IsVertex(c));
+        }
+
+        // ---- CollapseEdge at the peak of the count: the kept vertex has ref(b) + ref(a) - 1 - R at the peak (R removed triangles), 32,767 at most ----
+
+        // the vertex 0 of a fan with four more triangles of its own (so ref(0) = 1 + (R) + 4: 7 on an interior edge, 6 on a boundary edge)
+        static void AddFourTrianglesAtVertex0(DMesh3 m)
+        {
+            int[] p = new int[5];
+            for (int i = 0; i < 5; ++i) p[i] = m.AppendVertex(new Vector3d(3 + i, 3, 0));
+            for (int i = 0; i < 4; ++i) Assert.True(m.AppendTriangle(0, p[i], p[i + 1]) >= 0);
+        }
+
+        [Theory]
+        [InlineData(32762, true, true)]       // interior: the peak is n + 5 = 32,767: fits, the final count is n + 4 = 32,766 (32,765 triangles)
+        [InlineData(32763, true, false)]      // the peak 32,768: refused
+        [InlineData(32762, false, true)]      // boundary edge: the peak is n + 1 + 6 - 1 - 1 = 32,767
+        [InlineData(32763, false, false)]
+        public void CollapseEdge_AtThePeakOfTheCount(int n, bool interior, bool fits)
+        {
+            DMesh3 m = Fan(n, interior, out int c);
+            AddFourTrianglesAtVertex0(m);
+            long before = Fingerprint(m);
+            MeshResult r = m.CollapseEdge(c, 0, out DMesh3.EdgeCollapseInfo info);
+            if (!fits) {
+                Assert.Equal(MeshResult.Failed_HitValenceLimit, r);
+                AssertUnchanged(m, before, c, n);
+                return;
+            }
+            Assert.Equal(MeshResult.Ok, r);
+            Assert.True(m.IsVertex(c));
+            // c lost the removed triangles (2 or 1) and took over the four of vertex 0
+            Assert.Equal(n - (interior ? 2 : 1) + 4, m.GetVtxTriangleCount(c));
+        }
+
+        // ---- NTMesh3: SplitEdge (one new vertex with 1 + 2 N, each opposite vertex +1 for each of its triangles) and PokeTriangle ----
+
+        static NTMesh3 NTEdgeWithTriangles(int n, out int a, out int b, out int[] apex)
+        {
+            var m = new NTMesh3();
+            a = m.AppendVertex(new Vector3d(0, 0, 0)); b = m.AppendVertex(new Vector3d(1, 0, 0));
+            apex = new int[n];
+            for (int i = 0; i < n; ++i) apex[i] = m.AppendVertex(new Vector3d(0.5, 1 + i * 1e-4, i * 1e-4));
+            for (int i = 0; i < n; ++i) Assert.True(m.AppendTriangle(a, b, apex[i]) >= 0);
+            return m;
+        }
+
+        [Fact]
+        public void NTMesh3_SplitEdge_ThatGivesTheNewVertexMoreThan32766Triangles_IsRefused()
+        {
+            // 16,384 triangles on one edge: the new vertex would get 1 + 2 N = 32,769 (and (short)Count is no longer the count)
+            NTMesh3 m = NTEdgeWithTriangles(16384, out int a, out int b, out int[] apex);
+            int triangles = m.TriangleCount, vertices = m.VertexCount;
+            Assert.Equal(MeshResult.Failed_HitValenceLimit, m.SplitEdge(a, b, out NTMesh3.EdgeSplitInfo info));
+            Assert.Equal(triangles, m.TriangleCount);
+            Assert.Equal(vertices, m.VertexCount);
+            Assert.True(m.IsVertex(a) && m.IsVertex(b));
+        }
+
+        [Fact]
+        public void NTMesh3_SplitEdge_ToTheLastFreeCount_Works()
+        {
+            NTMesh3 m = NTEdgeWithTriangles(16383, out int a, out int b, out int[] apex);   // 1 + 2 N = 32,767
+            Assert.Equal(MeshResult.Ok, m.SplitEdge(a, b, out NTMesh3.EdgeSplitInfo info));
+            Assert.True(m.IsVertex(info.vNew));
+            Assert.Equal(2 * 16383, m.GetVtxTriangleCount(info.vNew));
+            Assert.Equal(2 * 16383, m.TriangleCount);
+        }
+
+        [Theory]
+        [InlineData(1, false)]        // one triangle (a, b, k): k ends with 32,767
+        [InlineData(2, true)]         // two triangles with the apex k (a, b, k) and (b, a, k): k would end with 32,768 (the check for one more would pass)
+        [InlineData(3, true)]         // and a third triangle with another apex (more than two triangles: the counting of the apexes takes another path)
+        public void NTMesh3_SplitEdge_ThatGivesAnOppositeVertexTooManyTriangles_IsRefused(int onEdge, bool refuse)
+        {
+            var m = new NTMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0));
+            int withK = Math.Min(onEdge, 2);                              // the triangles of the edge with the apex k
+            int fan = Max - 1 - withK;                                    // k has 32,766 before (1 + fan + withK): one more fits, two more do not
+            int rim0 = m.VertexCount;
+            for (int i = 0; i <= fan; ++i) m.AppendVertex(new Vector3d(Math.Cos(i * 1e-3), Math.Sin(i * 1e-3), 2));
+            int k = m.AppendVertex(new Vector3d(0.5, 0.5, 5));
+            for (int i = 0; i < fan; ++i) Assert.True(m.AppendTriangle(rim0 + i, rim0 + i + 1, k) >= 0);
+            Assert.True(m.AppendTriangle(a, b, k) >= 0);
+            if (withK == 2) Assert.True(m.AppendTriangle(b, a, k) >= 0);
+            if (onEdge == 3) Assert.True(m.AppendTriangle(a, b, m.AppendVertex(new Vector3d(0.5, -1, 0))) >= 0);
+            int triangles = m.TriangleCount;
+            MeshResult r = m.SplitEdge(a, b, out NTMesh3.EdgeSplitInfo info);
+            if (refuse) {
+                Assert.Equal(MeshResult.Failed_HitValenceLimit, r);
+                Assert.Equal(triangles, m.TriangleCount);
+                Assert.True(m.IsVertex(k));
+            } else {
+                Assert.Equal(MeshResult.Ok, r);
+                Assert.True(m.IsVertex(k));
+                Assert.Equal(Max, m.GetVtxTriangleCount(k));                  // fan + one on the edge + one from the split: the last free count
+            }
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void NTMesh3_PokeTriangle_AtAFullVertex_IsRefused_AndAtTheLastFreeCountWorks(int corner)
+        {
+            var m = new NTMesh3();
+            for (int i = 0; i <= Max; ++i) m.AppendVertex(new Vector3d(Math.Cos(i * 1e-3), Math.Sin(i * 1e-3), 0));
+            int c = m.AppendVertex(Vector3d.Zero);
+            for (int i = 0; i < Max - 1; ++i) Assert.True(m.AppendTriangle(Rot(i, i + 1, c, corner)) >= 0);
+            Assert.Equal(MeshResult.Ok, m.PokeTriangle(0, out NTMesh3.PokeTriangleInfo info));    // the last free count
+            Assert.Equal(Max, m.GetVtxTriangleCount(c));
+            int triangles = m.TriangleCount, vertices = m.VertexCount;
+            Assert.Equal(MeshResult.Failed_HitValenceLimit, m.PokeTriangle(1, out info));
+            Assert.Equal(triangles, m.TriangleCount);
+            Assert.Equal(vertices, m.VertexCount);
+            Assert.True(m.IsVertex(c));
         }
 
         // ---- NTMesh3 ----
