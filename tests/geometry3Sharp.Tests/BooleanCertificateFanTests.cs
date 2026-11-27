@@ -351,5 +351,63 @@ namespace geometry3Sharp.Tests
             log.WriteLine($"C2 {sw.ElapsedMilliseconds} ms, {c.EmbeddingPairs} pairs");
             Assert.True(sw.ElapsedMilliseconds < 20000, $"C2 {sw.ElapsedMilliseconds} ms");
         }
+
+        // ---------------------------------------------------------------- C5 (#1683)
+
+        /// <summary> the balanced sum of fractions equals the running sum, for every count (0, 1, odd, even, powers of two) and unreduced denominators </summary>
+        [Fact]
+        public void SumFractions_EqualsRunningSum()
+        {
+            var rng = new Random(1683);
+            for (int k = 0; k <= 37; ++k) {
+                var t = new List<(BigInteger n, BigInteger d)>();
+                BigInteger rn = BigInteger.Zero, rd = BigInteger.One;
+                for (int j = 0; j < k; ++j) {
+                    BigInteger n = rng.Next(1, 1000) * BigInteger.Pow(3, rng.Next(0, 40)), d = rng.Next(1, 50) * BigInteger.Pow(2, rng.Next(0, 90));
+                    t.Add((n, d));
+                    rn = rn * d + n * rd; rd *= d;
+                }
+                var (sn, sd) = BooleanCertificate.SumFractions(t, 0, t.Count);
+                Assert.True(sn * rd == rn * sd, $"{k} terms");
+                if (k > 2) {
+                    // a sub-range
+                    var (pn, pd) = BooleanCertificate.SumFractions(t, 1, k - 1);
+                    BigInteger qn = BigInteger.Zero, qd = BigInteger.One;
+                    for (int j = 1; j < k - 1; ++j) { qn = qn * t[j].d + t[j].n * qd; qd *= t[j].d; }
+                    Assert.True(pn * qd == qn * pd, $"{k} terms, 1..{k - 1}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The cost of C5 on the sliced cylinders (#1683): the area sums of CheckSameChain were 97 % of it (running sums with unreduced
+        /// denominators, 4.4 s at 60 slices, 66 s at 120); the verdict is "" and the time of C5 alone stays far below the old one.
+        /// </summary>
+        [Fact]
+        public void ShiftedFan_60Slices_C5IsCheap()
+        {
+            DMesh3 a = Cylinder(60);
+            BooleanCertificate c = Run(a, Shifted(a, 2), Ops.Union);
+            Assert.Equal("", c.CheckInputs());
+            Assert.Equal("", c.CheckPieces());
+            var sw = Stopwatch.StartNew();
+            Assert.Equal("", c.CheckResult());
+            log.WriteLine($"C5 {sw.ElapsedMilliseconds} ms");
+            Assert.True(sw.ElapsedMilliseconds < 3000, $"C5 {sw.ElapsedMilliseconds} ms (4400 before)");
+        }
+
+        [Fact]
+        [Trait("Category", "Nightly")]
+        public void ShiftedFan_120Slices_C5Finishes_Nightly()
+        {
+            DMesh3 a = Cylinder(120);
+            BooleanCertificate c = Run(a, Shifted(a, 2), Ops.Union);
+            Assert.Equal("", c.CheckInputs());
+            Assert.Equal("", c.CheckPieces());
+            var sw = Stopwatch.StartNew();
+            Assert.Equal("", c.CheckResult());
+            log.WriteLine($"C5 {sw.ElapsedMilliseconds} ms");
+            Assert.True(sw.ElapsedMilliseconds < 20000, $"C5 {sw.ElapsedMilliseconds} ms");
+        }
     }
 }

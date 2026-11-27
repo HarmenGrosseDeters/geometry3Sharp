@@ -1621,7 +1621,9 @@ namespace geometry3Sharp.Tests
             // (plane, line) -> events (position along the line, weight)
             var lines = new Dictionary<string, List<(ExactPoint3 p, BigInteger[] dir, int w, bool start)>>();
             // per plane: the unsigned projected area of each side (num, den), on the axis of the normal's largest component
-            var areas = new Dictionary<string, (BigInteger en, BigInteger ed, BigInteger sn, BigInteger sd)>();
+            // (the terms are summed at the end by a balanced tree: a running sum of fractions with unreduced denominators grows with
+            // every term, which made C5 quadratic per plane, 97 % of its time on the sliced-cylinder repro of #1683)
+            var areas = new Dictionary<string, (List<(BigInteger n, BigInteger d)> e, List<(BigInteger n, BigInteger d)> s)>();
             bool AddTriangle(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int w)
             {
                 BigInteger[] n = Normal(a, b, c);
@@ -1630,10 +1632,9 @@ namespace geometry3Sharp.Tests
                 int axis = BigInteger.Abs(n[0]) >= BigInteger.Abs(n[1]) && BigInteger.Abs(n[0]) >= BigInteger.Abs(n[2]) ? 0 : BigInteger.Abs(n[1]) >= BigInteger.Abs(n[2]) ? 1 : 2;
                 // (the normal numerator is scaled by (a.W b.W)(a.W c.W) > 0)
                 BigInteger an = BigInteger.Abs(n[axis]), ad = a.W * b.W * a.W * c.W;
-                var ar = areas.TryGetValue(plane, out var v) ? v : (BigInteger.Zero, BigInteger.One, BigInteger.Zero, BigInteger.One);
-                if (w > 0) ar = (ar.Item1 * ad + an * ar.Item2, ar.Item2 * ad, ar.Item3, ar.Item4);
-                else ar = (ar.Item1, ar.Item2, ar.Item3 * ad + an * ar.Item4, ar.Item4 * ad);
-                areas[plane] = ar;
+                if (areas.TryGetValue(plane, out var ar) == false) areas[plane] = ar = (new List<(BigInteger, BigInteger)>(), new List<(BigInteger, BigInteger)>());
+                // (w > 0: the kept pieces, w < 0: the result before rounding)
+                (w > 0 ? ar.e : ar.s).Add((an, ad));
                 var t = new[] { a, b, c };
                 for (int k = 0; k < 3; ++k) {
                     ExactPoint3 p = t[k], q = t[(k + 1) % 3];
@@ -1683,10 +1684,25 @@ namespace geometry3Sharp.Tests
             }
             // (equal chains, and E of density at most 1 (copies are never kept): an unsigned area of E_s above E's is a
             // pair of opposite coincident triangles, which the chain cancels)
-            foreach (var kv in areas)
-                if (kv.Value.Item1 * kv.Value.Item4 != kv.Value.Item3 * kv.Value.Item2)
+            foreach (var kv in areas) {
+                var (en, ed) = SumFractions(kv.Value.e, 0, kv.Value.e.Count);
+                var (sn, sd) = SumFractions(kv.Value.s, 0, kv.Value.s.Count);
+                if (en * sd != sn * ed)
                     return "the result before rounding has another area than the kept pieces in a plane (coincident opposite triangles)";
+            }
             return "";
+        }
+
+        // the exact sum of the fractions t[from..to) (positive denominators) by halving: the operands of the top sums are as large as the
+        // result, the rest small, so it costs O(M(N) log k) for k terms of N bits in all (0 for none)
+        public static (BigInteger n, BigInteger d) SumFractions(List<(BigInteger n, BigInteger d)> t, int from, int to)
+        {
+            if (to - from == 0) return (BigInteger.Zero, BigInteger.One);
+            if (to - from == 1) return t[from];
+            int mid = from + (to - from) / 2;
+            var (an, ad) = SumFractions(t, from, mid);
+            var (bn, bd) = SumFractions(t, mid, to);
+            return (an * bd + bn * ad, ad * bd);
         }
 
         // ------------------------------------------------------------------ C5: coverage within Delta
