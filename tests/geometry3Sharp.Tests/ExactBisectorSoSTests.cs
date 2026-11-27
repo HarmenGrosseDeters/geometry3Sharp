@@ -15,6 +15,25 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactBisectorSoSTests
     {
+
+        // net48 has no Math.ScaleB / BitIncrement / BitDecrement, Random.NextInt64 or BigInteger.GetBitLength
+        // x * 2^n, exact while the result is normal (|n| < 1023 here)
+        static double ScaleB(double x, int n)
+        {
+            for (; n > 1000; n -= 1000) x *= 1.0715086071862673e301;    // 2^1000
+            for (; n < -1000; n += 1000) x *= 9.332636185032189e-302;   // 2^-1000
+            return x * BitConverter.Int64BitsToDouble((long)(n + 1023) << 52);
+        }
+        static double BitIncrement(double x)
+        {
+            if (x == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+        }
+        static double BitDecrement(double x) => -BitIncrement(-x);
+        // a uniform integer in [0, 2^bits), bits <= 62
+        static long NextBits(Random rand, int bits) => (((long)rand.Next(1 << 30) << 32) | ((long)rand.Next(1 << 16) << 16) | (long)rand.Next(1 << 16)) & ((1L << bits) - 1);
+        static int BitLength(BigInteger v) { v = BigInteger.Abs(v); int n = 0; while (v > 0) { v >>= 1; n++; } return n; }
         // ---- the weighted oracle: integer coordinates (a common power of two), weights W_s = 2^(E (2^n - 2^rank(s))) over the
         // common denominator W = 2^(E 2^n), rank 0 for the smallest id (the dominant weight); E is far above the bit length of
         // every value of these small inputs, so the weights are infinitesimal in the dominance order ----
@@ -43,7 +62,7 @@ namespace geometry3Sharp.Tests
                 return m << (e - emin);
             }).ToArray()).ToArray();
             // the weights are infinitesimal only against values far below 2^E: small inputs (degree <= 6 here)
-            Assert.True(R.All(r => r.All(v => v.GetBitLength() <= E / 8)), "the oracle's weights need small inputs");
+            Assert.True(R.All(r => r.All(v => BitLength(v) <= E / 8)), "the oracle's weights need small inputs");
             return R;
         }
 
@@ -184,7 +203,7 @@ namespace geometry3Sharp.Tests
             var depth3 = new int[5];
             int ties1 = 0, ties2 = 0, ties3 = 0;
             for (int k = 0; k < 3000; ++k) {
-                double s = Math.ScaleB(1.0, rand.Next(-60, 60));
+                double s = ScaleB(1.0, rand.Next(-60, 60));
                 var x = SmallDir(rand, 20);
                 bool tie = k % 4 != 3;
                 // sites around x: at distance 3 (ties), or moved off the sphere

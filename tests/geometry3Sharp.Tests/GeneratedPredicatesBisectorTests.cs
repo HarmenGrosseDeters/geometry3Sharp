@@ -21,6 +21,25 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class GeneratedPredicatesBisectorTests
     {
+
+        // net48 has no Math.ScaleB / BitIncrement / BitDecrement, Random.NextInt64 or BigInteger.GetBitLength
+        // x * 2^n, exact while the result is normal (|n| < 1023 here)
+        static double ScaleB(double x, int n)
+        {
+            for (; n > 1000; n -= 1000) x *= 1.0715086071862673e301;    // 2^1000
+            for (; n < -1000; n += 1000) x *= 9.332636185032189e-302;   // 2^-1000
+            return x * BitConverter.Int64BitsToDouble((long)(n + 1023) << 52);
+        }
+        static double BitIncrement(double x)
+        {
+            if (x == 0) return double.Epsilon;
+            long b = BitConverter.DoubleToInt64Bits(x);
+            return BitConverter.Int64BitsToDouble(x > 0 ? b + 1 : b - 1);
+        }
+        static double BitDecrement(double x) => -BitIncrement(-x);
+        // a uniform integer in [0, 2^bits), bits <= 62
+        static long NextBits(Random rand, int bits) => (((long)rand.Next(1 << 30) << 32) | ((long)rand.Next(1 << 16) << 16) | (long)rand.Next(1 << 16)) & ((1L << bits) - 1);
+        static int BitLength(BigInteger v) { v = BigInteger.Abs(v); int n = 0; while (v > 0) { v >>= 1; n++; } return n; }
 #if NET
         static string Dir => Path.Combine(AppContext.BaseDirectory, "PredicateCompiler");
         static string Spec => File.ReadAllText(Path.Combine(Dir, "bisector.spec"));
@@ -340,7 +359,7 @@ namespace geometry3Sharp.Tests
         // generated entry tests it itself, here only to call the filter where it is defined (a conservative upper end)
         static bool Gate(int degree, params Vector3d[] P)
         {
-            double lo = Math.ScaleB(1.0, -(960 / degree - 52)), hi = Math.ScaleB(1.0, 1000 / degree - 10);
+            double lo = ScaleB(1.0, -(960 / degree - 52)), hi = ScaleB(1.0, 1000 / degree - 10);
             foreach (var p in P)
                 foreach (double x in new[] { p.x, p.y, p.z })
                     if (x != 0 && !(Math.Abs(x) >= lo && Math.Abs(x) <= hi)) return false;
@@ -351,7 +370,7 @@ namespace geometry3Sharp.Tests
 
         static Vector3d RandomPoint(Random rand, int bits, int exp)
         {
-            Func<double> c = () => Math.ScaleB(rand.Next(2) == 0 ? rand.NextInt64(0, 1L << bits) : -rand.NextInt64(0, 1L << bits), exp);
+            Func<double> c = () => ScaleB(rand.Next(2) == 0 ? NextBits(rand, bits) : -NextBits(rand, bits), exp);
             return new Vector3d(c(), c(), c());
         }
 
@@ -373,7 +392,7 @@ namespace geometry3Sharp.Tests
                 int exp = new[] { 0, -40, 40, -300, 300 }[(k / 4) % 5];
                 bool spread = k % 7 == 3;
                 var P = RandomPoints(rand, 7, bits, exp, spread);
-                double r = Math.Abs(P[6].x) + Math.ScaleB(1.0, exp);
+                double r = Math.Abs(P[6].x) + ScaleB(1.0, exp);
                 seen.Add(("s1", Side1(P[0], P[1], P[2])));
                 seen.Add(("s2", Side2(P[0], P[1], P[2], P[3], P[4])));
                 seen.Add(("s3", Side3(P[0], P[1], P[2], P[3], P[4], P[5], P[6])));
@@ -406,7 +425,7 @@ namespace geometry3Sharp.Tests
         {
             var rand = new Random(2);
             for (int k = 0; k < 400; ++k) {
-                double s = Math.ScaleB(1.0, rand.Next(-200, 200));
+                double s = ScaleB(1.0, rand.Next(-200, 200));
                 var x = new Vector3d(rand.Next(-50, 50), rand.Next(-50, 50), rand.Next(-50, 50));
                 var sites = Norm3.OrderBy(_ => rand.Next()).Take(4).Select(d => (x + d) * s).ToArray();
                 Vector3d a = sites[0], b = sites[1], c = sites[2], e = sites[3], X = x * s;
@@ -469,7 +488,7 @@ namespace geometry3Sharp.Tests
             for (int k = 0; k < 300; ++k) {
                 var P = RandomPoints(rand, 7, 53, 0, false);
                 // one point far outside the filter's range of the degree-10 predicate (2^-44 .. 2^97), another subnormal
-                if (k % 3 == 0) P[k % 7] = P[k % 7] * Math.ScaleB(1.0, rand.Next(2) == 0 ? -200 : 200);
+                if (k % 3 == 0) P[k % 7] = P[k % 7] * ScaleB(1.0, rand.Next(2) == 0 ? -200 : 200);
                 if (k % 5 == 1) P[(k + 3) % 7] = new Vector3d(double.Epsilon * rand.Next(1, 1000), 0, -double.Epsilon * 3);
                 double r = Math.Abs(P[6].x) + 1;
                 Side1(P[0], P[1], P[2]);
@@ -507,11 +526,11 @@ namespace geometry3Sharp.Tests
             var rand = new Random(4);
             filterDecided = filterCalls = 0;
             for (int k = 0; k < 600; ++k) {
-                double s = Math.ScaleB(1.0, rand.Next(-30, 30));
+                double s = ScaleB(1.0, rand.Next(-30, 30));
                 var x = new Vector3d(rand.Next(-1000, 1000), rand.Next(-1000, 1000), rand.Next(-1000, 1000));
                 var sites = Norm3.OrderBy(_ => rand.Next()).Take(4).Select(d => (x + d * 1000) * s).ToArray();
-                Func<Vector3d, Vector3d> ulp = p => new Vector3d(rand.Next(3) == 0 ? Math.BitIncrement(p.x) : p.x,
-                    rand.Next(3) == 0 ? Math.BitDecrement(p.y) : p.y, rand.Next(3) == 0 ? Math.BitIncrement(p.z) : p.z);
+                Func<Vector3d, Vector3d> ulp = p => new Vector3d(rand.Next(3) == 0 ? BitIncrement(p.x) : p.x,
+                    rand.Next(3) == 0 ? BitDecrement(p.y) : p.y, rand.Next(3) == 0 ? BitIncrement(p.z) : p.z);
                 Vector3d X = x * s, u = new Vector3d(rand.Next(-90, 91), rand.Next(-90, 91), rand.Next(-90, 91)) * s,
                     w = new Vector3d(rand.Next(-90, 91), rand.Next(-90, 91), rand.Next(-90, 91)) * s;
                 Side1(ulp(X), sites[0], sites[3]);

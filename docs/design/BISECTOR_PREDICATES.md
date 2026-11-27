@@ -361,6 +361,16 @@ the existing fixtures bit for bit against master.
     every cell's perturbed sphere) in every insertion order (each order gives other ids, so another tie-break);
     off-mode fixtures are pinned against master.
 
+- `tools/Z3Pilot/bisector_sos.py` (Z3, real arithmetic; its source contracts pin the transcribed spec entries and cascades):
+  - Cramer's rule and the geometric value of each perturbed side;
+  - the linear form in the weights with the cascade's coefficients, which sum to 0;
+  - the cascade decides wherever the point exists;
+  - anchor independence;
+  - crossings strictly inside a clipped edge, and none on a parallel edge;
+  - the R2 rewrite (|N|² − r²d² for |y|² − r²) and the circumradius identity behind R3.
+
+  Each of its 21 lemmas has a SAT mutant. The error bounds stay with the generator and the Symbolic Taylor check.
+
 ## 5. Sources
 
 Papers only, no code read (the coordinator's decision of 2026-11-27: not Geogram's RVD / PCK code either, although it is
