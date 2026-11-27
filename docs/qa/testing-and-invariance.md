@@ -182,7 +182,7 @@ through the middle of a result, and a folded coplanar piece. No false alarm: eve
 Nightly corpus certify. The checker itself is a test file, so Stryker does
 not mutate it; `tools/certificate_hand_mutants.py` switches off or reverses each condition and sign of the checker and makes each
 floating-point filter decide wrongly or too early (72 mutants, 2026-11-25, about 75 minutes), and `BooleanCertificateTests` kills
-every one (and 21 more for the cost work of C2, #1632: the edge forms, the groups of equal pieces, the order of the parallel loops); 16 equivalent mutants are listed with their reasons (`--equivalent` checks that they pass;
+every one (and 21 more for the cost work of C2, #1632: the edge forms, the groups of equal pieces, the order of the parallel loops); and 19 for the union cover of C5 (#1631: the gap bounds, the clipping, the difference, the leftover polygons); 16 equivalent mutants are listed with their reasons (`--equivalent` checks that they pass;
 [CERTIFICATE_HARDENING_2026-11.md](../research/CERTIFICATE_HARDENING_2026-11.md)). Cost (warm, two spheres, 696 pieces): the boolean 4 ms, C1 19 ms, C3 + C4 10 ms,
 C5 65 ms, C2 about 40 ms (the prototype of the research note measured 9 us per pair with BigInteger): several times the
 boolean, as BigInteger decides every sign (an oracle for tests, not a mode for users).

@@ -130,6 +130,18 @@ exact clipped areas of the projection against the group's triangles add up to th
 interior-disjoint (C1 and C2 have certified them before C5 runs), so the sum cannot overcount. This is exact, needs no
 new error bound, and its cost is linear in the group.
 
+**Result of #1631 (2026-11-27).** The union cover is in the checker (`Harness/BooleanCertificate.Coverage.cs`), in a more general form than proposed
+above: the mirror contact leaves the exact pieces of the two copies in planes that differ by ulps, so grouping by exact plane would split the union
+into two groups. Instead, for a triangle t that no single triangle covers: take the chart that drops the coordinate of the largest component of t's
+normal; for each candidate triangle G, the region of the chart where G exists and the gap along that axis between t and G is at most Delta is a convex
+polygon (the chart of t clipped by G's three edges and two half-planes, exact rationals); every point of t over the region is within Delta of G (the
+distance of two points that differ along one axis is that difference). t is covered if the chart minus the union of the regions is empty, or each left
+polygon, lifted onto t's plane, is within Delta of one triangle (the old test: convex distance, corners). The difference needs no disjointness of the
+exact pieces (convex polygon minus convex polygon, repeated), no error bound and no plane grouping. The sphere and its mirror: uncovered 872 -> 0
+(union, 13 edge vertices), 348 -> 0 (intersection), at the default depth 3; 7 edge vertices: 200 -> 0 and 80 -> 0. C5 costs more where it now decides
+(13 edge vertices, union, idle-ish 4 cores: 1.2 s -> 4.6 s: 872 triangles decided by exact rationals instead of left to the splits, which fail
+and cost 4^3 sub-triangles each). The 4 Thingi10K operations are not checked here (no network in the PR tier): to run `certify thingi` on them.
+
 ### 2.3 The timeout: quadratic cost of the coplanar stacks, and an output-quadratic boolean
 
 One operation, an ulp-shift-few contact (union) of a model with 6726 triangles, did not finish in 900 s:
