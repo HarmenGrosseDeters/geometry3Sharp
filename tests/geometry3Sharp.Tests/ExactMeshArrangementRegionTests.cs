@@ -1,80 +1,16 @@
 using System.Collections.Generic;
+using System.Linq;
 using g3;
 using Xunit;
 
 namespace geometry3Sharp.Tests
 {
-    /// <summary>
-    /// Stage 0 of docs/design/COPLANAR_REGION_CLIPPING.md (#1630): with the internal switch SpikeFlatSkip the edges of a triangle that are flat edges of its
-    /// region (the neighbour in the same exact plane on the other side) add no constraint to the coplanar triangles of the other meshes. Only the number of
-    /// pieces is meaningful at this stage (the stacks are not region aware yet, so the classification is not).
-    /// </summary>
-    public class ExactMeshBooleanRegionClippingSpikeTests
+    /// <summary> Stage 1 of docs/design/COPLANAR_REGION_CLIPPING.md (#1630): the regions of the input triangles (ExactMeshArrangement.RegionOf) </summary>
+    public class ExactMeshArrangementRegionTests
     {
-        static int Pieces(int K, double dx, bool skip, out int skipped)
-        {
-            DMesh3 a = ExactMeshBooleanCoplanarWalkTests.Cylinder(K);
-            DMesh3 b = ExactMeshBooleanCoplanarWalkTests.Shifted(a, dx);
-            var bo = new ExactMeshBoolean(new[] { a, b }, ExactMeshBoolean.Operations.Union) { SpikeFlatSkip = skip };
-            Assert.True(bo.Compute(), bo.Error);
-            skipped = bo.Arrangement.SpikeSkipped;
-            return bo.Arrangement.Output.Count;
-        }
-
-        [Theory]
-        [InlineData(0.0)]
-        [InlineData(0.25)]
-        public void SkippingFlatEdges_MakesThePiecesGrowLinearly_OnShiftedFans(double dx)
-        {
-            int s;
-            int p8 = Pieces(8, dx, true, out s), p16 = Pieces(16, dx, true, out s), p32 = Pieces(32, dx, true, out s);
-            Assert.True(s > 0, "no flat edge was skipped");
-            Assert.True(p16 <= 2.3 * p8 && p32 <= 2.3 * p16, "pieces " + p8 + ", " + p16 + ", " + p32);
-            int q16 = Pieces(16, dx, false, out s);
-            Assert.True(p16 * 4 < q16, "pieces with the switch " + p16 + ", without " + q16);
-            Assert.Equal(0, s);
-        }
-
-        [Fact]
-        public void TheSwitchIsOffByDefault()
-        {
-            DMesh3 a = ExactMeshBooleanCoplanarWalkTests.Cylinder(8);
-            var bo = new ExactMeshBoolean(new[] { a, ExactMeshBooleanCoplanarWalkTests.Shifted(a, 0) }, ExactMeshBoolean.Operations.Union);
-            Assert.False(bo.SpikeFlatSkip);
-            Assert.True(bo.Compute(), bo.Error);
-            Assert.Equal(0, bo.Arrangement.SpikeSkipped);
-        }
-
-        static int Skipped(DMesh3 m1)
-        {
-            var m2 = new DMesh3(); m2.AppendVertex(new Vector3d(0.5, 0.2, 0)); m2.AppendVertex(new Vector3d(1.5, 0.2, 0)); m2.AppendVertex(new Vector3d(0.9, 0.9, 0));
-            m2.AppendTriangle(0, 1, 2);
-            var arr = new ExactMeshArrangement(new List<DMesh3> { m1, m2 }) { SelfIntersections = true, SpikeFlatSkip = true };
-            arr.Compute();
-            return arr.SpikeSkipped;
-        }
-
-        static DMesh3 Pair(bool fold)
-        {
-            // a-b = (0,0)-(2,0), c above; d below (a flat edge a-b) or above too (a fold: both on the same side)
-            var m = new DMesh3(); m.AppendVertex(new Vector3d(0, 0, 0)); m.AppendVertex(new Vector3d(2, 0, 0)); m.AppendVertex(new Vector3d(0, 2, 0));
-            m.AppendVertex(fold ? new Vector3d(2, 2, 0) : new Vector3d(1, -1, 0));
-            m.AppendTriangle(0, 1, 2); m.AppendTriangle(1, 0, 3);
-            return m;
-        }
-
-        [Fact]
-        public void ASharedEdgeWithTheNeighbourOnTheOtherSide_IsSkipped_AFoldIsNot()
-        {
-            Assert.Equal(1, Skipped(Pair(false)));      // (only the triangle above the line meets the small one)
-            Assert.Equal(0, Skipped(Pair(true)));
-        }
-
-        // ---- stage 1: the regions
-
         static int[] Regions(params DMesh3[] meshes)
         {
-            var arr = new ExactMeshArrangement(new List<DMesh3>(meshes)) { SelfIntersections = true, SpikeFlatSkip = true };
+            var arr = new ExactMeshArrangement(new List<DMesh3>(meshes)) { SelfIntersections = true, BuildRegions = true };
             arr.Compute();
             return arr.RegionOf;
         }
@@ -115,7 +51,7 @@ namespace geometry3Sharp.Tests
             var box = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1))) }.Generate().MakeDMesh();
             int[] r = Regions(box, Far());
             Assert.Equal(6, Count(r, 0, 12));
-            foreach (int root in new HashSet<int>(r[0..12])) Assert.Equal(2, System.Linq.Enumerable.Count(r[0..12], x => x == root));
+            foreach (int root in new HashSet<int>(r.Take(12))) Assert.Equal(2, System.Linq.Enumerable.Count(r.Take(12), x => x == root));
             int[] two = Regions(Grid(2), Grid(2));
             Assert.Equal(1, Count(two, 0, 8));
             Assert.Equal(1, Count(two, 8, 16));
@@ -136,6 +72,16 @@ namespace geometry3Sharp.Tests
             bad.AppendTriangle(0, 1, 2);
             bad.AppendTriangle(1, 2, 3);                          // 1->2 in both: a flipped neighbour
             Assert.Equal(2, Count(Regions(bad, Far()), 0, 2));
+            var fold = new DMesh3();                              // consistent edge direction (1->2, 2->1) but both third corners on the same side
+            fold.AppendVertex(new Vector3d(0, 0, 0)); fold.AppendVertex(new Vector3d(2, 0, 0)); fold.AppendVertex(new Vector3d(0, 2, 0)); fold.AppendVertex(new Vector3d(2, 2, 0));
+            fold.AppendTriangle(0, 1, 2);
+            fold.AppendTriangle(2, 1, 3);                         // the edge 1-2 is 1->2 in the first and 2->1 here, the corners 0 and 3 are on opposite sides: flat
+            Assert.Equal(1, Count(Regions(fold, Far()), 0, 2));
+            var over = new DMesh3();                              // the edge 0-1 as 0->1 and 1->0, the third corners (0,2) and (1,1) both above
+            over.AppendVertex(new Vector3d(0, 0, 0)); over.AppendVertex(new Vector3d(2, 0, 0)); over.AppendVertex(new Vector3d(0, 2, 0)); over.AppendVertex(new Vector3d(1, 1, 0));
+            over.AppendTriangle(0, 1, 2);
+            over.AppendTriangle(1, 0, 3);
+            Assert.Equal(2, Count(Regions(over, Far()), 0, 2));
         }
 
         [Fact]
@@ -147,6 +93,41 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2 + n, Count(r, 0, c.TriangleCount));
             // the regions are a function of the mesh alone: again, and with the other order of the meshes' triangles
             Assert.Equal(r, Regions(c, Far()));
+        }
+
+        static string Outputs(bool regions, params DMesh3[] meshes)
+        {
+            var arr = new ExactMeshArrangement(new List<DMesh3>(meshes)) { SelfIntersections = true, BuildRegions = regions };
+            gParallel.SerialOnThisThread = true;       // (point ids follow the thread order otherwise)
+            try { arr.Compute(); } finally { gParallel.SerialOnThisThread = false; }
+            return string.Join(";", arr.Output.Select(o => o.Mesh + "," + o.Source + "," + o.A + "," + o.B + "," + o.C));
+        }
+
+        [Fact]
+        public void BuildingTheRegions_ChangesNoOutput()
+        {
+            DMesh3 a = ExactMeshBooleanCoplanarWalkTests.Cylinder(6), b = ExactMeshBooleanCoplanarWalkTests.Shifted(a, 0.25);
+            Assert.Equal(Outputs(false, a, b), Outputs(true, a, b));
+            DMesh3 c = ExactMeshBooleanCoplanarWalkTests.Shifted(a, 0);
+            Assert.Equal(Outputs(false, a, c), Outputs(true, a, c));
+        }
+
+        [Fact]
+        public void TheRegions_AreTheSameForEveryPowerOfTwoScale_AndWhenComputedTwice()
+        {
+            DMesh3 a = ExactMeshBooleanCoplanarWalkTests.Cylinder(6), b = ExactMeshBooleanCoplanarWalkTests.Shifted(a, 0.25);
+            int[] r = Regions(a, b);
+            foreach (double f in new[] { 0.25, 2, 1024 }) {
+                DMesh3 sa = new DMesh3(a), sb = new DMesh3(b);
+                foreach (DMesh3 m in new[] { sa, sb })
+                    foreach (int v in m.VertexIndices().ToList()) m.SetVertex(v, m.GetVertex(v) * f);
+                Assert.Equal(r, Regions(sa, sb));
+            }
+            var arr = new ExactMeshArrangement(new List<DMesh3> { a, b }) { SelfIntersections = true, BuildRegions = true };
+            arr.Compute();
+            int[] first = arr.RegionOf;
+            arr.Compute();
+            Assert.Equal(first, arr.RegionOf);
         }
 
         [Fact]

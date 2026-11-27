@@ -815,13 +815,12 @@ namespace g3
         ExactMeshArrangement arr;
 
         // the arrangement of Compute() with this instance's settings (also the one-mesh arrangement of nest_input)
-        internal bool SpikeFlatSkip;
         ExactMeshArrangement new_arrangement(List<DMesh3> inputs)
         {
             return new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
                 FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters,
                 HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard, PreDecideCoplanar = ArrangementPreDecideCoplanar,
-                RecordEdgeLines = CoplanarWalk, EdgeLinesMinCoplanar = CoplanarWalkMinCoplanar, SpikeFlatSkip = SpikeFlatSkip };
+                RecordEdgeLines = CoplanarWalk, EdgeLinesMinCoplanar = CoplanarWalkMinCoplanar };
         }
 
         /// <summary>
