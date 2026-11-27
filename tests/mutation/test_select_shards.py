@@ -14,7 +14,7 @@ from select_shards import ALWAYS, pr_selection, eligible, expand_only, shard_nam
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-RO = sorted("rounding-%d" % i for i in range(1, 14))  # (in the order of the config file names)
+RO = sorted("rounding-%d" % i for i in range(1, 16))  # (in the order of the config file names)
 BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
@@ -551,8 +551,8 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(names, nightly | weekly)                  # (every shard runs at least once a week)
         self.assertEqual(set(BO), {n for n in nightly if n.startswith("boolean-")})
         self.assertEqual(4, len({n for n in nightly if n.startswith("arrangement-")}))
-        self.assertEqual(13, len({n for n in nightly if n.startswith("rounding-")}))
-        self.assertEqual(26, len(nightly))
+        self.assertEqual(15, len({n for n in nightly if n.startswith("rounding-")}))
+        self.assertEqual(28, len(nightly))
         self.assertIn("arithmetic", weekly)
         self.assertTrue({"geodesic-1", "geodesic-2", "hausdorff", "planar", "fixed", "generated"} <= weekly)
         self.assertEqual(set(BO), expand_only("boolean-*", names))
