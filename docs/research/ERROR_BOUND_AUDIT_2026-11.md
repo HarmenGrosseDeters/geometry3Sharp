@@ -192,6 +192,8 @@ as the tree; until then the spare 1e-6 is a documented part of the bound, not a 
   pad of at least 1e-300 + 1e-9 of the point's size; and in the envelope the search box has a margin of about
   9e-16 (Epsilon + M) around the polyhedron, so a dropped candidate matters only for Epsilon and coordinates below
   about 1e-285, where it turns `ContainsSegment` from true to false (the conservative side).
+  Fixed for #1673: the branch now rejects only if both ends lie strictly outside on the same side (the
+  endpoint rule that `tools/Z3Pilot/interval_segment_pilots.py` proves sound); L1 prints true.
 
 ## 4. Machine-derived bounds
 
