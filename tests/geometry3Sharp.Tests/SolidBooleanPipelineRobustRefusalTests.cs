@@ -164,12 +164,15 @@ namespace geometry3Sharp.Tests
             // the token is cancelled when the repair is set up (the pipeline checks it before the repair, so only the wiring into the repair
             // can see it): the repair stops, and the run is Cancelled, not OpenInput with a reason
             using (var cts = new System.Threading.CancellationTokenSource()) {
+                bool seenByTheRepair = false;
                 var p = new SolidBooleanPipeline(ShellBowl(), Box(new Vector3d(0.2, 0, -0.3), 0.3), U) {
                     InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepairThenRobust, SkipAutoRepairForTests = true,
-                    Cancellation = cts.Token, RobustRepairSetupForTests = r => { Cheap(r); cts.Cancel(); } };
+                    Cancellation = cts.Token, RobustRepairSetupForTests = r => { Cheap(r); cts.Cancel(); seenByTheRepair = r.CancelF(); } };
                 Assert.False(p.Compute());
                 Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
                 Assert.Null(p.Result);
+                // (the wiring itself: the pipeline would also see the token after the repair, so the repair's own CancelF is asserted)
+                Assert.True(seenByTheRepair, "the repair's CancelF does not see the pipeline's token");
             }
         }
 
