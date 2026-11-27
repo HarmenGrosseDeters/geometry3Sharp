@@ -1147,3 +1147,11 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+## Alpha size field range and pruning
+
+Run `python3 tools/Z3Pilot/alpha_size_field.py` (or `python3 -m unittest discover -s tools/Z3Pilot -p test_alpha_size_field.py -v`) for the local obligations, source-drift checks (all 5 anchors), and binary64 replays on `mesh_ops/AlphaSizeField.cs`:
+
+- **Reach cutoff & box-distance pruning:** proves that no sample with `alpha_m >= alpha_min` beyond `radius = (alpha0 - alpha_min) / slope` can improve `alpha0`, that the cell bounding box distance never exceeds the distance to any sample in the cell, and that `min_alpha + slope * box_dist >= best` cannot skip a sample improving `best` (each with reachability and negative-control checks).
+- **Thinning perturbation & wide-axis separation:** proves the triangle-inequality thinning perturbation bound `<= slope * d_jk <= slope * h * sqrt(3)` and that coordinates beyond `2^62 * h` have binary64 neighbor spacing above `h` (cannot share a thinning cube).
+- **Binary64 replays:** wide thinning index exceeding `Int64` range (`2^58 / 2^-5 = 2^63`), subnormal `r^2` false-skip in 2D (`r = sqrt(1.499) * 2^-537`), and `d^2` overflow at `r = 2^600`.
