@@ -1,6 +1,6 @@
 # Coplanar region clipping (option E'): O(n) pieces for overlaid coplanar fans, #1630
 
-Status: design for the owner's decision, nothing built (2026-11-27). Refs #1630. Needs a decision first: it changes the output
+Status: approved by the owner on 2026-11-27; stage 0 measured (a scratch spike, not merged) and stage 1 (region identification, `BuildRegions`, no behaviour change) built (section 8). Refs #1630. It changes the output
 triangulation of every boolean whose inputs have coplanar clusters (section 5). The stack walk of
 [COPLANAR_PROPAGATION.md](COPLANAR_PROPAGATION.md) (option A) is built and is the base of this design.
 [COPLANAR_FAN_DIAGNOSIS.md](COPLANAR_FAN_DIAGNOSIS.md) has the earlier measurements.
@@ -52,8 +52,8 @@ Today a triangle T of mesh A is cut by the clipped edges of every coplanar trian
 `clip_into`): also by the edges that U shares with another triangle of B in the same plane, which are not a boundary of anything.
 
 - **Region.** A maximal set of triangles of one mesh in one plane, connected through *flat edges*: an edge shared by exactly two
-  triangles of that mesh that lie in the same exact plane with the same orientation of the normal. The plane test is the exact
-  integer plane that `ExactPlanarSimplify` and `CanonicalPlane` already compare. An edge with an opposite orientation (a fin), with
+  triangles of that mesh that lie in the same exact plane and traverse the edge in opposite directions (consistent orientation; not "opposite normals"). The plane test is the exact
+  integer plane that `ExactPlanarSimplify` and `CanonicalPlane` already compare. An edge whose two triangles traverse it in the same direction (a fin), with
   three or more triangles, or with one triangle is a boundary edge.
 - **Rule.** Clip an edge of U into T only if the edge is a boundary edge of U's region. The flat edges of the other mesh no longer
   cut T. The edges of the triangles of T itself stay what they are: they are the pieces' units.
@@ -146,6 +146,36 @@ Stages 0 and 3 are measurements in a scratch run and in `benchmarks/`; each stag
 481 (an estimate on 4 cores), growth unchanged at about x6 per doubling, #1630 closed as a bounded constant factor. B needs the
 obligation-3 proof of COPLANAR_PROPAGATION.md; the parallel simplify needs a bit-identical batch order and a review for the
 allow-list.
+
+### Stage 0 measured (2026-11-27, scratch spike, not merged)
+
+The spike skips the constraint of every clip of a flat edge (two triangles of one mesh in the same exact plane, the edge traversed in opposite directions by the two
+(consistent orientation, not an opposite normal), third corners strictly on opposite sides by the exact in-plane `Orient`); the pair is still clipped, so the coplanar relation is recorded. Stacks are not region aware
+yet, so only pieces and time are meaningful. Union of a capped cylinder and a copy shifted by dx:
+
+| case | ring | pieces before | pieces with the switch | Compute ms before / with |
+| --- | --- | --- | --- | --- |
+| S (2 ulps) | 121 | 29,808 | 2,184 | 930 / 771 |
+| S | 241 | 117,168 | 4,344 (x1.99) | 6,185 / 555 |
+| S | 481 | (27.5 s run) | 8,664 (x1.99) | 27,529 / 2,614 |
+| R (0.25) | 61 | 6,064 | 1,128 | 204 / 165 |
+| R | 121 | 22,480 | 2,232 (x1.98) | 948 / 319 |
+| R | 241 | | 4,448 (x1.99) | / 847 |
+| R | 481 | | 8,880 (x2.0) | / 2,236 |
+| plate and 9 boxes | | 1,092 | 852 | 18 / 7 |
+
+Gate (pieces at most x2.3 per doubling, ring 481 at most 3 s): met. The flat-edge test adds no predicate (exact `Orient` of input points as in
+`meets_only_at_shared`). The spike was an internal switch with a wrong classification, so it is not merged; its patch is kept outside the repository.
+
+### Stage 1 built (2026-11-27): region identification
+
+`ExactMeshArrangement.RegionOf` (internal, in `mesh_ops/ExactMeshArrangementRegions.cs`, a partial of the arrangement; filled in `find_intersections` only
+with the internal flag `BuildRegions`, null otherwise): per input triangle the lowest triangle index of its region, by a serial union-find over the flat
+edges, a function of the triangles alone. Nothing uses it yet: the output is bit-identical with the flag on and off (tested). Unit tests: a grid in one plane
+is one region and a bent grid two, a box has six regions of two triangles, two meshes never share a region, a neighbour that traverses the edge the same
+way (a flipped one) or that folds over (same side) is not flat, a cylinder has two caps and one region per side quad, the regions are the same for every
+power-of-two scale and when computed twice. (A non-manifold edge cannot occur: `DMesh3` does not hold one.) The file is in the determinism proof
+scope and in the shard `stryker-mesh-arrangement-4`.
 
 ## 9. Prior art (papers only; no code read)
 

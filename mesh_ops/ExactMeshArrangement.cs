@@ -41,7 +41,7 @@ namespace g3
     /// (or <see cref="ComparePoints"/> for an order) or the canonical mapping <see cref="Canonical(int)"/>, never
     /// through the numeric value of an id.
     /// </summary>
-    internal class ExactMeshArrangement
+    internal partial class ExactMeshArrangement
     {
         public struct Plane
         {
@@ -1316,7 +1316,7 @@ namespace g3
             nextPoint = 0;
             canonical = null;
             triangleCount = 0;
-            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null; RegionOf = null;
             touchedPoints = null;
             planeRep = null;
             Culled = null;
@@ -2215,6 +2215,7 @@ namespace g3
                     reps.Add(ti);
             }
             planeRep = rep;
+            if (BuildRegions) build_regions();
             clock.Lap("intersections.planes");
             // (cancelled: the pairs left are skipped; Compute stops after this phase)
             gParallel.ForRange(pairs.Count, (k) => {
