@@ -52,9 +52,17 @@ namespace geometry3Sharp.Tests
             Assert.Equal(a.VertexCount, b.VertexCount);
             Assert.Equal(a.TriangleCount, b.TriangleCount);
             Assert.Equal(a.EdgeCount, b.EdgeCount);
+            Assert.Equal(a.MaxVertexID, b.MaxVertexID);
             for (int i = 0; i < 3 * a.TriangleCount; ++i) Assert.Equal(a.TrianglesBuffer[i], b.TrianglesBuffer[i]);
             for (int i = 0; i < 4 * a.EdgeCount; ++i) Assert.Equal(a.EdgesBuffer[i], b.EdgesBuffer[i]);
-            for (int v = 0; v < a.VertexCount; ++v) Assert.Equal(a.VerticesRefCounts.RawRefCounts[v], b.VerticesRefCounts.RawRefCounts[v]);
+            // the positions, the counts of vertices, triangles and edges, and the edges around each vertex in their order
+            for (int v = 0; v < a.VertexCount; ++v) {
+                Assert.Equal(a.GetVertex(v), b.GetVertex(v));
+                Assert.Equal(a.VerticesRefCounts.RawRefCounts[v], b.VerticesRefCounts.RawRefCounts[v]);
+                Assert.Equal(a.VtxEdgesItr(v), b.VtxEdgesItr(v));
+            }
+            for (int t = 0; t < a.TriangleCount; ++t) Assert.Equal(a.TrianglesRefCounts.RawRefCounts[t], b.TrianglesRefCounts.RawRefCounts[t]);
+            for (int e = 0; e < a.EdgeCount; ++e) Assert.Equal(a.EdgesRefCounts.RawRefCounts[e], b.EdgesRefCounts.RawRefCounts[e]);
         }
 
         [Fact]
