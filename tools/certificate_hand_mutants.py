@@ -147,6 +147,10 @@ M=[
 # (first listed as equivalent; not: a numerator below 2^1024 over a denominator above it converts to finite / infinity = 0, which the
 # finiteness check passes; CoverageFilters_AgreeWithTheExactTest_AtDistanceDeltaWithRoundedCoordinates, review of #1604)
 ("C5 approximation: size guard off", "if (ExactPoint3.BitLength(q.N) > 1000 || ExactPoint3.BitLength(q.D) > 1000) return false;", ";"),
+("union prefilter without margin", "double tol = FilterEps(big, ext);", "double tol = 0;"),
+("union prefilter ignores one side", "|| gh1 + tol < tl1;", "|| false;"),
+("union chart cache without the axis", "var key = (j, a);", "var key = (j, 0);"),
+("union chart cache never reset", "if (ReferenceEquals(chartCacheOf, to) == false) {", "if (false) {"),
 ]
 
 # Equivalent mutants (not run by default; `--equivalent` runs them, and each must survive). Each changes no verdict:
