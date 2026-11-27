@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using g3.CoreMathPort;
 using System.Linq;
 using System.Collections.Generic;
 using g3;
@@ -451,7 +452,7 @@ namespace gs
         {
             Vector2d dv = SurfaceVector(mesh, tree, tp, p, q, maxTris);
             if (double.IsNaN(dv.x) || dv.LengthSquared == 0) return double.NaN;
-            return Math.Atan2(dv.y, dv.x);
+            return CoreMath.Atan2(dv.y, dv.x);
         }
 
         /// <summary> the vector from p to q in the chart of the unfolded strip (see SurfaceAngle); NaN components if there is none </summary>
@@ -755,7 +756,7 @@ namespace gs
                 Vector3d nk = g.Nrm[k];
                 Vector3d d0 = g.Pos[nb[0]] - g.Pos[k]; Vector3d e = d0 - d0.Dot(nk) * nk; double el = e.Length; if (el > 0) e /= el;
                 Vector3d b = nk.Cross(e); var keys = new double[nb.Count]; var ids = nb.ToArray();
-                for (int u = 0; u < ids.Length; ++u) { Vector3d d = g.Pos[ids[u]] - g.Pos[k]; keys[u] = Math.Atan2(d.Dot(b), d.Dot(e)); }
+                for (int u = 0; u < ids.Length; ++u) { Vector3d d = g.Pos[ids[u]] - g.Pos[k]; keys[u] = CoreMath.Atan2(d.Dot(b), d.Dot(e)); }
                 Array.Sort(keys, ids); order[k] = ids;
             }
             if (rot != null) foreach (var kv in rot) if (kv.Key < nv && kv.Value.Length == order[kv.Key].Length) order[kv.Key] = kv.Value;
@@ -973,7 +974,7 @@ namespace gs
                     if (!nb.ContainsKey(ev.b)) nb[ev.b] = new List<int>();
                     nb[ev.a].Add(eid); nb[ev.b].Add(eid);
                 }
-                double cosCorner = Math.Cos(cornerAngleDegrees * Math.PI / 180);
+                double cosCorner = CoreMath.Cos(cornerAngleDegrees * Math.PI / 180);
                 foreach (var kv in nb) {
                     bool corner = kv.Value.Count != 2;
                     if (!corner) {
@@ -1278,7 +1279,7 @@ namespace gs
                 double el = e.Length; if (el > 0) e /= el;
                 Vector3d b = nk.Cross(e);
                 var keys = new double[nb.Count]; var ids = nb.ToArray();
-                for (int u = 0; u < ids.Length; ++u) { Vector3d d = g.Pos[ids[u]] - g.Pos[k]; keys[u] = Math.Atan2(d.Dot(b), d.Dot(e)); }
+                for (int u = 0; u < ids.Length; ++u) { Vector3d d = g.Pos[ids[u]] - g.Pos[k]; keys[u] = CoreMath.Atan2(d.Dot(b), d.Dot(e)); }
                 Array.Sort(keys, ids);
                 order[k] = ids;
             }

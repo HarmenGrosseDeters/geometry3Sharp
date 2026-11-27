@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using g3.CoreMathPort;
 using System.Collections.Generic;
 using g3;
 
@@ -134,7 +135,7 @@ namespace gs
         public Vector3d VertexDirection(int vid, int k = 0)
         {
             double a = vAngle[vid] + k * (Math.PI / 2);
-            return Math.Cos(a) * vE[vid] + Math.Sin(a) * vN[vid].Cross(vE[vid]);
+            return CoreMath.Cos(a) * vE[vid] + CoreMath.Sin(a) * vN[vid].Cross(vE[vid]);
         }
 
         /// <summary>
@@ -149,7 +150,7 @@ namespace gs
             Vector3d n = (Mesh.GetVertex(t.b) - Mesh.GetVertex(t.a)).Cross(Mesh.GetVertex(t.c) - Mesh.GetVertex(t.a));
             n /= n.Length;   // not Normalized: its absolute length threshold breaks the scale invariance
             double a = k * (Math.PI / 2);
-            return Math.Cos(a) * d + Math.Sin(a) * n.Cross(d);
+            return CoreMath.Cos(a) * d + CoreMath.Sin(a) * n.Cross(d);
         }
         /// <summary> the singularity index of face tid in units of 1/4: 0 regular, 1 for a +1/4 cone (a valence 3 point of a quad mesh), -1 for -1/4 </summary>
         public int FaceIndex(int tid) { return fIndex[tid]; }
@@ -230,7 +231,7 @@ namespace gs
             gParallel.ForRange(E, e => {     // each edge writes only its own entry
                 int a = ea[e], b = eb[e];
                 Vector3d d = pm.Pos[b] - pm.Pos[a];
-                rho[e] = Math.Atan2(-d.Dot(vB[b]), -d.Dot(vE_[b])) + Math.PI - Math.Atan2(d.Dot(vB[a]), d.Dot(vE_[a]));
+                rho[e] = CoreMath.Atan2(-d.Dot(vB[b]), -d.Dot(vE_[b])) + Math.PI - CoreMath.Atan2(d.Dot(vB[a]), d.Dot(vE_[a]));
             });
 
             // connected components of the vertices: each gets its own matrix and eigenproblem (local index loc)
@@ -251,8 +252,8 @@ namespace gs
                 Vector3d q = dir - dir.Dot(nrm[i]) * nrm[i];
                 double ql = q.Length;
                 if (!(ql > 0) || !(omega > 0)) return;
-                double th = Math.Atan2(q.Dot(vB[i]), q.Dot(vE_[i]));
-                termV.Add(i); termRe.Add(Math.Cos(Symmetry * th)); termIm.Add(Math.Sin(Symmetry * th)); termW.Add(omega); termHard.Add(hard);
+                double th = CoreMath.Atan2(q.Dot(vB[i]), q.Dot(vE_[i]));
+                termV.Add(i); termRe.Add(CoreMath.Cos(Symmetry * th)); termIm.Add(CoreMath.Sin(Symmetry * th)); termW.Add(omega); termHard.Add(hard);
             };
             HashSet<long> creaseKeys = null;
             if (AlignCreases) {
@@ -292,7 +293,7 @@ namespace gs
             for (int c = 0; c < Components; ++c) chol[c] = new SparseHermitianCholesky(compSize[c]);
             for (int e = 0; e < E; ++e) {
                 int c = comp[ea[e]], a = loc[ea[e]], b = loc[eb[e]]; double we = w[e];
-                double r = Symmetry * rho[e], cr = Math.Cos(r), sr = Math.Sin(r);
+                double r = Symmetry * rho[e], cr = CoreMath.Cos(r), sr = CoreMath.Sin(r);
                 SparseHermitianCholesky ch = chol[c];
                 ch.Add(a, a, we, 0); ch.Add(b, b, we, 0);
                 ch.Add(b, a, -we * cr, -we * sr);         // H[j,i] = -w exp(4 i rho_ij)
@@ -359,7 +360,7 @@ namespace gs
             var energy = new double[Components]; var norm = new double[Components];
             for (int e = 0; e < E; ++e) {
                 int a = ea[e], b = eb[e];
-                double r = Symmetry * rho[e], cr = Math.Cos(r), sr = Math.Sin(r);
+                double r = Symmetry * rho[e], cr = CoreMath.Cos(r), sr = CoreMath.Sin(r);
                 double dre = x[2 * b] - (cr * x[2 * a] - sr * x[2 * a + 1]), dim = x[2 * b + 1] - (sr * x[2 * a] + cr * x[2 * a + 1]);
                 energy[comp[a]] += w[e] * (dre * dre + dim * dim);
             }
@@ -373,7 +374,7 @@ namespace gs
             var phi = new double[N]; var mag = new double[N];
             for (int i = 0; i < N; ++i) {
                 int v = pm.ToVertex[i];
-                phi[i] = Math.Atan2(x[2 * i + 1], x[2 * i]) / Symmetry;
+                phi[i] = CoreMath.Atan2(x[2 * i + 1], x[2 * i]) / Symmetry;
                 mag[i] = Math.Sqrt(x[2 * i] * x[2 * i] + x[2 * i + 1] * x[2 * i + 1]);
                 vAngle[v] = phi[i]; vMag[v] = mag[i]; vN[v] = nrm[i]; vE[v] = vE_[i]; vHas[v] = true;
             }
@@ -392,7 +393,7 @@ namespace gs
                     int e = triEdge[3 * ti2 + k];
                     double r = ea[e] == i ? rho[e] : -rho[e];
                     sr += r;
-                    sd += Wrap(Math.Atan2(x[2 * j + 1], x[2 * j]) - Math.Atan2(x[2 * i + 1], x[2 * i]) - Symmetry * r);
+                    sd += Wrap(CoreMath.Atan2(x[2 * j + 1], x[2 * j]) - CoreMath.Atan2(x[2 * i + 1], x[2 * i]) - Symmetry * r);
                 }
                 fIndex[tid] = (int)Math.Round((sd + Symmetry * Wrap(sr)) / (2 * Math.PI));
                 fDir[tid] = FaceDirectionFrom(pm, ti2, t, nrm, vE_, vB, phi, mag);
@@ -498,15 +499,15 @@ namespace gs
             double re = 0, im = 0, first = 0;
             for (int k = 0; k < 3; ++k) {
                 int i = t[k];
-                Vector3d d = Math.Cos(phi[i]) * vE_[i] + Math.Sin(phi[i]) * vB[i];
+                Vector3d d = CoreMath.Cos(phi[i]) * vE_[i] + CoreMath.Sin(phi[i]) * vB[i];
                 double cs = nrm[i].Dot(fn);
                 Vector3d q = cs > -0.5 ? MeshPrincipalCurvature.Rotate(d, nrm[i], nrm[i].Cross(fn), cs) : d - d.Dot(fn) * fn;
-                double al = Math.Atan2(q.Dot(fv), q.Dot(fu));
+                double al = CoreMath.Atan2(q.Dot(fv), q.Dot(fu));
                 if (k == 0) first = al;
-                re += mag[i] * Math.Cos(Symmetry * al); im += mag[i] * Math.Sin(Symmetry * al);
+                re += mag[i] * CoreMath.Cos(Symmetry * al); im += mag[i] * CoreMath.Sin(Symmetry * al);
             }
-            double a = (re == 0 && im == 0) ? first : Math.Atan2(im, re) / Symmetry;
-            return Math.Cos(a) * fu + Math.Sin(a) * fv;
+            double a = (re == 0 && im == 0) ? first : CoreMath.Atan2(im, re) / Symmetry;
+            return CoreMath.Cos(a) * fu + CoreMath.Sin(a) * fv;
         }
 
         // the phase of a component without alignment terms, the sign of one with soft terms (t >= 0), and the scale of each

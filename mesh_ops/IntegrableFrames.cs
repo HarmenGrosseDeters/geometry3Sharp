@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using g3.CoreMathPort;
 using System.Collections.Generic;
 using g3;
 
@@ -167,7 +168,7 @@ namespace gs
             if (m == 0) return Fail(IntegrableFramesStatus.NoSolution, "no triangle without a singularity of the field");
 
             var sig = new double[n]; var phi = new double[n];
-            double maxPhi = MaxRotationDegrees * Math.PI / 180, maxSig = Math.Log(MaxSpacingRatio);
+            double maxPhi = MaxRotationDegrees * Math.PI / 180, maxSig = CoreMath.Log(MaxSpacingRatio);
             bool useRot = UseRotation && maxPhi > 0;
 
             double[] targetSig = null; bool[] hasTarget = null;
@@ -177,7 +178,7 @@ namespace gs
                 for (int i = 0; i < n; ++i) {
                     double h = SizeFunction(V[i]);
                     if (h > 0 && !double.IsInfinity(h)) {
-                        double lg = Math.Log(h / s);
+                        double lg = CoreMath.Log(h / s);
                         if (lg > maxSig || lg < -maxSig) ClampedSizeSamples++;
                         targetSig[i] = Math.Max(-maxSig, Math.Min(maxSig, lg));
                         hasTarget[i] = true;
@@ -312,7 +313,7 @@ namespace gs
             double smin = double.MaxValue, smax = double.MinValue, pmax = 0;
             for (int i = 0; i < n; ++i) {
                 int v = toVertex[i];
-                Spacing[v] = Math.Exp(sig[i]); Rotation[v] = phi[i];
+                Spacing[v] = CoreMath.Exp(sig[i]); Rotation[v] = phi[i];
                 smin = Math.Min(smin, Spacing[v]); smax = Math.Max(smax, Spacing[v]); pmax = Math.Max(pmax, Math.Abs(phi[i]));
                 if (!(Spacing[v] > 0) || double.IsInfinity(Spacing[v]) || double.IsNaN(Rotation[v])) { Spacing = null; Rotation = null; return Fail(IntegrableFramesStatus.NoSolution, "the solver left the finite range"); }
             }
@@ -341,9 +342,9 @@ namespace gs
 
         static Vector2d EdgeTerm(Vector2d a, double[] sig, double[] phi, int i, int j, bool useRot)
         {
-            double g = Math.Exp(-0.5 * (sig[i] + sig[j]));
+            double g = CoreMath.Exp(-0.5 * (sig[i] + sig[j]));
             if (!useRot) return new Vector2d(g * a.x, g * a.y);
-            double pe = 0.5 * (phi[i] + phi[j]), cs = Math.Cos(pe), sn = Math.Sin(pe);
+            double pe = 0.5 * (phi[i] + phi[j]), cs = CoreMath.Cos(pe), sn = CoreMath.Sin(pe);
             return new Vector2d(g * (cs * a.x + sn * a.y), g * (-sn * a.x + cs * a.y));      // the axes turn by +phi (PositionField.RotationAngles): the coordinates by -phi
         }
 
