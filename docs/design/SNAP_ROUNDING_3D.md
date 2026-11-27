@@ -254,6 +254,40 @@ stays within the noise). The remaining cost of the search is the enumeration of 
 hits, which no pair-level certificate touches. Not recommended as a work item; the lemma stays as a checked building
 block.
 
+Built (owner go 2026-11-22; [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md) option 1; redone on master
+2026-11-27 after the joint stage, the first branch being 1 100 commits behind) in the form that pays:
+`intersection/TriangleSeparatingAxes.cs`, the axes computed once per triangle and used in the full pair searches only
+(not in the check's reference search, not in the incremental searches; none above `int.MaxValue / 20` triangles). The
+margin is the lemma's 8u of the magnitude plus an absolute 2^-1072 for products that are subnormal (instead of scaling
+the axes or refusing small products: a triangle in a plane through the origin projects to exactly zero on its normal
+and must stay usable). The absolute term is not part of the Z3 obligations.
+
+The bound, with u = 2^-53, S = |a_x x_x| + |a_y x_y| + |a_z x_z| (the class comment has it step by step, with the
+underflow case split and the model):
+
+1. each product has one rounding, the first sum one more, the second sum one more: `|p~ - p| <= ((1+u)^3 - 1) S < 4u S`
+   (the coefficient of the first two terms is `(1+u)^2 - 1 + u (1+u)^2 = (1+u)^3 - 1`, that of the third `2u + u^2`);
+2. the magnitude `s~` is the same three products and two sums of non-negative terms: `s~ >= (1-u)^3 S`;
+3. `8u s~` is a multiplication by a power of two, exact: `m~ >= 8u (1-u)^3 S > 4u S > |p~ - p|` (`8 (1-u)^3 > 3 + 3u + u^2`);
+   the maximum of `s~` over the three corners covers each corner's own error;
+4. the interval ends are one rounding each and rounding is monotonic, so `fl(y) > fl(z)` implies `y > z`: apart in the
+   rounded values is strictly apart in the exact projections, and any vector is a valid axis;
+5. a subnormal product has an absolute error of at most `2^-1075`; with `Tiny = 2^-1072 = 8 * 2^-1075` the margin
+   still exceeds `3 (1+u)^2 2^-1075` (three products) plus the loss in `s~` and in `fl(8u s~)`: where `g + Tiny` is below
+   `2^-1021` the sum is exact; from there on the surplus of the relative margin over the relative bound,
+   `(8 (1-u)^3 - 3 - 3u - u^2) u S > (4/8) g > 2^-1023`, covers it;
+6. a value that is not finite makes `s~` infinite or NaN, so the margin is infinite or NaN and the pair is never apart
+   (`Math.Max` returns NaN for a NaN argument; no branch).
+
+No FMA (a fused product would change step 1), no `float`, no parallel loop inside the file (it is on the exact-code list of
+`.editorconfig`; the per-triangle loop is in `MeshRoundingRepair`, writes one slot per triangle and reduces nothing across
+threads). `8u` is twice what steps 1 to 3 need (`4u (1-u)^-3`): hand mutants `2u` and `4u` fail only the tests that pin the
+formula, no input was found on which they answer wrongly; `u`, `Tiny = 0` and `Tiny = 2^-1074` answer wrongly.
+
+Measured on master 2026-11-27 (rounding repair alone, minimum of 5, serial / parallel): gear_500 -41 % / -35 %, fins_400 -35 % / -32 %, 519511 -45 % / -45 %,
+1517923 -21 % / -32 %; no change where edits dominate (cyl_8000, 119829); the axes cost 75 ms serial on a control of 62 k triangles. Results
+bit-identical in every pair of runs (BooleanComparison README, "Separating axes in the rounding's full pair search (2026-11-27)").
+
 ### 5.4 Sub-linear rounding
 
 The question of problem 3 was whether rounding can be sub-linear in the result size for local edits. Answer from the
