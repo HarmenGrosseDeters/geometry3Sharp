@@ -3556,7 +3556,11 @@ namespace g3
             segmentStack = stack;
         }
 
-        // slab test of segment p-q against the box b[6 i ..] expanded by pad (conservative: pad covers the rounding)
+        // slab test of segment p-q against the box b[6 i ..] expanded by pad (conservative: pad covers the rounding).
+        // A near-parallel slab (|q - p| < 1e-300 along k, where the quotients could overflow) rejects only if both
+        // ends lie strictly outside on the same side: the segment's projection is [min, max] of the ends, so that is
+        // exact, and it leaves t unrestricted (#1673: testing p alone missed a segment whose end q is in the box;
+        // tools/Z3Pilot/interval_segment_pilots.py, segment_box, proves the rule sound)
         [MethodImpl(JitHints.Optimize)]
         static bool segment_hits(double[] b, int i, Vector3d p, Vector3d q, double pad)
         {
@@ -3565,10 +3569,21 @@ namespace g3
                 double lo = b[6 * i + k] - pad, hi = b[6 * i + 3 + k] + pad;
                 double d = q[k] - p[k];
                 if (Math.Abs(d) < 1e-300) {
-                    if (p[k] < lo || p[k] > hi) return false;
+                    if ((p[k] < lo && q[k] < lo) || (p[k] > hi && q[k] > hi)) return false;
                     continue;
                 }
-                double ta = (lo - p[k]) / d, tb = (hi - p[k]) / d;
+                double ta, tb;
+                if (double.IsInfinity(d)) {
+                    // q - p overflowed for finite ends (about 2e308 apart): the same quotients from halves, which are
+                    // exact for these magnitudes (an end near 0 that halves into the subnormal range moves by at most
+                    // 2^-1075, far below the slack); an infinite d made both 0 and culled every such segment
+                    double h = q[k] * 0.5 - p[k] * 0.5;
+                    ta = (lo * 0.5 - p[k] * 0.5) / h;
+                    tb = (hi * 0.5 - p[k] * 0.5) / h;
+                } else {
+                    ta = (lo - p[k]) / d;
+                    tb = (hi - p[k]) / d;
+                }
                 if (ta > tb) { double tmp = ta; ta = tb; tb = tmp; }
                 // widen the interval a little against rounding of the divisions
                 double slack = 1e-9 * (Math.Abs(ta) + Math.Abs(tb)) + 1e-12;

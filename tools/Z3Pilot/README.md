@@ -884,11 +884,12 @@ python3 -m unittest discover -s tools/Z3Pilot -p 'test_step_loops.py' -v
   that treats a small direction as parallel rejects an actual intersection. With one box `[1e-310,1] × [0,1]²`, the endpoints
   `(0,0.5,0.5)` and `(2e-310,0.5,0.5)`, and zero padding, a .NET 10 run returned zero
   candidates even though the second endpoint is in the box (#1673). Scaling all coordinates
-  by 2^600 gives one candidate. A candidate replacement
+  by 2^600 gives one candidate. The replacement, in the source since #1673,
   rejects a near-parallel slab only if both endpoints lie strictly outside the same side;
-  Z3 proves that rejection sound. A separate proof covers the existing finite quotient
-  and slack calculation relative to the rounded box faces. Overflow cases and the effect
-  on a complete polyhedral-envelope query remain outside these checks.
+  Z3 proves that rejection sound (the start-only rule of before is the checked mutant). A separate proof covers the existing finite quotient
+  and slack calculation relative to the rounded box faces. Overflow cases (since #1673 an
+  overflowing q - p of finite ends takes the quotients from halves; tested against a BigInteger oracle, not modelled
+  here) and the effect on a complete polyhedral-envelope query remain outside these checks.
 
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_interval_segment_pilots.py -v

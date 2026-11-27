@@ -667,6 +667,7 @@ namespace geometry3Sharp.Tests
         [InlineData("sphere")]
         [InlineData("cap")]
         [InlineData("patch")]
+        [InlineData("torus")]       // #1674: the default path repairs the crossing edges of the graph (the torus had a hole): the repair is deterministic too
         public void Result_IsTheSameSerialAndParallelAndRepeated(string name)
         {
             // small chunks: every colour is split into many parallel work items
@@ -698,16 +699,23 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> Frames() => Similarity.Names();
 
         [Theory, MemberData(nameof(Frames))]
-        public void Result_IsInvariantUnderSimilarities(string name)
+        public void Result_IsInvariantUnderSimilarities(string name) { CheckInvariantUnderSimilarity("box", name, 0.9); }
+
+        // the torus: the closed result of the repair of the crossing edges (#1674): closed (Euler characteristic 0) under every frame too
+        [Theory, MemberData(nameof(Frames))]
+        public void TorusResult_IsInvariantUnderSimilarities(string name) { CheckInvariantUnderSimilarity("torus", name, 0.85); }
+
+        static void CheckInvariantUnderSimilarity(string shape, string name, double minQuads)
         {
             Similarity sim = Similarity.ByName(name);
-            DMesh3 m = Shape("box");
-            DPolyMesh baseResult = Run("box").Result;
+            DMesh3 m = Shape(shape);
+            DPolyMesh baseResult = Run(shape).Result;
             DMesh3 t = Invariance.Transformed(m, sim);
             var cf = new CrossField(t);
             Assert.Equal(CrossFieldStatus.Success, cf.Compute());
             var qr = new QuadRemesher(t) { Field = cf, TargetEdgeLength = sim.Scale * S };
             Assert.Equal(QuadRemeshStatus.Success, qr.Compute());
+            if (shape == "torus") { PolyMeshMetrics bm = CheckResult(baseResult, "base"); Assert.Equal(0, bm.BoundaryVertices); Assert.Equal(0, bm.EulerCharacteristic); }
             if (sim.IsExact) {
                 // a power of two scale: the same polygon mesh bit for bit, scaled
                 AssertSame(baseResult, qr.Result, sim.Scale);
@@ -715,7 +723,8 @@ namespace geometry3Sharp.Tests
                 // rotations and translations change the rounding: the same kind of mesh, the same size
                 PolyMeshMetrics a = CheckResult(baseResult, "base"), b = CheckResult(qr.Result, name);
                 Assert.InRange(b.Faces, 0.9 * a.Faces, 1.1 * a.Faces);
-                Assert.True(b.QuadFraction >= 0.9, name + ": quads " + b.QuadFraction);
+                Assert.True(b.QuadFraction >= minQuads, name + ": quads " + b.QuadFraction);
+                if (shape == "torus") { Assert.Equal(0, b.BoundaryVertices); Assert.Equal(0, b.EulerCharacteristic); }
                 double h = OneSidedHausdorff(qr.Result, t);
                 Assert.True(h <= 0.5 * sim.Scale * S, name + ": Hausdorff " + h);
             }

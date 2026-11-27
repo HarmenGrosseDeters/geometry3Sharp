@@ -413,6 +413,10 @@ namespace gs
                 if (creases.Count > 0) return BuildWithCreaseRepair(g, creases, MaxFaceSides, out DroppedFaces, planarize: !SkipCrossingRepair);
             }
             DPolyMesh poly = BuildFaces(g, MaxFaceSides, out dropped);
+            PolyGraph repaired = g;
+            if (dropped > 0 && !SkipCrossingRepair) poly = TryPlanarize(g, MaxFaceSides, poly, ref dropped, out repaired);     // (g is pruned by BuildFaces: the same edges)
+            // the surface directions are applied to the graph the faces come from (the planarized one if the crossing repair was kept), so both repairs combine
+            if (dropped > 0 && !SkipCrossingRepair && !SkipSurfaceRepair) poly = SurfaceRotationRepair(repaired, Mesh, MaxFaceSides, poly, ref dropped);
             DroppedFaces = dropped;
             return poly;
         }
@@ -430,6 +434,158 @@ namespace gs
         /// </summary>
         /// <summary> (tests) off: the crossing edges of the graph are not repaired (#1674) </summary>
         internal bool SkipCrossingRepair;
+        /// <summary>Test switch: no surface-direction repair of the neighbour order at folds (see <see cref="SurfaceRotationRepair"/>); <see cref="SkipCrossingRepair"/> = true switches it off too.</summary>
+        internal bool SkipSurfaceRepair;
+        // bounds of the surface-direction repair (issue 1689), worst case measured on the 72 shape sweep in the tests: a path of at most
+        // SurfaceMaxTriangles triangles per neighbour, a Dijkstra that expands at most SurfaceMaxExpanded triangles; only loops of up to SurfaceMaxLoop
+        // vertices are repaired (the figure-8 loops measured are 7 to 12 long; the outer loop of an open input is long and always dropped) and at most
+        // SurfaceMaxVertices vertices on them (an input with many folds: the repair is skipped, the cost stays bounded)
+        const int SurfaceMaxTriangles = 24, SurfaceMaxExpanded = 400, SurfaceMaxLoop = 32, SurfaceMaxVertices = 256;
+
+        // The angle at p of the direction towards q along the surface of mesh: the triangles of a shortest triangle path (by centroid
+        // distances) from the triangle nearest p to the one nearest q are unfolded into the plane of the first, counter-clockwise about its
+        // normal; NaN if there is no path within the bounds. Unlike the tangent plane of one vertex normal this is the same for both ends of a link
+        // at a fold, so the rotation systems of the vertices agree there (the cause of the figure-8 loops of 1689).
+
+        internal static double SurfaceAngle(DMesh3 mesh, DMeshAABBTree3 tree, int tp, Vector3d p, Vector3d q, int maxTris = SurfaceMaxTriangles)
+        {
+            int tq = tree.FindNearestTriangle(q);
+            if (tp < 0 || tq < 0) return double.NaN;
+            var prev = new Dictionary<int, int>(); var dist = new Dictionary<int, double>(); var done = new HashSet<int>();
+            var open = new SortedSet<(double, int)>(); dist[tp] = 0; open.Add((0, tp)); prev[tp] = -1;
+            int expanded = 0;
+            while (open.Count > 0) {
+                var (d, t) = open.Min; open.Remove(open.Min);
+                if (!done.Add(t)) continue;
+                if (t == tq) break;
+                if (++expanded > SurfaceMaxExpanded) return double.NaN;
+                Vector3d ct = mesh.GetTriCentroid(t);
+                Index3i nbs = mesh.GetTriNeighbourTris(t);
+                for (int i = 0; i < 3; ++i) {
+                    int nb = nbs[i];
+                    if (nb < 0 || done.Contains(nb)) continue;
+                    double nd = d + (mesh.GetTriCentroid(nb) - ct).Length;
+                    double od;
+                    if (!dist.TryGetValue(nb, out od) || nd < od) { dist[nb] = nd; prev[nb] = t; open.Add((nd, nb)); }
+                }
+            }
+            if (!done.Contains(tq)) return double.NaN;
+            var path = new List<int>(); for (int t = tq; t >= 0; t = prev[t]) path.Add(t); path.Reverse();
+            if (path.Count > maxTris) return double.NaN;
+            var pos2 = new Dictionary<int, Vector2d>();
+            Index3i t0 = mesh.GetTriangle(path[0]);
+            Vector3d a3 = mesh.GetVertex(t0.a), b3 = mesh.GetVertex(t0.b), c3 = mesh.GetVertex(t0.c);
+            Vector3d e1 = (b3 - a3).Normalized, n = (b3 - a3).Cross(c3 - a3).Normalized, e2 = n.Cross(e1);
+            pos2[t0.a] = Vector2d.Zero; pos2[t0.b] = new Vector2d((b3 - a3).Dot(e1), (b3 - a3).Dot(e2)); pos2[t0.c] = new Vector2d((c3 - a3).Dot(e1), (c3 - a3).Dot(e2));
+            Vector2d p2 = Bary(path[0], p);        // (before the other triangles are placed: a vertex of the first triangle can be placed again)
+            for (int k = 1; k < path.Count; ++k) {
+                Index3i tprev = mesh.GetTriangle(path[k - 1]), tcur = mesh.GetTriangle(path[k]);
+                int pv = -1, qv = -1, rv = -1, sv = -1;
+                for (int i = 0; i < 3; ++i) { if (tcur[i] == tprev.a || tcur[i] == tprev.b || tcur[i] == tprev.c) { if (pv < 0) pv = tcur[i]; else qv = tcur[i]; } else rv = tcur[i]; }
+                for (int i = 0; i < 3; ++i) if (tprev[i] != pv && tprev[i] != qv) sv = tprev[i];
+                if (pv < 0 || qv < 0 || rv < 0 || sv < 0) return double.NaN;
+                Vector2d P = pos2[pv], Q = pos2[qv], S = pos2[sv];
+                double lpr = (mesh.GetVertex(pv) - mesh.GetVertex(rv)).Length, lqr = (mesh.GetVertex(qv) - mesh.GetVertex(rv)).Length;
+                Vector2d pq = Q - P; double dd = pq.Length; if (dd == 0) return double.NaN;
+                double x = (lpr * lpr - lqr * lqr + dd * dd) / (2 * dd); double y2 = lpr * lpr - x * x; double y = y2 > 0 ? Math.Sqrt(y2) : 0;
+                Vector2d ex = pq / dd, ey = new Vector2d(-ex.y, ex.x);
+                double side = Math.Sign(ex.x * (S - P).y - ex.y * (S - P).x);
+                if (side == 0) return double.NaN;                  // a degenerate triangle: no side to unfold to
+                pos2[rv] = P + x * ex + (side > 0 ? -y : y) * ey;
+            }
+            Vector2d Bary(int tid, Vector3d pt)
+            {
+                var dq = MeshQueries.TriangleDistance(mesh, tid, pt); Vector3d bc = dq.TriangleBaryCoords; Index3i tt = mesh.GetTriangle(tid);
+                return bc.x * pos2[tt.a] + bc.y * pos2[tt.b] + bc.z * pos2[tt.c];
+            }
+            Vector2d q2 = Bary(path[path.Count - 1], q);
+            Vector2d dv = q2 - p2; if (dv.LengthSquared == 0) return double.NaN;
+            return Math.Atan2(dv.y, dv.x);
+        }
+
+        // Rebuilds the faces of g with the neighbour order from surface directions at the vertices of the loops that BuildFaces drops for
+        // their length (up to SurfaceMaxLoop) or a repeated vertex, and keeps the result only if it drops strictly fewer faces, has no more boundary
+        // edges and no face with a repeated vertex (one pass: more rounds changed none of the default configurations of the tests); nothing is
+        // changed if no face is dropped, or if a vertex has a neighbour that cannot be reached within the bounds (its order stays).
+        internal static DPolyMesh SurfaceRotationRepair(PolyGraph g, DMesh3 mesh, int maxSides, DPolyMesh current, ref int dropped)
+        {
+            if (dropped <= 0) return current;
+            HashSet<int> bad = BadLoopVertices(CopyGraph(g), maxSides, null, SurfaceMaxLoop);
+            if (!SurfaceRepairApplies(bad.Count)) return current;
+            Dictionary<int, int[]> rot = SurfaceRotations(g, mesh, bad);
+            if (rot.Count == 0) return current;
+            int d; DPolyMesh r = BuildFaces(CopyGraph(g), maxSides, out d, rot);
+            if (d < dropped && HasNoRepeatedVertex(r) && BoundaryEdgeCount(r) <= BoundaryEdgeCount(current)) { dropped = d; return r; }
+            return current;
+        }
+
+        /// <summary> the neighbours of each of the vertices ordered by their direction along the surface; a vertex with a neighbour out of reach has no entry </summary>
+        internal static Dictionary<int, int[]> SurfaceRotations(PolyGraph g, DMesh3 mesh, IEnumerable<int> vertices)
+        {
+            var tree = new DMeshAABBTree3(mesh, true);
+            var rot = new Dictionary<int, int[]>();
+            foreach (int v in vertices) {
+                var nb = g.Adj[v]; var keys = new double[nb.Count]; var ids = nb.ToArray(); bool ok = true;
+                int tp = tree.FindNearestTriangle(g.Pos[v]);
+                for (int i = 0; i < ids.Length; ++i) { keys[i] = SurfaceAngle(mesh, tree, tp, g.Pos[v], g.Pos[ids[i]]); if (double.IsNaN(keys[i])) { ok = false; break; } }
+                if (!ok) continue;
+                Array.Sort(keys, ids); rot[v] = ids;
+            }
+            return rot;
+        }
+
+        /// <summary> the repair works on some bad vertices, but not on more than SurfaceMaxVertices (an input with many folds: the cost stays bounded) </summary>
+        internal static bool SurfaceRepairApplies(int badVertices) { return badVertices > 0 && badVertices <= SurfaceMaxVertices; }
+
+        internal static bool HasNoRepeatedVertex(DPolyMesh m)
+        {
+            for (int f = 0; f < m.FaceCount; ++f) {
+                int a = m.FaceOffsets[f], b = m.FaceOffsets[f + 1];
+                for (int i = a; i < b; ++i) for (int j = i + 1; j < b; ++j) if (m.FaceIndices[i] == m.FaceIndices[j]) return false;
+            }
+            return true;
+        }
+
+        /// <summary> the number of edges that belong to one face only </summary>
+        internal static int BoundaryEdgeCount(DPolyMesh m)
+        {
+            var count = new Dictionary<long, int>();
+            for (int f = 0; f < m.FaceCount; ++f) {
+                int a = m.FaceOffsets[f], b = m.FaceOffsets[f + 1];
+                for (int i = a; i < b; ++i) {
+                    int u = m.FaceIndices[i], v = m.FaceIndices[i + 1 < b ? i + 1 : a];
+                    long key = u < v ? ((long)u << 32) | (uint)v : ((long)v << 32) | (uint)u;
+                    int c; count.TryGetValue(key, out c); count[key] = c + 1;
+                }
+            }
+            return count.Values.Count(c => c == 1);
+        }
+
+        internal static HashSet<int> BadLoopVertices(PolyGraph g, int maxSides, Dictionary<int, int[]> rot, int maxLoop = int.MaxValue)
+        {
+            PruneDangling(g);
+            int nv = g.Pos.Count; var order = new int[nv][];
+            for (int k = 0; k < nv; ++k) {
+                List<int> nb = g.Adj[k];
+                if (nb.Count == 0) { order[k] = new int[0]; continue; }
+                Vector3d nk = g.Nrm[k];
+                Vector3d d0 = g.Pos[nb[0]] - g.Pos[k]; Vector3d e = d0 - d0.Dot(nk) * nk; double el = e.Length; if (el > 0) e /= el;
+                Vector3d b = nk.Cross(e); var keys = new double[nb.Count]; var ids = nb.ToArray();
+                for (int u = 0; u < ids.Length; ++u) { Vector3d d = g.Pos[ids[u]] - g.Pos[k]; keys[u] = Math.Atan2(d.Dot(b), d.Dot(e)); }
+                Array.Sort(keys, ids); order[k] = ids;
+            }
+            if (rot != null) foreach (var kv in rot) if (kv.Key < nv && kv.Value.Length == order[kv.Key].Length) order[kv.Key] = kv.Value;
+            var res = new HashSet<int>();
+            var used = new bool[nv][]; for (int k = 0; k < nv; ++k) used[k] = new bool[order[k].Length];
+            for (int u = 0; u < nv; ++u)
+                for (int s0 = 0; s0 < order[u].Length; ++s0) {
+                    if (used[u][s0]) continue;
+                    var face = new List<int>(); int a = u, sa = s0;
+                    while (!used[a][sa]) { used[a][sa] = true; face.Add(a); int bb = order[a][sa]; int r = Array.IndexOf(order[bb], a); int sb = (r - 1 + order[bb].Length) % order[bb].Length; a = bb; sa = sb; if (face.Count > 4 * maxSides + 64) break; }
+                    if (a == u && sa == s0 && face.Count <= maxLoop && (face.Count > maxSides || new HashSet<int>(face).Count < face.Count)) foreach (int v in face) res.Add(v);
+                }
+            return res;
+        }
 
         internal static DPolyMesh BuildWithCreaseRepair(PolyGraph g, CreaseIndex creases, int maxSides, out int droppedFaces, double splitBudget = CreaseSplitBudget, bool planarize = true)
         {
@@ -453,26 +609,56 @@ namespace gs
             }
             // an input without a hole must not get one: edges that cross each other make the faces of the extraction fold (issue #1674)
             if (planarize && droppedFaces > 0) {
-                result = TryPlanarize(resultGraph, maxSides, result, ref droppedFaces);
-                // the graphs of the other results, if they are not the one tried (the splits changed g after the repaired result was built)
-                if (droppedFaces > 0 && repairedGraph != null && repairedGraph != resultGraph && repairedGraph != g) result = TryPlanarize(repairedGraph, maxSides, result, ref droppedFaces);
-                if (droppedFaces > 0 && plainGraph != resultGraph) result = TryPlanarize(plainGraph, maxSides, result, ref droppedFaces);
+                // the chosen graph first, then the graphs of the other results, if they are not the one tried (the splits changed g after the repaired result was built)
+                result = TryPlanarize(CandidateGraphs(resultGraph, repairedGraph, g, plainGraph), maxSides, result, ref droppedFaces);
             }
             return result;
+        }
+
+        /// <summary>
+        /// The graphs whose crossing edges are repaired, in order: the one the result was built from, then the repaired graph (null: it was not copied;
+        /// the same as the graph the splits changed, g: it is not the state the repaired result was built from) and the plain graph, each if it is not one
+        /// of those before it.
+        /// </summary>
+        internal static List<PolyGraph> CandidateGraphs(PolyGraph resultGraph, PolyGraph repairedGraph, PolyGraph splitGraph, PolyGraph plainGraph)
+        {
+            var graphs = new List<PolyGraph> { resultGraph };
+            if (repairedGraph != null && repairedGraph != resultGraph && repairedGraph != splitGraph) graphs.Add(repairedGraph);
+            if (plainGraph != resultGraph) graphs.Add(plainGraph);
+            return graphs;
+        }
+
+        /// <summary> TryPlanarize of each graph in turn until no face is dropped (each improvement is the result the next is compared with) </summary>
+        internal static DPolyMesh TryPlanarize(IList<PolyGraph> graphs, int maxSides, DPolyMesh current, ref int dropped)
+        {
+            foreach (PolyGraph graph in graphs) {
+                if (dropped == 0) break;
+                current = TryPlanarize(graph, maxSides, current, ref dropped);
+            }
+            return current;
         }
 
         /// <summary>
         /// The faces of a copy of the graph without its crossing edges (RemoveCrossings), kept only if fewer faces are dropped than in the
         /// result so far (current, with dropped faces); else current.
         /// </summary>
-        static DPolyMesh TryPlanarize(PolyGraph graph, int maxSides, DPolyMesh current, ref int dropped)
+        internal static DPolyMesh TryPlanarize(PolyGraph graph, int maxSides, DPolyMesh current, ref int dropped)
         {
+            PolyGraph used;
+            return TryPlanarize(graph, maxSides, current, ref dropped, out used);
+        }
+
+        /// <summary> as above; used is the graph the returned faces were built from: the planarized copy if it was kept, else graph </summary>
+        internal static DPolyMesh TryPlanarize(PolyGraph graph, int maxSides, DPolyMesh current, ref int dropped, out PolyGraph used)
+        {
+            used = graph;
             PolyGraph c = CopyGraph(graph);
             if (RemoveCrossings(c) == 0) return current;
             int d;
             DPolyMesh r = BuildFaces(c, maxSides, out d);
             if (d >= dropped) return current;
             dropped = d;
+            used = c;
             return r;
         }
 
@@ -559,7 +745,7 @@ namespace gs
             return (x - y).Length <= near;
         }
 
-        static PolyGraph CopyGraph(PolyGraph g)
+        internal static PolyGraph CopyGraph(PolyGraph g)
         {
             var c = new PolyGraph();
             for (int i = 0; i < g.Pos.Count; ++i) { c.Add(g.Pos[i], g.Nrm[i], g.Kind[i]); c.Spc[i] = g.Spc[i]; }
@@ -891,7 +1077,7 @@ namespace gs
         /// face away from the normals (the outer loops of an open graph, folded faces) and faces with more than maxSides sides are
         /// dropped (counted in dropped). Dangling edges are pruned first. Vertices without a face are not in the result.
         /// </summary>
-        internal static DPolyMesh BuildFaces(PolyGraph g, int maxSides, out int dropped)
+        internal static DPolyMesh BuildFaces(PolyGraph g, int maxSides, out int dropped, Dictionary<int, int[]> rotations = null)
         {
             PruneDangling(g);
             int nv = g.Pos.Count;
@@ -909,6 +1095,7 @@ namespace gs
                 Array.Sort(keys, ids);
                 order[k] = ids;
             }
+            if (rotations != null) foreach (var kv in rotations) if (kv.Key < nv && kv.Value.Length == order[kv.Key].Length) order[kv.Key] = kv.Value;
             var used = new bool[nv][];
             for (int k = 0; k < nv; ++k) used[k] = new bool[order[k].Length];
             var faces = new List<int[]>();
