@@ -29,8 +29,12 @@ namespace gs
 
         /// <summary> reference triangles that could not be certified at the start (left out of the invariant) </summary>
         internal int Uncovered;
+        /// <summary> sub-triangles per certificate at most (a cost bound; beyond it the certificate refuses) </summary>
+        internal readonly int MaxPieces;
         /// <summary> (tests) certificates made and operations refused </summary>
         internal long Certified, Refused;
+        /// <summary> (benchmarks) seconds in the start certificates and in Check </summary>
+        internal double InitSeconds, CheckSeconds;
 
         // the pending operation of the last accepted Check
         readonly List<int> affected = new List<int>();
@@ -42,8 +46,10 @@ namespace gs
         /// grid: the mesh's triangles by their boxes (the self-intersection grid of the pass); candidates of T are the
         /// mesh triangles whose box meets T's box grown by eps
         /// </summary>
-        internal RemeshQualityCoverage(DMesh3 reference, DMesh3 mesh, TriangleHashGrid grid, double eps, int maxDepth)
+        internal RemeshQualityCoverage(DMesh3 reference, DMesh3 mesh, TriangleHashGrid grid, double eps, int maxDepth, int maxPieces = 256)
         {
+            MaxPieces = maxPieces;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             Eps = eps;
             this.maxDepth = maxDepth;
             int n = reference.MaxTriangleID;
@@ -66,7 +72,7 @@ namespace gs
                     tris.Add(new Triangle3d(x, y, z));
                 }
                 Certified++;
-                if (ids.Count == 0 || !ReducerReverseCoverage.Within(a, b, c, tris, eps, maxDepth, used)) {
+                if (ids.Count == 0 || !Within(a, b, c, tris, eps, maxDepth, MaxPieces, used)) {
                     Uncovered++;
                     continue;
                 }
@@ -74,6 +80,7 @@ namespace gs
                 foreach (int m in deps[t])
                     dependents_of(m, true).Add(t);
             }
+            InitSeconds = sw.Elapsed.TotalSeconds;
         }
 
         HashSet<int> dependents_of(int m, bool create)
@@ -107,6 +114,12 @@ namespace gs
         /// </summary>
         internal bool Check(DMesh3 mesh, HashSet<int> removed, List<Triangle3d> newTris)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try { return check(mesh, removed, newTris); } finally { CheckSeconds += sw.Elapsed.TotalSeconds; }
+        }
+
+        bool check(DMesh3 mesh, HashSet<int> removed, List<Triangle3d> newTris)
+        {
             pendingRemoved = null;
             affected.Clear(); newDeps.Clear(); usesNew.Clear();
             var seen = new HashSet<int>();
@@ -130,7 +143,7 @@ namespace gs
                 }
                 tris.AddRange(newTris);
                 Certified++;
-                if (!ReducerReverseCoverage.Within(corners[3 * T], corners[3 * T + 1], corners[3 * T + 2], tris, Eps, maxDepth, used)) {
+                if (!Within(corners[3 * T], corners[3 * T + 1], corners[3 * T + 2], tris, Eps, maxDepth, MaxPieces, used)) {
                     Refused++;
                     affected.Clear(); newDeps.Clear(); usesNew.Clear();
                     return false;
@@ -180,6 +193,100 @@ namespace gs
             }
             affected.Clear(); newDeps.Clear(); usesNew.Clear();
             pendingRemoved = null;
+        }
+
+        /// <summary>
+        /// is every point of the triangle (p0, p1, p2) within eps of the union of tris? The certificate of
+        /// ReducerReverseCoverage.Within (a triangle is accepted if one candidate holds all its corners within eps, the
+        /// distance to one triangle being convex; or if its largest corner distance plus its covering radius is within eps;
+        /// else it is split into 4, up to maxDepth levels; a corner farther than eps from every candidate refuses), visited
+        /// breadth first: every sub-triangle of a level is tested before any of the next, so a corner outside the band is
+        /// found at the coarsest level that has one, not after the covered parts were refined to the bottom. The answer is
+        /// the same as the depth-first one (both accept exactly when every leaf of the same subdivision is accepted, and
+        /// refuse otherwise); used gets the indices into tris the certificate relied on, possibly with repeats.
+        /// </summary>
+        internal static bool Within(Vector3d p0, Vector3d p1, Vector3d p2, List<Triangle3d> tris, double eps, int maxDepth, List<int> used)
+        {
+            return Within(p0, p1, p2, tris, eps, maxDepth, int.MaxValue, used);
+        }
+
+        /// <summary> Within with at most maxPieces sub-triangles in all (refused beyond: conservative, a cost bound) </summary>
+        internal static bool Within(Vector3d p0, Vector3d p1, Vector3d p2, List<Triangle3d> tris, double eps, int maxDepth, int maxPieces, List<int> used)
+        {
+            int pieces = 1;
+            int n = tris.Count;
+            if (n == 0) return false;
+            var level = new List<(Vector3d a, Vector3d b, Vector3d c, double[] da, double[] db, double[] dc)> {
+                (p0, p1, p2, distances(p0, tris), distances(p1, tris), distances(p2, tris)) };
+            var next = new List<(Vector3d a, Vector3d b, Vector3d c, double[] da, double[] db, double[] dc)>();
+            var mids = new Dictionary<Vector3d, double[]>();
+            for (int depth = 0; ; ++depth) {
+                // the corners first: any one outside the band refuses
+                foreach (var s in level)
+                    if (!(min(s.da) <= eps) || !(min(s.db) <= eps) || !(min(s.dc) <= eps))
+                        return false;
+                next.Clear();
+                foreach (var s in level) {
+                    int k = one_holds_all(s.da, s.db, s.dc, eps);
+                    if (k >= 0) { used.Add(k); continue; }
+                    int i0 = argmin(s.da), i1 = argmin(s.db), i2 = argmin(s.dc);
+                    double dmax = Math.Max(s.da[i0], Math.Max(s.db[i1], s.dc[i2]));
+                    if (dmax + TriangleDeviationBounds.covering_radius(s.a.Distance(s.b), s.b.Distance(s.c), s.c.Distance(s.a)) <= eps) {
+                        used.Add(i0); used.Add(i1); used.Add(i2);
+                        continue;
+                    }
+                    if (depth >= maxDepth || (pieces += 4) > maxPieces) return false;
+                    Vector3d m01 = 0.5 * (s.a + s.b), m12 = 0.5 * (s.b + s.c), m20 = 0.5 * (s.c + s.a);
+                    double[] e0 = mid(m01, tris, mids), e1 = mid(m12, tris, mids), e2 = mid(m20, tris, mids);
+                    next.Add((s.a, m01, m20, s.da, e0, e2));
+                    next.Add((m01, s.b, m12, e0, s.db, e1));
+                    next.Add((m20, m12, s.c, e2, e1, s.dc));
+                    next.Add((m01, m12, m20, e0, e1, e2));
+                }
+                if (next.Count == 0) return true;
+                var t = level; level = next; next = t;
+                mids.Clear();
+            }
+        }
+
+        // (an edge midpoint shared by two sub-triangles of one level: its distances once)
+        static double[] mid(Vector3d p, List<Triangle3d> tris, Dictionary<Vector3d, double[]> cache)
+        {
+            double[] d;
+            if (!cache.TryGetValue(p, out d)) cache[p] = d = distances(p, tris);
+            return d;
+        }
+
+        static int one_holds_all(double[] d0, double[] d1, double[] d2, double eps)
+        {
+            for (int k = 0; k < d0.Length; ++k)
+                if (Math.Max(d0[k], Math.Max(d1[k], d2[k])) <= eps) return k;
+            return -1;
+        }
+
+        static double[] distances(Vector3d p, List<Triangle3d> tris)
+        {
+            var d = new double[tris.Count];
+            for (int k = 0; k < d.Length; ++k) {
+                Triangle3d t = tris[k];
+                d[k] = Math.Sqrt(DistPoint3Triangle3.DistanceSqr(ref p, ref t, out Vector3d _, out Vector3d _));
+            }
+            return d;
+        }
+
+        static double min(double[] d)
+        {
+            double m = double.PositiveInfinity;
+            for (int k = 0; k < d.Length; ++k) if (!(d[k] >= m)) m = d[k];
+            return m;
+        }
+
+        static int argmin(double[] d)
+        {
+            int best = 0;
+            for (int k = 1; k < d.Length; ++k)
+                if (d[k] < d[best]) best = k;
+            return best;
         }
     }
 }

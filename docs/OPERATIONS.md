@@ -45,6 +45,7 @@ A task-oriented index of geometry3Sharp operations: which guide to read, which c
 | Rebuild soup / broken mesh as closed solid | `gs.MeshWindingNumberSolidify`, `gs.MeshWindingNumberBoolean` | [Repair & Wrapping](guides/repair-and-wrapping.md) | [WindingNumberSolidifyExample](examples/WindingNumberSolidifyExample.cs) |
 | Alpha wrapping & clearance-certified passage wrapping | `gs.MeshAlphaWrap`, `gs.PassageWrap` | [Repair & Wrapping](guides/repair-and-wrapping.md) | [AlphaWrapExample](examples/AlphaWrapExample.cs) |
 | Isotropic triangle remeshing | `Remesher`, `gs.RemesherPro`, `MeshConstraintUtil`, `MeshProjectionTarget` | [Remeshing](guides/remeshing-and-deformation.md) | [RemeshExample](examples/RemeshExample.cs) |
+| Worst-first quality post-pass after a remesh (min angle never lower, certified band) | `gs.RemeshQualityPass`, `gs.RemeshQualityResult` | [Remeshing](guides/remeshing-and-deformation.md) | [RemeshQualityExample](examples/RemeshQualityExample.cs) |
 | Simplification with certified deviation & envelopes | `Reducer`, `gs.PartitionedReducer`, `gs.MeshEnvelope` | [Remeshing](guides/remeshing-and-deformation.md) | [SimplificationExample](examples/SimplificationExample.cs) |
 | Quad-dominant & pure-quad remeshing | `gs.QuadRemesher`, `DPolyMesh`, `PolyMeshIO` | [Remeshing](guides/remeshing-and-deformation.md) | [QuadRemeshExample](examples/QuadRemeshExample.cs) |
 | Surface smoothing | `MeshIterativeSmooth`, `LaplacianMeshSmoother` | [Remeshing](guides/remeshing-and-deformation.md) | [SmoothingExample](examples/SmoothingExample.cs) |

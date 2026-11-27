@@ -22,28 +22,39 @@ namespace gs
     public class RemeshQualityResult
     {
         public RemeshQualityStatus Status;
-        /// <summary> the smallest angle of the mesh, and the smallest angle at the 1 % rank (TriangleQualityStatistics), before and after </summary>
-        public double MinAngleBefore, MinAngleAfter, Worst1PercentBefore, Worst1PercentAfter;
-        public int TrianglesBefore, TrianglesAfter;
-        public int Flips, Collapses, Splits, Relocations;
-        /// <summary> the crease operations (Wang et al. 2019): crease vertices moved along their crease, crease edges split, crease vertices removed </summary>
-        public int CreaseRelocations, CreaseSplits, CreaseCollapses;
-        /// <summary> candidate operations refused by the band (mesh to reference), the crease band, the coverage (reference to mesh, TwoSided) and the exact self-intersection test </summary>
-        public int RejectedByBand, RejectedByCrease, RejectedByCoverage, RejectedByIntersection;
-        public int Passes;
         /// <summary>
-        /// the band every triangle the pass made is certified to lie in: MaxDeviation (mesh to reference); with TwoSided
-        /// the reference triangles that were within it of the mesh at the start still are (CoveredReference)
+        /// the smallest angle of the mesh (from atan2, independent of the corner order: the measure the pass keeps from
+        /// dropping), and the smallest angle at the 1 % rank (TriangleQualityStatistics), before and after
+        /// </summary>
+        public double MinAngleBefore, MinAngleAfter, Worst1PercentBefore, Worst1PercentAfter;
+        /// <summary> operations made: edge flips, needle collapses, splits of non-crease edges, vertex relocations (crease vertices along their crease included) </summary>
+        public int Flips, Collapses, Splits, Relocations;
+        /// <summary> the crease operations of Wang et al. 2019: crease edges split (a vertex inserted on the crease), crease vertices removed (collapsed along the crease) </summary>
+        public int CreaseInsertions, CreaseRemovals;
+        /// <summary>
+        /// candidate operations refused: by the band (a new triangle not certified within MaxDeviation of the reference, a
+        /// new crease edge not within it of the reference's creases, or with TwoSided a reference triangle no longer within
+        /// it of the mesh), by the exact self-intersection test, and by the angle rule (no gain of the smallest angle, a
+        /// degenerate or turned triangle)
+        /// </summary>
+        public int RejectedByBand, RejectedByIntersection, RejectedByAngle;
+        /// <summary>
+        /// MaxDeviation: every triangle the pass made is certified within it of the reference, every crease edge it made
+        /// within it of the reference's creases, and with TwoSided every reference triangle that was within it of the mesh at
+        /// the start still is (floating point, as Reducer.MaxDeviation)
         /// </summary>
         public double CertifiedBand;
-        public bool TwoSided;
-        /// <summary> triangles of the result not certified within the band: triangles the pass did not change that were outside it at the start </summary>
-        public int UncertifiedTriangles;
+        /// <summary> the start mesh was within CertifiedBand (every triangle certified; with TwoSided, every reference triangle covered) </summary>
+        public bool StartWithinBand;
+        /// <summary> the result is within CertifiedBand (every triangle certified; with TwoSided, every reference triangle covered) </summary>
+        public bool ResultWithinBand;
+
+        // (tests, benchmarks) details
+        internal int TrianglesBefore, TrianglesAfter, Passes, CreaseRelocations, RejectedByCrease, RejectedByCoverage;
+        /// <summary> triangles of the start / result not certified within the band (the result's: unchanged triangles outside it at the start) </summary>
+        internal int StartUncertifiedTriangles, UncertifiedTriangles;
         /// <summary> TwoSided: reference triangles not certified within the band of the mesh at the start (the pass keeps no promise for them) </summary>
-        public int UncoveredReferenceTriangles;
-        /// <summary> every triangle of the result within CertifiedBand of the reference and, with TwoSided, every reference triangle within it of the result </summary>
-        public bool ResultWithinBand { get { return UncertifiedTriangles == 0 && (!TwoSided || UncoveredReferenceTriangles == 0); } }
-        public string Message = "";
+        internal int UncoveredReferenceTriangles;
     }
 
     /// <summary>
@@ -74,8 +85,8 @@ namespace gs
     /// </summary>
     public class RemeshQualityPass
     {
-        public DMesh3 Mesh { get; private set; }
-        public DMesh3 Reference { get; private set; }
+        internal DMesh3 Mesh { get; private set; }
+        internal DMesh3 Reference { get; private set; }
 
         /// <summary> the band (absolute, in the mesh's units): required, positive </summary>
         public double MaxDeviation = 0;
@@ -84,23 +95,23 @@ namespace gs
         /// <summary> triangles with a smaller smallest angle are improved </summary>
         public double TargetMinAngleDegrees = 30;
         /// <summary> the smallest gain of an operation (stops cycling) </summary>
-        public double MinGainDegrees = 0.1;
-        public double MaxNormalTurnDegrees = 30;
+        internal double MinGainDegrees = 0.1;
+        internal double MaxNormalTurnDegrees = 30;
         /// <summary> creases: edges whose triangles meet at a larger angle (on the mesh and on the reference) </summary>
         public double CreaseAngleDegrees = 30;
         /// <summary> a crease vertex whose crease turns by more than this keeps its position </summary>
-        public double CornerAngleDegrees = 45;
+        internal double CornerAngleDegrees = 45;
         /// <summary>
         /// keep the crease vertices with other than two crease edges or a turn above CornerAngleDegrees (corners, junctions,
         /// ends of crease spans) at their position; false: they move too, along the reference's creases, each of their
         /// crease edges kept within MaxDeviation of them
         /// </summary>
-        public bool PinCreaseCorners = true;
+        internal bool PinCreaseCorners = true;
         /// <summary>
         /// allow collapsing an edge between two creases (a needle across a narrow strip): the creases join at the kept
         /// vertex, every crease edge kept within MaxDeviation of the reference's creases
         /// </summary>
-        public bool MergeCreases = false;
+        internal bool MergeCreases = false;
         /// <summary> the Remesher's constraints (optional): constrained edges are the creases, Fixed vertices keep their position </summary>
         public MeshConstraints Constraints = null;
         public bool PreventSelfIntersections = true;
@@ -108,12 +119,16 @@ namespace gs
         /// <summary> the crease operations (relocation, split and collapse along creases); off: crease vertices keep their position </summary>
         public bool EnableCreaseOperations = true;
         /// <summary> triangles with a larger largest angle are split </summary>
-        public double SplitCapsAboveDegrees = 120;
+        internal double SplitCapsAboveDegrees = 120;
         /// <summary> at most this many more triangles (relative) than at the start of Compute </summary>
         public double MaxTriangleGrowth = 0.1;
         public int MaxPasses = 10;
         /// <summary> subdivision depth of the band certificates </summary>
-        public int MaxDeviationDepth = 10;
+        internal int MaxDeviationDepth = 10;
+        /// <summary> subdivision depth of the coverage certificates (TwoSided) </summary>
+        internal int CoverageDepth = 10;
+        /// <summary> sub-triangles per coverage certificate at most (TwoSided; a cost bound) </summary>
+        internal int CoveragePieces = 256;
         public Func<bool> CancelF = () => false;
 
         public RemeshQualityPass(DMesh3 mesh, DMesh3 reference)
@@ -141,17 +156,20 @@ namespace gs
         /// <summary> improves Mesh in place </summary>
         public RemeshQualityResult Compute()
         {
-            res = new RemeshQualityResult() { CertifiedBand = MaxDeviation, TwoSided = TwoSided };
+            res = new RemeshQualityResult() { CertifiedBand = MaxDeviation };
             if (!(MaxDeviation > 0) || double.IsInfinity(MaxDeviation) || Mesh == null || Reference == null || Mesh.TriangleCount == 0 || Reference.TriangleCount == 0
                 || !finite(Mesh) || !finite(Reference)) {
                 res.Status = RemeshQualityStatus.InvalidInput;
-                res.Message = "MaxDeviation must be positive and finite, mesh and reference non-empty and finite";
                 return res;
             }
             var before = TriangleQualityStatistics.Compute(Mesh);
             res.TrianglesBefore = Mesh.TriangleCount;
-            res.MinAngleBefore = before.MinAngle.Worst; res.Worst1PercentBefore = before.MinAngle.Worst1Percent;
+            res.MinAngleBefore = mesh_min_angle(); res.Worst1PercentBefore = before.MinAngle.Worst1Percent;
             Prepare();
+            foreach (int t in Mesh.TriangleIndices())
+                if (!certified[t]) res.StartUncertifiedTriangles++;
+            res.UncoveredReferenceTriangles = coverage != null ? coverage.Uncovered : 0;
+            res.StartWithinBand = res.StartUncertifiedTriangles == 0 && res.UncoveredReferenceTriangles == 0;
             bool cancelled = false;
             for (int pass = 0; pass < MaxPasses && !cancelled; ++pass) {
                 int n0 = operations();
@@ -163,18 +181,25 @@ namespace gs
             }
             var after = TriangleQualityStatistics.Compute(Mesh);
             res.TrianglesAfter = Mesh.TriangleCount;
-            res.MinAngleAfter = after.MinAngle.Worst; res.Worst1PercentAfter = after.MinAngle.Worst1Percent;
+            res.MinAngleAfter = mesh_min_angle(); res.Worst1PercentAfter = after.MinAngle.Worst1Percent;
             res.UncertifiedTriangles = 0;
             foreach (int t in Mesh.TriangleIndices())
                 if (!certified[t]) res.UncertifiedTriangles++;
-            res.UncoveredReferenceTriangles = coverage != null ? coverage.Uncovered : 0;
+            res.ResultWithinBand = res.UncertifiedTriangles == 0 && res.UncoveredReferenceTriangles == 0;
             res.Status = cancelled ? RemeshQualityStatus.Cancelled : operations() > 0 ? RemeshQualityStatus.Improved : RemeshQualityStatus.Unchanged;
             return res;
         }
 
+        double mesh_min_angle()
+        {
+            double m = double.MaxValue;
+            foreach (int t in Mesh.TriangleIndices()) m = Math.Min(m, min_angle(t));
+            return m;
+        }
+
         int operations()
         {
-            return res.Flips + res.Collapses + res.Splits + res.Relocations + res.CreaseRelocations + res.CreaseSplits + res.CreaseCollapses;
+            return res.Flips + res.Collapses + res.Splits + res.Relocations + res.CreaseInsertions + res.CreaseRemovals;
         }
 
         static bool finite(DMesh3 m)
@@ -186,8 +211,10 @@ namespace gs
             return true;
         }
 
-        void Prepare()
+        /// <summary> (tests) builds the queries and the crease sets for the current mesh (Compute does it) </summary>
+        internal void Prepare()
         {
+            if (res == null) res = new RemeshQualityResult() { CertifiedBand = MaxDeviation };
             cosTurn = Math.Cos(MaxNormalTurnDegrees * MathUtil.Deg2Rad);
             cosCorner = Math.Cos(CornerAngleDegrees * MathUtil.Deg2Rad);
             maxTriangles = MathUtil.FloorToIntSaturating(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
@@ -202,7 +229,7 @@ namespace gs
                 Mesh.GetTriVertices(t, ref a, ref b, ref c);
                 certified[t] = bounds.IsWithin(referenceTree, a, b, c, MaxDeviation, MaxDeviationDepth);
             }
-            coverage = TwoSided ? new RemeshQualityCoverage(Reference, Mesh, grid, MaxDeviation, MaxDeviationDepth) : null;
+            coverage = TwoSided ? new RemeshQualityCoverage(Reference, Mesh, grid, MaxDeviation, CoverageDepth, CoveragePieces) : null;
         }
 
         static long key(int a, int b)
@@ -282,7 +309,7 @@ namespace gs
         // is every point of the segment (p, q) within MaxDeviation of the reference's creases? The distance to a set of
         // segments is 1-Lipschitz: on (p, q) it is at most (d(p) + d(q) + |pq|) / 2; and the distance to one segment is
         // convex: if p and q are within MaxDeviation of the same segment, so is all of (p, q). Else split, up to MaxDeviationDepth
-        bool chord_on_feature(Vector3d p, Vector3d q)
+        internal bool chord_on_feature(Vector3d p, Vector3d q)
         {
             Vector3d cp, cq; int sp, sq;
             if (!nearest_feature(p, MaxDeviation, out cp, out sp) || !nearest_feature(q, MaxDeviation, out cq, out sq)) return false;
@@ -350,12 +377,59 @@ namespace gs
             return l;
         }
 
+        /// <summary>
+        /// the smallest / largest corner angle of the triangle (degrees), from atan2 of twice the area and the dot product
+        /// (accurate for slivers), with the corners in a canonical order (lexicographic): the same value for every rotation
+        /// and reflection of the corner order, so a triangle the pass checked has the same angles in the mesh, whatever
+        /// order DMesh3 stores its corners in, and the smallest angle of the mesh never drops, bit for bit
+        /// </summary>
+        internal static double MinAngle(Vector3d a, Vector3d b, Vector3d c)
+        {
+            canonical(ref a, ref b, ref c);
+            angles(a, b, c, out double A, out double B, out double C);
+            return Math.Min(A, Math.Min(B, C));
+        }
+
+        internal static double MaxAngle(Vector3d a, Vector3d b, Vector3d c)
+        {
+            canonical(ref a, ref b, ref c);
+            angles(a, b, c, out double A, out double B, out double C);
+            return Math.Max(A, Math.Max(B, C));
+        }
+
+        static void angles(Vector3d a, Vector3d b, Vector3d c, out double A, out double B, out double C)
+        {
+            Vector3d ab = b - a, ac = c - a, bc = c - b;
+            double twice = ab.Cross(ac).Length;
+            if (!(ab.LengthSquared > 0 && ac.LengthSquared > 0 && bc.LengthSquared > 0)) { A = B = 0; C = 180; return; }
+            A = Math.Atan2(twice, ab.Dot(ac)) * MathUtil.Rad2Deg;
+            B = Math.Atan2(twice, -ab.Dot(bc)) * MathUtil.Rad2Deg;
+            C = Math.Atan2(twice, ac.Dot(bc)) * MathUtil.Rad2Deg;
+        }
+
+        static bool less(Vector3d p, Vector3d q)
+        {
+            return p.x != q.x ? p.x < q.x : p.y != q.y ? p.y < q.y : p.z < q.z;
+        }
+
+        static void canonical(ref Vector3d a, ref Vector3d b, ref Vector3d c)
+        {
+            Vector3d t;
+            if (less(b, a)) { t = a; a = b; b = t; }
+            if (less(c, b)) { t = b; b = c; c = t; }
+            if (less(b, a)) { t = a; a = b; b = t; }
+        }
+
         internal const int Free = 0, Sliding = 1, Pinned = 2;
 
         /// <summary> (tests, benchmarks) the class of vertex v after Compute: Free, Sliding or Pinned </summary>
         internal int VertexClass(int v) { return vertex_class(v); }
         /// <summary> (tests, benchmarks) is triangle t certified within the band (after Compute) </summary>
         internal bool IsCertified(int t) { return t < certified.Count && certified[t]; }
+        /// <summary> (benchmarks) the coverage of the last Compute (TwoSided), else null </summary>
+        internal RemeshQualityCoverage Coverage { get { return coverage; } }
+        /// <summary> (tests) the counters of the last Compute or Prepare </summary>
+        internal RemeshQualityResult Counters { get { return res; } }
         /// <summary> (tests, benchmarks) is (a, b) a crease edge (after Compute) </summary>
         internal bool IsCrease(int a, int b) { return is_crease(a, b); }
 
@@ -377,10 +451,10 @@ namespace gs
 
         // ---------------- the guards ----------------
 
-        bool accept(List<Index3i> ids, List<Triangle3d> tris, HashSet<int> removed, List<KeyValuePair<Vector3d, Vector3d>> creaseChords)
+        internal bool accept(List<Index3i> ids, List<Triangle3d> tris, HashSet<int> removed, List<KeyValuePair<Vector3d, Vector3d>> creaseChords)
         {
             foreach (var ch in creaseChords)
-                if (!chord_on_feature(ch.Key, ch.Value)) { res.RejectedByCrease++; return false; }
+                if (!chord_on_feature(ch.Key, ch.Value)) { res.RejectedByCrease++; res.RejectedByBand++; return false; }
             foreach (Triangle3d t in tris)
                 if (!bounds.IsWithin(referenceTree, t.V0, t.V1, t.V2, MaxDeviation, MaxDeviationDepth)) { res.RejectedByBand++; return false; }
             if (PreventSelfIntersections) {
@@ -402,7 +476,7 @@ namespace gs
                     if (hit) { res.RejectedByIntersection++; return false; }
                 }
             }
-            if (coverage != null && !coverage.Check(Mesh, removed, tris)) { res.RejectedByCoverage++; return false; }
+            if (coverage != null && !coverage.Check(Mesh, removed, tris)) { res.RejectedByCoverage++; res.RejectedByBand++; return false; }
             return true;
         }
 
@@ -439,7 +513,7 @@ namespace gs
         double min_angle(int tid)
         {
             Index3i t = Mesh.GetTriangle(tid);
-            return AlphaWrapQualityPass.min_angle(Mesh.GetVertex(t.a), Mesh.GetVertex(t.b), Mesh.GetVertex(t.c));
+            return MinAngle(Mesh.GetVertex(t.a), Mesh.GetVertex(t.b), Mesh.GetVertex(t.c));
         }
 
         int opposite(int tid, int a, int b)
@@ -495,8 +569,8 @@ namespace gs
                 if (Mesh.FindEdge(ov.a, ov.b) != DMesh3.InvalidID) continue;
                 int a = ev.a, b = ev.b, c = opposite(et.a, a, b), d = opposite(et.b, a, b);
                 Vector3d pa = Mesh.GetVertex(a), pb = Mesh.GetVertex(b), pc = Mesh.GetVertex(c), pd = Mesh.GetVertex(d);
-                double nw = Math.Min(AlphaWrapQualityPass.min_angle(pc, pa, pd), AlphaWrapQualityPass.min_angle(pd, pb, pc));
-                if (!(nw >= cur + MinGainDegrees)) continue;
+                double nw = Math.Min(MinAngle(pc, pa, pd), MinAngle(pd, pb, pc));
+                if (!(nw >= cur + MinGainDegrees)) { res.RejectedByAngle++; continue; }
                 Vector3d n0, n1, m0, m1;
                 if (!AlphaWrapQualityPass.unit_normal(pa, pb, pc, out n0) || !AlphaWrapQualityPass.unit_normal(pb, pa, pd, out n1)) continue;
                 if (!AlphaWrapQualityPass.unit_normal(pc, pa, pd, out m0) || !AlphaWrapQualityPass.unit_normal(pd, pb, pc, out m1)) continue;
@@ -524,7 +598,7 @@ namespace gs
             var caps = new List<KeyValuePair<double, int>>();
             foreach (int t in Mesh.TriangleIndices()) {
                 Index3i tv = Mesh.GetTriangle(t);
-                double m = AlphaWrapQualityPass.max_angle(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
+                double m = MaxAngle(Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
                 if (m > SplitCapsAboveDegrees) caps.Add(new KeyValuePair<double, int>(m, t));
             }
             caps.Sort((x, y) => x.Key != y.Key ? -x.Key.CompareTo(y.Key) : x.Value.CompareTo(y.Value));
@@ -535,7 +609,7 @@ namespace gs
                 if (!Mesh.IsTriangle(t)) continue;
                 Index3i tv = Mesh.GetTriangle(t);
                 Vector3d[] p = { Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c) };
-                if (!(AlphaWrapQualityPass.max_angle(p[0], p[1], p[2]) > SplitCapsAboveDegrees)) continue;
+                if (!(MaxAngle(p[0], p[1], p[2]) > SplitCapsAboveDegrees)) continue;
                 int k = 0;
                 for (int j = 1; j < 3; ++j)
                     if (p[(j + 1) % 3].DistanceSquared(p[j]) > p[(k + 1) % 3].DistanceSquared(p[k])) k = j;
@@ -552,7 +626,7 @@ namespace gs
                 if (!Mesh.IsTriangle(t)) continue;
                 Index3i tv = Mesh.GetTriangle(t);
                 Vector3d[] p = { Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c) };
-                if (!(AlphaWrapQualityPass.min_angle(p[0], p[1], p[2]) < TargetMinAngleDegrees)) continue;
+                if (!(MinAngle(p[0], p[1], p[2]) < TargetMinAngleDegrees)) continue;
                 // the edges k = (k, k+1) by decreasing length, crease edges first
                 var order = new List<int> { 0, 1, 2 };
                 order.Sort((x, y) => {
@@ -568,7 +642,7 @@ namespace gs
         }
 
         /// <summary> split a crease edge only, or every edge, for a needle that the collapses left (false: caps only) </summary>
-        public bool SplitNeedles = true;
+        internal bool SplitNeedles = true;
 
         // the triangles below the target, by increasing smallest angle (ties by id)
         List<int> worst_triangles()
@@ -610,8 +684,8 @@ namespace gs
             ids.Add(new Index3i(NewId, vb, vc)); tris.Add(new Triangle3d(m, b, c));
             ids.Add(new Index3i(vb, NewId, d)); tris.Add(new Triangle3d(b, m, pd));
             ids.Add(new Index3i(NewId, va, d)); tris.Add(new Triangle3d(m, a, pd));
-            double oldMin = Math.Min(AlphaWrapQualityPass.min_angle(a, b, c), AlphaWrapQualityPass.min_angle(b, a, pd));
-            double oldMax = Math.Max(AlphaWrapQualityPass.max_angle(a, b, c), AlphaWrapQualityPass.max_angle(b, a, pd));
+            double oldMin = Math.Min(MinAngle(a, b, c), MinAngle(b, a, pd));
+            double oldMax = Math.Max(MaxAngle(a, b, c), MaxAngle(b, a, pd));
             Vector3d o0, o1;
             if (!AlphaWrapQualityPass.unit_normal(a, b, c, out o0) || !AlphaWrapQualityPass.unit_normal(b, a, pd, out o1)) return false;
             double nwMin = double.MaxValue;
@@ -619,11 +693,11 @@ namespace gs
                 Triangle3d nt = tris[i];
                 Vector3d n;
                 if (!AlphaWrapQualityPass.unit_normal(nt.V0, nt.V1, nt.V2, out n) || n.Dot(i < 2 ? o0 : o1) < cosTurn) return false;
-                double mn = AlphaWrapQualityPass.min_angle(nt.V0, nt.V1, nt.V2);
-                if (cap && !(mn >= oldMin && AlphaWrapQualityPass.max_angle(nt.V0, nt.V1, nt.V2) < oldMax)) return false;
+                double mn = MinAngle(nt.V0, nt.V1, nt.V2);
+                if (cap && !(mn >= oldMin && MaxAngle(nt.V0, nt.V1, nt.V2) < oldMax)) return false;
                 nwMin = Math.Min(nwMin, mn);
             }
-            if (!cap && !(nwMin >= oldMin + MinGainDegrees)) return false;
+            if (!cap && !(nwMin >= oldMin + MinGainDegrees)) { res.RejectedByAngle++; return false; }
             removed.Add(t); removed.Add(other);
             if (crease) { chords.Add(new KeyValuePair<Vector3d, Vector3d>(a, m)); chords.Add(new KeyValuePair<Vector3d, Vector3d>(m, b)); }
             if (!accept(ids, tris, removed, chords)) return false;
@@ -637,7 +711,7 @@ namespace gs
             var added = new List<int>();
             foreach (int nt in Mesh.VtxTrianglesItr(info.vNew)) added.Add(nt);
             commit(removed, added);
-            if (crease) res.CreaseSplits++; else res.Splits++;
+            if (crease) res.CreaseInsertions++; else res.Splits++;
             return true;
         }
 
@@ -663,7 +737,7 @@ namespace gs
                 if (!Mesh.IsTriangle(t)) continue;
                 Index3i tv = Mesh.GetTriangle(t);
                 Vector3d[] p = { Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c) };
-                if (!(AlphaWrapQualityPass.min_angle(p[0], p[1], p[2]) < TargetMinAngleDegrees)) continue;
+                if (!(MinAngle(p[0], p[1], p[2]) < TargetMinAngleDegrees)) continue;
                 int k = 0;
                 for (int j = 1; j < 3; ++j)
                     if (p[(j + 1) % 3].DistanceSquared(p[j]) < p[(k + 1) % 3].DistanceSquared(p[k])) k = j;
@@ -713,9 +787,10 @@ namespace gs
                         if (rv.b == a || rv.b == b) B = o.q;
                         if (rv.c == a || rv.c == b) C = o.q;
                         if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n1) || n1.Dot(n0) < cosTurn) { ok = false; break; }
-                        nw = Math.Min(nw, AlphaWrapQualityPass.min_angle(A, B, C));
+                        nw = Math.Min(nw, MinAngle(A, B, C));
                     }
                     if (ok && nw >= cur + MinGainDegrees) candidates.Add(new KeyValuePair<double, (int, int, Vector3d)>(nw, o));
+                    else res.RejectedByAngle++;
                 }
                 // best first; stable for equal angles (the order above)
                 for (int i = 1; i < candidates.Count; ++i)
@@ -749,7 +824,7 @@ namespace gs
                     var added = new List<int>();
                     foreach (int nt in Mesh.VtxTrianglesItr(keep)) added.Add(nt);
                     commit(removed, added);
-                    if (creaseEdge || merge) res.CreaseCollapses++; else res.Collapses++;
+                    if (creaseEdge || merge) res.CreaseRemovals++; else res.Collapses++;
                     break;
                 }
             }
@@ -829,16 +904,17 @@ namespace gs
                         if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n0)) { ok = false; break; }
                         if (tv.a == v) A = q; else if (tv.b == v) B = q; else C = q;
                         if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n1) || n1.Dot(n0) < cosTurn) { ok = false; break; }
-                        nw = Math.Min(nw, AlphaWrapQualityPass.min_angle(A, B, C));
+                        nw = Math.Min(nw, MinAngle(A, B, C));
                         ids.Add(tv); tris.Add(new Triangle3d(A, B, C)); removed.Add(t);
                     }
-                    if (!ok || !(nw >= cur + MinGainDegrees)) continue;
+                    if (!ok || !(nw >= cur + MinGainDegrees)) { res.RejectedByAngle++; continue; }
                     foreach (int x in creaseList)
                         chords.Add(new KeyValuePair<Vector3d, Vector3d>(Mesh.GetVertex(x), q));
                     if (!accept(ids, tris, removed, chords)) continue;
                     Mesh.SetVertex(v, q);
                     commit(removed, new List<int>(ring));
-                    if (cls == Sliding) res.CreaseRelocations++; else res.Relocations++;
+                    res.Relocations++;
+                    if (cls == Sliding) res.CreaseRelocations++;
                     break;
                 }
             }

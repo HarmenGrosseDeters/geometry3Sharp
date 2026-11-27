@@ -436,6 +436,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RemeshQualityExample_NeverLowersTheMinAngle_StaysInBand()
+        {
+            DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.6, 0.3)), NoSharedVertices = false }.Generate().MakeDMesh();
+            DMesh3 m = new DMesh3(box);
+            RemeshQualityResult r = RemeshQualityExample.Run(m, 0.15);
+            Assert.True(r.Status == RemeshQualityStatus.Improved || r.Status == RemeshQualityStatus.Unchanged);
+            Assert.True(r.MinAngleAfter >= r.MinAngleBefore);
+            Assert.True(r.StartWithinBand && r.ResultWithinBand);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            var hd = new MeshHausdorffDistance(m, box) { Symmetric = false, Tolerance = 0.01 * r.CertifiedBand };
+            Assert.True(hd.Compute() && hd.UpperBound <= 1.01 * r.CertifiedBand);
+        }
+
+        [Fact]
         public void SimplificationExample_ReducesToCountAndRespectsMaxDeviation()
         {
             DMesh3 mesh = Sphere(1, Vector3d.Zero, 20);

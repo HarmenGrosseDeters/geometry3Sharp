@@ -55,6 +55,21 @@ for (int i = 0; i < 50; ++i) {
 - **Spatially varying edge length (`TargetEdgeLengthF`):** Provide a custom sizing function, or use `RemeshSizing.FromWallThickness` to refine thin walls so opposite faces do not fold through each other.
 - **`RemesherPro`:** Extends `Remesher` with active-set `FastestRemesh()`, `SharpEdgeReprojectionRemesh()`, and `FastSplitIteration()`. Queued passes are deterministic across thread counts.
 
+### Quality Post-Pass (`RemeshQualityPass`, opt-in)
+
+- **Namespace & classes:** `gs.RemeshQualityPass`, `gs.RemeshQualityResult`, `gs.RemeshQualityStatus`. A separate step after `Remesher` / `RemesherPro` (their behaviour and defaults are unchanged).
+- **What it does:** Visits the triangles below `TargetMinAngleDegrees` (30) worst first and tries needle collapses, cap splits, needle splits, edge flips and vertex relocations. Crease vertices move, are inserted (crease edge split) and removed (crease edge collapsed) along the reference's creases (Hu et al. 2017; Wang et al. 2019). Crease corners, junctions and span ends keep their position.
+- **Guarantees:** The smallest angle never drops: an operation is made only if the smallest angle of its triangles rises. The measure is order-independent, so this holds bit for bit. Every triangle the pass makes is certified within `MaxDeviation` of the reference (`TriangleDeviationBounds.IsWithin`, as `Reducer.MaxDeviation`), and every crease edge it makes is certified within it of the reference's crease edges. With `TwoSided`, every reference triangle that was within the band at the start stays within it of the result. With `PreventSelfIntersections` (default), no new triangle intersects another (exact test). Serial and deterministic; scale invariant (2^k scales give the same result bit for bit).
+- **Limits:** No quality floor is promised. The pass certifies only the triangles it makes: `StartWithinBand` / `ResultWithinBand` report whether the whole mesh is in the band. A remesh that left triangles outside it stays outside there, and the pass does not pull them back. Acute crease sectors keep their angle: two crease edges meeting at a vertex at angle a bound every triangle between them by a. On the 20 Thingi10K meshes of `benchmarks/RemeshQualityBenchmark` (band 0.5 % of the diagonal) the angle at the 1 % rank rises from 9.7 to 11.7 degrees mean, at about 1.1 times the remesh's time; see [REMESH_QUALITY_PASS.md](../design/REMESH_QUALITY_PASS.md) for the measurements and the reasons it stays below 20.
+- **Example:** [RemeshQualityExample.cs](../examples/RemeshQualityExample.cs)
+
+```csharp
+using gs;
+
+var pass = new RemeshQualityPass(remeshed, input) { MaxDeviation = 0.005 * input.CachedBounds.DiagonalLength };
+RemeshQualityResult r = pass.Compute();   // r.MinAngleAfter >= r.MinAngleBefore; r.ResultWithinBand
+```
+
 ---
 
 ## Mesh Simplification (`Reducer`, `PartitionedReducer`, `MeshEnvelope`)

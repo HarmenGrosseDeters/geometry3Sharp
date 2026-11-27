@@ -1,0 +1,809 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using g3;
+using gs;
+using Xunit;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// RemeshQualityPass: the worst-first quality post-pass (Hu et al. 2017, crease operations after Wang et al. 2019).
+    /// Inputs are procedural: a remeshed box and a remeshed cylinder with needles made by off-centre edge splits (every new
+    /// point on the surface, on a crease edge on the crease), so the start is within any band of the reference and every
+    /// operation the pass makes has to keep it there.
+    /// </summary>
+    public class RemeshQualityPassTests
+    {
+        // ---------------- fixtures ----------------
+
+        static DMesh3 Remeshed(DMesh3 input, double target, int passes = 10, double featureAngle = 30)
+        {
+            DMesh3 m = new DMesh3(input);
+            var r = new Remesher(m) { SmoothSpeedT = 0.5 };
+            r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
+            MeshConstraintUtil.PreserveBoundaryAndFeatures(r, featureAngle);
+            r.SetTargetEdgeLength(target);
+            for (int k = 0; k < passes; ++k) r.BasicRemeshPass();
+            return m;
+        }
+
+        static DMesh3 BoxInput() => new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(0.5, 0.3, 0.15)), NoSharedVertices = false }.Generate().MakeDMesh();
+
+        static DMesh3 CylinderInput() => new CappedCylinderGenerator() { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 1, Slices = 48, NoSharedVertices = false }.Generate().MakeDMesh();
+
+        // a house: a 1 x 0.6 x 0.3 box with a roof whose two faces meet at the ridge at 24 degrees (a crease at the
+        // CreaseAngleDegrees = 20 of the test that the normal-turn guard alone does not protect: a flip across it turns the
+        // triangles by less than 30 degrees)
+        static DMesh3 HouseInput()
+        {
+            double h = 0.3 * Math.Tan(12 * MathUtil.Deg2Rad);
+            var m = new DMesh3();
+            Vector3d[] v = { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 0.6, 0), new Vector3d(0, 0.6, 0),
+                new Vector3d(0, 0, 0.3), new Vector3d(1, 0, 0.3), new Vector3d(1, 0.6, 0.3), new Vector3d(0, 0.6, 0.3),
+                new Vector3d(0, 0.3, 0.3 + h), new Vector3d(1, 0.3, 0.3 + h) };
+            foreach (Vector3d p in v) m.AppendVertex(p);
+            int[][] faces = { new[] { 0, 3, 2 }, new[] { 0, 2, 1 }, new[] { 0, 1, 5 }, new[] { 0, 5, 4 }, new[] { 2, 3, 7 }, new[] { 2, 7, 6 },
+                new[] { 3, 0, 4 }, new[] { 3, 4, 7 }, new[] { 4, 8, 7 }, new[] { 1, 2, 6 }, new[] { 1, 6, 5 }, new[] { 5, 6, 9 },
+                new[] { 4, 5, 9 }, new[] { 4, 9, 8 }, new[] { 7, 8, 9 }, new[] { 7, 9, 6 } };
+            foreach (int[] f in faces) Assert.True(m.AppendTriangle(f[0], f[1], f[2]) >= 0);
+            Vector3d c = m.CachedBounds.Center;
+            foreach (int t in m.TriangleIndices()) Assert.True(m.GetTriNormal(t).Dot(m.GetTriCentroid(t) - c) > 0, "outward");
+            Assert.True(m.IsClosed());
+            return m;
+        }
+
+        static readonly Lazy<DMesh3> HouseRemeshed = new Lazy<DMesh3>(() => Remeshed(HouseInput(), 0.05, 10, 20));
+
+        static readonly Lazy<DMesh3> BoxRemeshed = new Lazy<DMesh3>(() => Remeshed(BoxInput(), 0.08));
+        static readonly Lazy<DMesh3> CylinderRemeshed = new Lazy<DMesh3>(() => Remeshed(CylinderInput(), 0.12));
+
+        // `count` edges split at 2-8 % of their length from one end (needles next to the end); the new points are on the
+        // edges, so on the surface of a polyhedral mesh and on the crease for a crease edge
+        static DMesh3 Slivered(DMesh3 mesh, int count, int seed)
+        {
+            DMesh3 m = new DMesh3(mesh);
+            var rnd = new Random(seed);
+            for (int k = 0; k < count; ++k) {
+                int[] edges = m.EdgeIndices().ToArray();
+                int e = edges[rnd.Next(edges.Length)];
+                Index2i ev = m.GetEdgeV(e);
+                double f = 0.02 + 0.06 * rnd.NextDouble();
+                Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
+                DMesh3.EdgeSplitInfo info;
+                if (m.SplitEdge(e, out info) != MeshResult.Ok) continue;
+                m.SetVertex(info.vNew, a + f * (b - a));
+            }
+            return m;
+        }
+
+        static double MinAngle(DMesh3 m, int t)
+        {
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            m.GetTriVertices(t, ref a, ref b, ref c);
+            return RemeshQualityPass.MinAngle(a, b, c);
+        }
+
+        static double MeshMinAngle(DMesh3 m) => m.TriangleIndices().Min(t => MinAngle(m, t));
+
+        static double P01(DMesh3 m) => TriangleQualityStatistics.Compute(m).MinAngle.Worst1Percent;
+
+        // one-sided (from -> to) Hausdorff distance, an upper bound
+        static double Hausdorff(DMesh3 from, DMesh3 to, double tol)
+        {
+            var hd = new MeshHausdorffDistance(from, to) { Symmetric = false, Tolerance = tol };
+            Assert.True(hd.Compute() && hd.Converged);
+            return hd.UpperBound;
+        }
+
+        // the edges whose triangles meet at more than 30 degrees (and boundary edges)
+        static List<Segment3d> SharpEdges(DMesh3 m, double degrees = 30)
+        {
+            double cos = Math.Cos(degrees * MathUtil.Deg2Rad);
+            var l = new List<Segment3d>();
+            foreach (int e in m.EdgeIndices()) {
+                Index2i et = m.GetEdgeT(e), ev = m.GetEdgeV(e);
+                if (et.b < 0 || m.GetTriNormal(et.a).Dot(m.GetTriNormal(et.b)) < cos)
+                    l.Add(new Segment3d(m.GetVertex(ev.a), m.GetVertex(ev.b)));
+            }
+            return l;
+        }
+
+        // the largest distance of the samples of `from` (17 per segment) to the segments `to`
+        static double CurveDistance(List<Segment3d> from, List<Segment3d> to)
+        {
+            double worst = 0;
+            foreach (Segment3d s in from)
+                for (int i = 0; i <= 16; ++i) {
+                    Vector3d p = s.PointBetween(i / 16.0);
+                    worst = Math.Max(worst, to.Min(t => t.DistanceSquared(p)));
+                }
+            return Math.Sqrt(worst);
+        }
+
+        static void AssertCleanResult(DMesh3 before, DMesh3 m, DMesh3 reference, RemeshQualityResult r, double delta)
+        {
+            Assert.True(m.IsClosed(), "closed");
+            Assert.True(m.CheckValidity(false, FailMode.ReturnOnly), "valid, manifold");
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
+            Assert.True(Invariance.AllFinite(m));
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+            // the smallest angle never drops; the reported values are the mesh's
+            Assert.True(MeshMinAngle(m) >= MeshMinAngle(before), $"min angle {MeshMinAngle(before)} -> {MeshMinAngle(m)}");
+            Assert.Equal(MeshMinAngle(m), r.MinAngleAfter);
+            Assert.Equal(MeshMinAngle(before), r.MinAngleBefore);
+            Assert.Equal(P01(m), r.Worst1PercentAfter);
+            Assert.True(r.StartWithinBand && r.ResultWithinBand);
+            Assert.Equal(delta, r.CertifiedBand);
+            // within the band of the reference (the certificate, checked independently)
+            Assert.True(Hausdorff(m, reference, 0.01 * delta) <= 1.01 * delta, "mesh -> reference within the band");
+        }
+
+        // ---------------- tests ----------------
+
+        /// <summary>
+        /// a remeshed box with needles at its edges and on its faces: improved worst first, clean, the smallest angle not
+        /// lower, the 1 % rank much higher, within the band, the box's creases kept within the band both ways
+        /// </summary>
+        [Fact]
+        public void Box_Needles_Improved_Clean_InBand_CreasesKept()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 60, 1);
+            double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
+            Assert.True(P01(start) < 10, $"fixture: needles {P01(start)}");
+            DMesh3 m = new DMesh3(start);
+            var r = new RemeshQualityPass(m, reference) { MaxDeviation = delta }.Compute();
+            Assert.Equal(RemeshQualityStatus.Improved, r.Status);
+            AssertCleanResult(start, m, reference, r, delta);
+            Assert.True(r.Worst1PercentAfter > r.Worst1PercentBefore + 15, $"1 % rank {r.Worst1PercentBefore} -> {r.Worst1PercentAfter}");
+            Assert.True(r.CreaseInsertions + r.CreaseRemovals > 0, "crease operations made");
+            Assert.True(m.TriangleCount <= Math.Floor(start.TriangleCount * 1.1));
+            List<Segment3d> refCreases = SharpEdges(reference), outCreases = SharpEdges(m);
+            Assert.True(CurveDistance(outCreases, refCreases) <= delta, "every crease of the result on a crease of the box");
+            Assert.True(CurveDistance(refCreases, outCreases) <= delta, "every crease of the box kept");
+            // the corners (three crease edges) keep their position
+            var have = new HashSet<Vector3d>(m.VertexIndices().Select(v => m.GetVertex(v)));
+            foreach (int v in reference.VertexIndices())
+                Assert.Contains(reference.GetVertex(v), have);
+        }
+
+        // caps on the ridge: for every ridge edge, the opposite vertex on one side (not on a crease) pulled to 5 % of its
+        // distance from the edge's midpoint, in its roof plane, where its triangles keep their orientation: a flip across the
+        // ridge would then raise the smallest angle a lot
+        static DMesh3 Capped(DMesh3 mesh, DMesh3 reference)
+        {
+            DMesh3 m = new DMesh3(mesh);
+            Vector3d r0 = reference.GetVertex(8), r1 = reference.GetVertex(9);
+            var ridge = new Segment3d(r0, r1);
+            List<Segment3d> creases = SharpEdges(reference, 20);
+            bool onRidge(Vector3d p) => ridge.DistanceSquared(p) < 1e-20;
+            bool onCrease(Vector3d p) => creases.Any(sg => sg.DistanceSquared(p) < 1e-20);
+            int pulled = 0;
+            foreach (int e in m.EdgeIndices().ToList()) {
+                Index2i ev = m.GetEdgeV(e);
+                if (!onRidge(m.GetVertex(ev.a)) || !onRidge(m.GetVertex(ev.b))) continue;
+                int c = m.GetEdgeOpposingV(e).a;
+                if (onCrease(m.GetVertex(c))) continue;
+                Vector3d mid = 0.5 * (m.GetVertex(ev.a) + m.GetVertex(ev.b)), old = m.GetVertex(c), q = mid + 0.05 * (old - mid);
+                var normals = m.VtxTrianglesItr(c).ToDictionary(t => t, t => m.GetTriNormal(t));
+                m.SetVertex(c, q);
+                if (m.VtxTrianglesItr(c).Any(t => m.GetTriNormal(t).Dot(normals[t]) < 0.9)) m.SetVertex(c, old);
+                else pulled++;
+            }
+            Assert.True(pulled > 3, $"fixture: {pulled} caps");
+            return m;
+        }
+
+        /// <summary>
+        /// the house's ridge (24 degrees, creases at 20) survives: no flip across it, every split and removal on it keeps it a crease (the
+        /// creases of the result on the reference's and every reference crease kept, both within the band)
+        /// </summary>
+        [Fact]
+        public void House_ShallowRidge_Kept()
+        {
+            DMesh3 reference = HouseInput();
+            DMesh3 start = Capped(Slivered(HouseRemeshed.Value, 120, 3), reference);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(start));
+            // (a band wide enough to allow flips across the ridge: only the crease set keeps them off it)
+            double delta = 2e-2 * reference.CachedBounds.DiagonalLength;
+            DMesh3 m = new DMesh3(start);
+            var pass = new RemeshQualityPass(m, reference) { MaxDeviation = delta, CreaseAngleDegrees = 20 };
+            var r = pass.Compute();
+            Assert.Equal(RemeshQualityStatus.Improved, r.Status);
+            AssertCleanResult(start, m, reference, r, delta);
+            Assert.True(r.CreaseInsertions + r.CreaseRemovals > 0, $"{r.CreaseInsertions} {r.CreaseRemovals}");
+            List<Segment3d> refCreases = SharpEdges(reference, 20), outCreases = SharpEdges(m, 20);
+            // the straight creases are kept exactly (up to rounding): every new crease vertex is put onto them
+            double size = reference.CachedBounds.DiagonalLength;
+            Assert.True(CurveDistance(refCreases, outCreases) <= 1e-12 * size, $"every crease of the house kept: {CurveDistance(refCreases, outCreases) / size}");
+            Assert.True(CurveDistance(outCreases, refCreases) <= 1e-12 * size, $"no new crease: {CurveDistance(outCreases, refCreases) / size}");
+            // the pass's crease set after its operations is exactly the edges along the reference's creases
+            List<Segment3d> refAll = SharpEdges(reference, 20);
+            bool along(Vector3d p, Vector3d q) => refAll.Any(sg => sg.DistanceSquared(p) < 1e-24 && sg.DistanceSquared(q) < 1e-24 && sg.DistanceSquared(0.5 * (p + q)) < 1e-24);
+            foreach (int e in m.EdgeIndices()) {
+                Index2i ev = m.GetEdgeV(e);
+                Assert.Equal(along(m.GetVertex(ev.a), m.GetVertex(ev.b)), pass.IsCrease(ev.a, ev.b));
+            }
+            // the same without splits (the caps on the ridge then go to the flips, which must leave the ridge alone)
+            DMesh3 ns = new DMesh3(start);
+            var rs = new RemeshQualityPass(ns, reference) { MaxDeviation = delta, CreaseAngleDegrees = 20, EnableSplits = false }.Compute();
+            AssertCleanResult(start, ns, reference, rs, delta);
+            Assert.True(rs.Flips > 0 && rs.CreaseRemovals > 0);
+            Assert.True(CurveDistance(refCreases, SharpEdges(ns, 20)) <= 1e-12 * size, $"without splits: {CurveDistance(refCreases, SharpEdges(ns, 20)) / size}");
+        }
+
+        /// <summary>
+        /// a jittered equilateral lattice (smallest angles 40-55 degrees) with the target at 60: every triangle is a
+        /// candidate, nearly every collapse, flip or move would lower some angle; the smallest angle does not drop, and
+        /// neither does any low angle quantile (an operation is made only if the smallest angle of its triangles rises)
+        /// </summary>
+        [Fact]
+        public void Lattice_NoOperationLowersTheSmallestAngleOfItsTriangles()
+        {
+            var rnd = new Random(5);
+            DMesh3 m = new DMesh3();
+            int n = 14;
+            var id = new int[n + 1, n + 1];
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) {
+                    double x = i + 0.5 * j, y = j * Math.Sqrt(3) / 2;
+                    bool inner = i > 0 && j > 0 && i < n && j < n;
+                    id[i, j] = m.AppendVertex(new Vector3d(x + (inner ? 0.12 * (rnd.NextDouble() - 0.5) : 0), y + (inner ? 0.12 * (rnd.NextDouble() - 0.5) : 0), 0));
+                }
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    m.AppendTriangle(id[i, j], id[i + 1, j], id[i, j + 1]);
+                    m.AppendTriangle(id[i + 1, j], id[i + 1, j + 1], id[i, j + 1]);
+                }
+            DMesh3 reference = new DMesh3(m);
+            DMesh3 start = new DMesh3(m);
+            double[] before = start.TriangleIndices().Select(t => MinAngle(start, t)).OrderBy(a => a).ToArray();
+            var r = new RemeshQualityPass(m, reference) { MaxDeviation = 1e-3, TargetMinAngleDegrees = 60 }.Compute();
+            double[] after = m.TriangleIndices().Select(t => MinAngle(m, t)).OrderBy(a => a).ToArray();
+            Assert.True(r.RejectedByAngle > 0);
+            Assert.True(after[0] >= before[0], $"{before[0]} -> {after[0]}");
+            foreach (double q in new[] { 0.01, 0.05, 0.1, 0.25 })
+                Assert.True(after[(int)(q * after.Length)] >= before[(int)(q * before.Length)] - 1e-9, $"quantile {q}: {before[(int)(q * before.Length)]} -> {after[(int)(q * after.Length)]}");
+        }
+
+        /// <summary>
+        /// the certified flags are exact: with a start partly outside the band (a few vertices lifted off the box), the
+        /// triangles the pass reports as certified are exactly those TriangleDeviationBounds certifies, the start is reported
+        /// outside the band, and the triangles the pass made are all certified
+        /// </summary>
+        [Fact]
+        public void PartlyOutOfBandStart_CertifiedFlagsMatchAnIndependentCheck()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 60, 1);
+            double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
+            // 5 vertices away from the box's edges lifted by 3 delta off their face
+            var rnd = new Random(7);
+            List<Segment3d> edges = SharpEdges(reference);
+            foreach (int v in start.VertexIndices().Where(v => edges.Min(sg => sg.DistanceSquared(start.GetVertex(v))) > 0.01).OrderBy(v => rnd.Next()).Take(5).ToList()) {
+                Vector3d p = start.GetVertex(v);
+                int t = new DMeshAABBTree3(reference, true).FindNearestTriangle(p);
+                start.SetVertex(v, p + 3 * delta * reference.GetTriNormal(t));
+            }
+            DMesh3 m = new DMesh3(start);
+            var pass = new RemeshQualityPass(m, reference) { MaxDeviation = delta };
+            var r = pass.Compute();
+            Assert.False(r.StartWithinBand);
+            Assert.True(r.StartUncertifiedTriangles > 0);
+            var tree = new DMeshAABBTree3(reference, true);
+            var bounds = new TriangleDeviationBounds(reference) { PatchBound = true };
+            int uncertified = 0;
+            foreach (int t in m.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                bool within = bounds.IsWithin(tree, a, b, c, delta, 10);
+                Assert.Equal(within, pass.IsCertified(t));
+                if (!within) uncertified++;
+            }
+            Assert.Equal(uncertified, r.UncertifiedTriangles);
+            Assert.True(r.UncertifiedTriangles <= r.StartUncertifiedTriangles);
+            Assert.Equal(r.UncertifiedTriangles == 0, r.ResultWithinBand);
+        }
+
+        /// <summary>
+        /// the same on a cylinder (curved: the band decides which relocations and flips are allowed). The reference is the
+        /// remeshed cylinder itself, which the needles' points lie on
+        /// </summary>
+        [Fact]
+        public void Cylinder_Needles_Improved_Clean_InBand()
+        {
+            DMesh3 reference = CylinderRemeshed.Value;
+            DMesh3 start = Slivered(CylinderRemeshed.Value, 60, 2);
+            double delta = 2e-3 * reference.CachedBounds.DiagonalLength;
+            DMesh3 m = new DMesh3(start);
+            var r = new RemeshQualityPass(m, reference) { MaxDeviation = delta }.Compute();
+            Assert.Equal(RemeshQualityStatus.Improved, r.Status);
+            AssertCleanResult(start, m, reference, r, delta);
+            Assert.True(r.Worst1PercentAfter > r.Worst1PercentBefore + 10, $"1 % rank {r.Worst1PercentBefore} -> {r.Worst1PercentAfter}");
+            Assert.True(CurveDistance(SharpEdges(m), SharpEdges(reference)) <= delta);
+        }
+
+        /// <summary>
+        /// a band far below the facet size of the curved reference: relocations and flips that leave the surface are refused
+        /// (RejectedByBand), and the result is still within the band
+        /// </summary>
+        [Fact]
+        public void TinyBand_RefusesWhatLeavesTheSurface_ResultInBand()
+        {
+            DMesh3 reference = CylinderRemeshed.Value;
+            DMesh3 start = Slivered(reference, 60, 2);
+            double delta = 1e-7 * reference.CachedBounds.DiagonalLength;
+            DMesh3 m = new DMesh3(start);
+            var r = new RemeshQualityPass(m, reference) { MaxDeviation = delta }.Compute();
+            Assert.True(r.RejectedByBand > 0);
+            AssertCleanResult(start, m, reference, r, delta);
+            // (a wider band allows more)
+            DMesh3 wide = new DMesh3(start);
+            var rw = new RemeshQualityPass(wide, reference) { MaxDeviation = 1e4 * delta }.Compute();
+            Assert.True(rw.Flips + rw.Collapses + rw.Relocations > r.Flips + r.Collapses + r.Relocations, $"{rw.Flips} {rw.Collapses} {rw.Relocations} {rw.Splits} vs {r.Flips} {r.Collapses} {r.Relocations} {r.Splits}; p01 {r.Worst1PercentAfter} {rw.Worst1PercentAfter}");
+        }
+
+        /// <summary>
+        /// TwoSided: every reference triangle stays within the band of the result as well (the reverse Hausdorff distance);
+        /// the refusal itself is checked in Coverage_* and TwoSided_AcceptRefuses*
+        /// </summary>
+        [Fact]
+        public void TwoSided_KeepsTheReverseDirection()
+        {
+            DMesh3 reference = CylinderRemeshed.Value;
+            DMesh3 start = Slivered(reference, 60, 2);
+            double delta = 4e-3 * reference.CachedBounds.DiagonalLength;
+            DMesh3 one = new DMesh3(start), two = new DMesh3(start);
+            var r1 = new RemeshQualityPass(one, reference) { MaxDeviation = delta }.Compute();
+            var r2 = new RemeshQualityPass(two, reference) { MaxDeviation = delta, TwoSided = true }.Compute();
+            AssertCleanResult(start, two, reference, r2, delta);
+            Assert.Equal(RemeshQualityStatus.Improved, r2.Status);
+            double back2 = Hausdorff(reference, two, 0.01 * delta);
+            Assert.True(back2 <= 1.01 * delta, $"reference -> result {back2 / delta} delta");
+            Assert.Equal(0, r1.RejectedByCoverage);
+        }
+
+        /// <summary>
+        /// the coverage refuses an operation that takes away the only triangles a reference triangle is near (a spike cut
+        /// off), and accepts one that keeps the reference covered; after a commit its sets follow the new triangle ids
+        /// </summary>
+        [Fact]
+        public void Coverage_RefusesCuttingASpike_AcceptsAFlatChange()
+        {
+            DMesh3 m = SpikeGrid(out int v);
+            DMesh3 reference = new DMesh3(m);
+            double eps = 0.1;
+            var grid = new TriangleHashGrid(m.CachedBounds.Min, 1.5);
+            foreach (int t in m.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                grid.Insert(t, AlphaWrapQualityPass.box(a, b, c));
+            }
+            var cov = new RemeshQualityCoverage(reference, m, grid, eps, 10);
+            Assert.Equal(0, cov.Uncovered);
+            // the spike vertex moved down to z = 0: its ring flat
+            var ring = new HashSet<int>(m.VtxTrianglesItr(v));
+            var flat = new List<Triangle3d>();
+            foreach (int t in ring) {
+                Index3i tv = m.GetTriangle(t);
+                Vector3d[] p = { m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c) };
+                for (int k = 0; k < 3; ++k) if (tv[k] == v) p[k] = new Vector3d(2, 2, 0);
+                flat.Add(new Triangle3d(p[0], p[1], p[2]));
+            }
+            Assert.False(cov.Check(m, ring, flat));
+            Assert.Throws<InvalidOperationException>(() => cov.Commit(ring, ring));
+            // a flip on the flat part far from the spike changes nothing the reference needs
+            // (vertex ids of the grid: i + 5 j)
+            int e = m.FindEdge(0, 6);
+            Index2i et = m.GetEdgeT(e);
+            var two = new HashSet<int> { et.a, et.b };
+            var flipped = new List<Triangle3d> {
+                new Triangle3d(m.GetVertex(0), m.GetVertex(1), m.GetVertex(5)),
+                new Triangle3d(m.GetVertex(1), m.GetVertex(6), m.GetVertex(5)) };
+            Assert.True(cov.Check(m, two, flipped));
+            DMesh3.EdgeFlipInfo info;
+            Assert.Equal(MeshResult.Ok, m.FlipEdge(e, out info));
+            cov.Commit(two, new[] { info.t0, info.t1 });
+            // every set holds only current triangles, and each reference triangle is still within eps of its set
+            foreach (int T in reference.TriangleIndices()) {
+                int[] d = cov.DependenciesOf(T);
+                Assert.NotNull(d);
+                Assert.All(d, x => Assert.True(m.IsTriangle(x)));
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                reference.GetTriVertices(T, ref a, ref b, ref c);
+                var tris = d.Select(x => { Index3i tv = m.GetTriangle(x); return new Triangle3d(m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c)); }).ToList();
+                Assert.True(ReducerReverseCoverage.Within(a, b, c, tris, eps, 10, new List<int>()));
+            }
+            // and the spike is still refused after the commit
+            Assert.False(cov.Check(m, ring, flat));
+        }
+
+        // a 4 x 4 grid of unit squares at z = 0 with its centre vertex lifted to a spike of height 1
+        static DMesh3 SpikeGrid(out int apex)
+        {
+            DMesh3 m = new DMesh3();
+            int[,] g = new int[5, 5];
+            for (int j = 0; j < 5; ++j)
+                for (int i = 0; i < 5; ++i)
+                    g[i, j] = m.AppendVertex(new Vector3d(i, j, (i == 2 && j == 2) ? 1 : 0));
+            for (int j = 0; j < 4; ++j)
+                for (int i = 0; i < 4; ++i) {
+                    m.AppendTriangle(g[i, j], g[i + 1, j], g[i + 1, j + 1]);
+                    m.AppendTriangle(g[i, j], g[i + 1, j + 1], g[i, j + 1]);
+                }
+            apex = g[2, 2];
+            return m;
+        }
+
+        /// <summary>
+        /// the pass's guard with TwoSided: flattening the spike (the apex moved to z = 0) keeps the new triangles within 0.8 of
+        /// the reference (at most 0.71 from the spike's faces) but leaves the apex 1 from the result: refused by the
+        /// coverage, accepted one-sided
+        /// </summary>
+        [Fact]
+        public void TwoSided_AcceptRefusesFlatteningASpike()
+        {
+            foreach (bool twoSided in new[] { true, false }) {
+                DMesh3 m = SpikeGrid(out int v);
+                var pass = new RemeshQualityPass(m, new DMesh3(m)) { MaxDeviation = 0.8, TwoSided = twoSided };
+                pass.Prepare();
+                var ring = new HashSet<int>(m.VtxTrianglesItr(v));
+                var ids = new List<Index3i>(); var flat = new List<Triangle3d>();
+                foreach (int t in ring) {
+                    Index3i tv = m.GetTriangle(t);
+                    Vector3d[] p = { m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c) };
+                    for (int k = 0; k < 3; ++k) if (tv[k] == v) p[k] = new Vector3d(2, 2, 0);
+                    ids.Add(tv); flat.Add(new Triangle3d(p[0], p[1], p[2]));
+                }
+                bool ok = pass.accept(ids, flat, ring, new List<KeyValuePair<Vector3d, Vector3d>>());
+                Assert.Equal(!twoSided, ok);
+                Assert.Equal(twoSided ? 1 : 0, pass.Counters.RejectedByCoverage);
+                Assert.Equal(twoSided ? 1 : 0, pass.Counters.RejectedByBand);
+            }
+        }
+
+        /// <summary> the angle measure does not depend on the corner order, bit for bit (the never-lower guarantee rests on it) </summary>
+        [Fact]
+        public void MinAngle_IndependentOfTheCornerOrder()
+        {
+            var rnd = new Random(11);
+            for (int k = 0; k < 2000; ++k) {
+                Vector3d a = new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                Vector3d b = new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                // slivers: c near the segment ab
+                Vector3d c = a + rnd.NextDouble() * (b - a) + 1e-7 * rnd.NextDouble() * new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                double m = RemeshQualityPass.MinAngle(a, b, c), x = RemeshQualityPass.MaxAngle(a, b, c);
+                foreach (var (p, q, r) in new[] { (b, c, a), (c, a, b), (b, a, c), (a, c, b), (c, b, a) }) {
+                    Assert.Equal(m, RemeshQualityPass.MinAngle(p, q, r));
+                    Assert.Equal(x, RemeshQualityPass.MaxAngle(p, q, r));
+                }
+            }
+            Assert.Equal(60, RemeshQualityPass.MinAngle(Vector3d.Zero, Vector3d.AxisX, new Vector3d(0.5, Math.Sqrt(3) / 2, 0)), 12);
+            Assert.Equal(0, RemeshQualityPass.MinAngle(Vector3d.Zero, Vector3d.Zero, Vector3d.AxisX));
+        }
+
+        /// <summary>
+        /// the coverage certificate: a large triangle whose corners are near small candidate triangles but whose interior
+        /// is far from all of them is not covered (the covering radius matters); with a candidate under all of it, it is
+        /// </summary>
+        [Fact]
+        public void CoverageWithin_CornersNearButInteriorFar_NotCovered()
+        {
+            Vector3d p0 = Vector3d.Zero, p1 = new Vector3d(1, 0, 0), p2 = new Vector3d(0, 1, 0);
+            double s = 0.05;
+            Triangle3d at(Vector3d p) => new Triangle3d(p, p + new Vector3d(s, 0, 0), p + new Vector3d(0, s, 0));
+            var corners = new List<Triangle3d> { at(p0), at(p1), at(p2) };
+            Assert.False(RemeshQualityCoverage.Within(p0, p1, p2, corners, 0.1, 10, new List<int>()));
+            var under = new List<Triangle3d> { new Triangle3d(new Vector3d(-1, -1, 0.05), new Vector3d(3, -1, 0.05), new Vector3d(-1, 3, 0.05)) };
+            var used = new List<int>();
+            Assert.True(RemeshQualityCoverage.Within(p0, p1, p2, under, 0.1, 10, used));
+            Assert.Equal(new[] { 0 }, used.Distinct().ToArray());
+            // a cover by two halves: needs a subdivision; with no levels left it is refused
+            var halves = new List<Triangle3d> { new Triangle3d(new Vector3d(-1, -1, 0.05), new Vector3d(0.5, -1, 0.05), new Vector3d(-1, 3, 0.05)),
+                new Triangle3d(new Vector3d(0.5, -1, 0.05), new Vector3d(3, -1, 0.05), new Vector3d(-1, 3, 0.05)) };
+            Assert.True(RemeshQualityCoverage.Within(p0, p1, p2, halves, 0.1, 10, new List<int>()));
+            Assert.False(RemeshQualityCoverage.Within(p0, p1, p2, halves, 0.1, 0, new List<int>()));
+            Assert.False(RemeshQualityCoverage.Within(p0, p1, p2, halves, 0.1, 10, 1, new List<int>()));
+        }
+
+        /// <summary>
+        /// crease detection: an edge whose triangles meet at more than CreaseAngleDegrees is a crease only if it lies on a
+        /// crease of the reference (a fold of the mesh, eg a lifted vertex, is not one and is not pinned)
+        /// </summary>
+        [Fact]
+        public void Creases_AFoldOfTheMeshIsNotACrease()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 m = new DMesh3(BoxRemeshed.Value);
+            // the vertex nearest the top face's centre lifted by 0.05 (its ring folds by more than 30 degrees)
+            Vector3d top = new Vector3d(0, 0, reference.CachedBounds.Max.z);
+            int v = m.VertexIndices().OrderBy(x => m.GetVertex(x).DistanceSquared(top)).First();
+            m.SetVertex(v, m.GetVertex(v) + new Vector3d(0, 0, 0.05));
+            double cos = Math.Cos(30 * MathUtil.Deg2Rad);
+            int folds = 0;
+            var pass = new RemeshQualityPass(m, reference) { MaxDeviation = 1e-3 };
+            pass.Prepare();
+            foreach (int e in m.EdgeIndices()) {
+                Index2i et = m.GetEdgeT(e), ev = m.GetEdgeV(e);
+                bool sharp = m.GetTriNormal(et.a).Dot(m.GetTriNormal(et.b)) < cos;
+                bool onBox = SharpEdges(reference).Any(sg => sg.DistanceSquared(m.GetVertex(ev.a)) < 1e-18 && sg.DistanceSquared(m.GetVertex(ev.b)) < 1e-18);
+                Assert.Equal(sharp && onBox, pass.IsCrease(ev.a, ev.b));
+                if (sharp && !onBox) folds++;
+            }
+            Assert.True(folds > 0, "the fixture has folds");
+            Assert.Equal(RemeshQualityPass.Free, pass.VertexClass(v));
+        }
+
+        /// <summary>
+        /// a relocation is made only if it raises the smallest angle of the vertex's triangles: a fan whose centroid would
+        /// lower it is left as it is (the other operations off)
+        /// </summary>
+        [Fact]
+        public void Relocation_NotMadeIfItLowersTheSmallestAngle()
+        {
+            double[] deg = { 111, 142, 188, 225, 250, 339 }, rad = { 0.9, 2.5, 2.0, 1.2, 1.8, 1.25 };
+            DMesh3 m = new DMesh3();
+            int v = m.AppendVertex(Vector3d.Zero);
+            var ring = deg.Select((d, i) => m.AppendVertex(new Vector3d(rad[i] * Math.Cos(d * MathUtil.Deg2Rad), rad[i] * Math.Sin(d * MathUtil.Deg2Rad), 0))).ToArray();
+            for (int i = 0; i < ring.Length; ++i) m.AppendTriangle(v, ring[i], ring[(i + 1) % ring.Length]);
+            // (precondition: the centroid of the ring is worse than the vertex's place)
+            Vector3d q = ring.Aggregate(Vector3d.Zero, (acc, r) => acc + m.GetVertex(r)) / ring.Length;
+            double at(Vector3d p) => Enumerable.Range(0, ring.Length).Min(i => RemeshQualityPass.MinAngle(p, m.GetVertex(ring[i]), m.GetVertex(ring[(i + 1) % ring.Length])));
+            Assert.True(at(q) < at(Vector3d.Zero) - 3 && at(Vector3d.Zero) < 30, $"{at(Vector3d.Zero)} {at(q)}");
+            var r1 = new RemeshQualityPass(m, new DMesh3(m)) { MaxDeviation = 1, EnableFlips = false, EnableCollapses = false, EnableSplits = false }.Compute();
+            Assert.Equal(0, r1.Relocations);
+            Assert.Equal(Vector3d.Zero, m.GetVertex(v));
+            Assert.True(r1.RejectedByAngle > 0);
+        }
+
+        /// <summary>
+        /// a flip that raises the smallest angle but turns the triangles' normals by more than 30 degrees is not made (two
+        /// triangles meeting at 53 degrees along their shared edge, not a crease at CreaseAngleDegrees = 60)
+        /// </summary>
+        [Fact]
+        public void Flip_NotMadeIfItTurnsTheNormalsTooMuch()
+        {
+            DMesh3 m = new DMesh3();
+            int a = m.AppendVertex(Vector3d.Zero), b = m.AppendVertex(new Vector3d(1, 0, 0));
+            int c = m.AppendVertex(new Vector3d(0.5, 0.4, -0.2)), d = m.AppendVertex(new Vector3d(0.5, -0.4, -0.2));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(b, a, d);
+            double cur = Math.Min(RemeshQualityPass.MinAngle(m.GetVertex(a), m.GetVertex(b), m.GetVertex(c)), RemeshQualityPass.MinAngle(m.GetVertex(b), m.GetVertex(a), m.GetVertex(d)));
+            double flipped = Math.Min(RemeshQualityPass.MinAngle(m.GetVertex(c), m.GetVertex(a), m.GetVertex(d)), RemeshQualityPass.MinAngle(m.GetVertex(d), m.GetVertex(b), m.GetVertex(c)));
+            Assert.True(flipped > cur + 5, "precondition: the flip raises the smallest angle");
+            RemeshQualityResult run(double turn)
+            {
+                var p = new RemeshQualityPass(new DMesh3(m), new DMesh3(m)) { MaxDeviation = 1, CreaseAngleDegrees = 60, TargetMinAngleDegrees = 60,
+                    EnableRelocation = false, EnableCollapses = false, EnableSplits = false, MaxNormalTurnDegrees = turn };
+                return p.Compute();
+            }
+            Assert.Equal(0, run(30).Flips);
+            Assert.Equal(1, run(40).Flips);     // (the turn is 34 degrees)
+        }
+
+        /// <summary> the exact self-intersection guard: a new triangle through another one is refused, a free one accepted </summary>
+        [Fact]
+        public void Accept_RefusesANewTriangleThroughTheMesh()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 m = new DMesh3(BoxRemeshed.Value);
+            double size = reference.CachedBounds.DiagonalLength;
+            var pass = new RemeshQualityPass(m, reference) { MaxDeviation = size };
+            pass.Prepare();
+            // a triangle that pierces the box's top face (z = 0.15 at the box's centre)
+            Vector3d c = reference.CachedBounds.Center;
+            var through = new Triangle3d(c + new Vector3d(-0.01, 0, -0.1), c + new Vector3d(0.01, 0, -0.1), c + new Vector3d(0, 0, 0.2));
+            var ids = new List<Index3i> { new Index3i(int.MaxValue - 3, int.MaxValue - 2, int.MaxValue - 1) };
+            Assert.False(pass.accept(ids, new List<Triangle3d> { through }, new HashSet<int>(), new List<KeyValuePair<Vector3d, Vector3d>>()));
+            Assert.Equal(1, pass.Counters.RejectedByIntersection);
+            var inside = new Triangle3d(c + new Vector3d(-0.01, 0, -0.01), c + new Vector3d(0.01, 0, -0.01), c + new Vector3d(0, 0, 0.01));
+            Assert.True(pass.accept(ids, new List<Triangle3d> { inside }, new HashSet<int>(), new List<KeyValuePair<Vector3d, Vector3d>>()));
+            // a new crease edge off the box's creases is refused by the crease band (checked first)
+            var narrow = new RemeshQualityPass(m, reference) { MaxDeviation = 0.01 };
+            narrow.Prepare();
+            var chord = new List<KeyValuePair<Vector3d, Vector3d>> { new KeyValuePair<Vector3d, Vector3d>(reference.CachedBounds.Min, reference.CachedBounds.Max) };
+            Assert.False(narrow.accept(ids, new List<Triangle3d> { inside }, new HashSet<int>(), chord));
+            Assert.Equal(1, narrow.Counters.RejectedByCrease);
+            Assert.Equal(0, narrow.Counters.RejectedByIntersection);
+            // with the guard off the piercing one passes (the band is the whole box)
+            var off = new RemeshQualityPass(m, reference) { MaxDeviation = size, PreventSelfIntersections = false };
+            off.Prepare();
+            Assert.True(off.accept(ids, new List<Triangle3d> { through }, new HashSet<int>(), new List<KeyValuePair<Vector3d, Vector3d>>()));
+        }
+
+        /// <summary>
+        /// the crease band: a chord along an edge of the box is on its creases, one that cuts a corner by more than the band
+        /// is not, one that cuts it by less is; a chord across a face is not (it is near no crease in its middle)
+        /// </summary>
+        [Fact]
+        public void CreaseBand_ChordsOnAndOffTheBoxEdges()
+        {
+            DMesh3 reference = BoxInput();
+            double delta = 0.01;
+            var pass = new RemeshQualityPass(new DMesh3(BoxRemeshed.Value), reference) { MaxDeviation = delta };
+            pass.Prepare();
+            Vector3d o = reference.CachedBounds.Min;     // a corner of the box (extent 1 x 0.6 x 0.3)
+            Vector3d x = Vector3d.AxisX, y = Vector3d.AxisY, z = Vector3d.AxisZ;
+            Assert.True(pass.chord_on_feature(o + 0.1 * x, o + 0.9 * x));
+            // across the corner in the bottom face: from s x to s y, whose midpoint is s / 2 from both edges
+            Assert.True(pass.chord_on_feature(o + 0.018 * x, o + 0.018 * y));      // midpoint 0.009 off
+            Assert.False(pass.chord_on_feature(o + 0.022 * x, o + 0.022 * y));     // midpoint 0.011 off
+            Assert.False(pass.chord_on_feature(o + 0.1 * x, o + 0.1 * x + 0.6 * y));     // across the bottom face
+            Assert.False(pass.chord_on_feature(o + 0.1 * x, o + 0.1 * x + 0.05 * y));    // an end off every crease
+            Assert.True(pass.chord_on_feature(o, o + 0.3 * z));
+            // within the band of a crease but not on it: a chord 0.009 above the bottom edge, parallel to it
+            Assert.True(pass.chord_on_feature(o + 0.009 * z, o + 0.009 * z + 0.9 * x));
+            Assert.False(pass.chord_on_feature(o + 0.011 * z, o + 0.011 * z + 0.9 * x));
+        }
+
+        /// <summary>
+        /// invariance over Similarity.All(): at the 2^k scales the result is the same bit for bit (mapped back); in every
+        /// frame it is clean, within the band and the smallest angle is not lower
+        /// </summary>
+        [Fact]
+        public void Invariance_OverSimilarities()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 60, 1);
+            double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
+            DMesh3 m0 = new DMesh3(start);
+            var r0 = new RemeshQualityPass(m0, reference) { MaxDeviation = delta }.Compute();
+            foreach (Similarity s in Similarity.All()) {
+                DMesh3 ref1 = Invariance.Transformed(reference, s), start1 = Invariance.Transformed(start, s);
+                DMesh3 m = new DMesh3(start1);
+                var r = new RemeshQualityPass(m, ref1) { MaxDeviation = s.ApplyLength(delta) }.Compute();
+                if (s.IsExact) {
+                    Assert.Equal("", Invariance.Difference(m0, Invariance.MappedBack(m, s)));
+                    Assert.Equal(r0.Worst1PercentAfter, r.Worst1PercentAfter);
+                    Assert.Equal(r0.Flips + r0.Collapses + r0.Splits + r0.Relocations + r0.CreaseInsertions + r0.CreaseRemovals,
+                        r.Flips + r.Collapses + r.Splits + r.Relocations + r.CreaseInsertions + r.CreaseRemovals);
+                }
+                Assert.True(m.IsClosed() && Invariance.AllFinite(m), s.Name);
+                Assert.True(r.Status == RemeshQualityStatus.Improved && r.ResultWithinBand, s.Name);
+                Assert.True(MeshMinAngle(m) >= MeshMinAngle(start1), s.Name);
+                Assert.True(r.Worst1PercentAfter > r.Worst1PercentBefore + 15, $"{s.Name}: {r.Worst1PercentBefore} -> {r.Worst1PercentAfter}");
+            }
+        }
+
+        /// <summary>
+        /// a second Compute on the same instance finds nothing left to do once the first converged (and changes nothing), and
+        /// two runs on equal inputs give the same mesh (serial, a fixed order)
+        /// </summary>
+        [Fact]
+        public void Reuse_And_Determinism()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 60, 1);
+            double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
+            DMesh3 m = new DMesh3(start);
+            var pass = new RemeshQualityPass(m, reference) { MaxDeviation = delta, MaxPasses = 100 };
+            var r1 = pass.Compute();
+            Assert.Equal(RemeshQualityStatus.Improved, r1.Status);
+            Assert.True(r1.Passes < 100, "converged");
+            DMesh3 once = new DMesh3(m);
+            var r2 = pass.Compute();
+            Assert.Equal(RemeshQualityStatus.Unchanged, r2.Status);
+            Assert.Equal("", Invariance.Difference(once, m));
+            Assert.Equal(r1.Worst1PercentAfter, r2.Worst1PercentBefore);
+            Assert.True(r2.StartWithinBand && r2.ResultWithinBand);
+            DMesh3 again = new DMesh3(start);
+            new RemeshQualityPass(again, reference) { MaxDeviation = delta, MaxPasses = 100 }.Compute();
+            Assert.Equal("", Invariance.Difference(once, again));
+        }
+
+        /// <summary> cancelled part way: Cancelled, and what was done keeps every guard </summary>
+        [Fact]
+        public void Cancel_PartlyImproved_StillClean()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 60, 1);
+            double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
+            DMesh3 m = new DMesh3(start);
+            int calls = 0;
+            var r = new RemeshQualityPass(m, reference) { MaxDeviation = delta, CancelF = () => ++calls > 40 }.Compute();
+            Assert.Equal(RemeshQualityStatus.Cancelled, r.Status);
+            Assert.True(r.Flips + r.Collapses + r.Splits + r.Relocations + r.CreaseInsertions + r.CreaseRemovals > 0, "some work before the cancel");
+            AssertCleanResult(start, m, reference, r, delta);
+        }
+
+        /// <summary> invalid input: nothing is done </summary>
+        [Fact]
+        public void InvalidInput_NothingDone()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 20, 1);
+            foreach (double delta in new[] { 0, -1, double.NaN, double.PositiveInfinity }) {
+                DMesh3 m = new DMesh3(start);
+                Assert.Equal(RemeshQualityStatus.InvalidInput, new RemeshQualityPass(m, reference) { MaxDeviation = delta }.Compute().Status);
+                Assert.Equal("", Invariance.Difference(start, m));
+            }
+            Assert.Equal(RemeshQualityStatus.InvalidInput, new RemeshQualityPass(new DMesh3(start), new DMesh3()) { MaxDeviation = 0.01 }.Compute().Status);
+            Assert.Equal(RemeshQualityStatus.InvalidInput, new RemeshQualityPass(new DMesh3(), reference) { MaxDeviation = 0.01 }.Compute().Status);
+            DMesh3 nan = new DMesh3(start);
+            nan.SetVertex(nan.VertexIndices().First(), new Vector3d(double.NaN, 0, 0));
+            DMesh3 nanCopy = new DMesh3(nan);
+            Assert.Equal(RemeshQualityStatus.InvalidInput, new RemeshQualityPass(nan, reference) { MaxDeviation = 0.01 }.Compute().Status);
+            Assert.Equal(RemeshQualityStatus.InvalidInput, new RemeshQualityPass(new DMesh3(start), nanCopy) { MaxDeviation = 0.01 }.Compute().Status);
+        }
+
+        /// <summary>
+        /// Constraints: the constrained edges are the creases (never flipped, split only on the crease) and Fixed vertices
+        /// keep their position and stay; crease operations off: every crease vertex keeps its position
+        /// </summary>
+        [Fact]
+        public void Constraints_FixedVerticesStay_CreaseOperationsOff_CreaseVerticesStay()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 60, 1);
+            double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
+            // the vertices of the 20 worst triangles fixed, the sharp edges constrained
+            DMesh3 m = new DMesh3(start);
+            var c = new MeshConstraints();
+            double cos = Math.Cos(30 * MathUtil.Deg2Rad);
+            foreach (int e in m.EdgeIndices()) {
+                Index2i et = m.GetEdgeT(e);
+                if (m.GetTriNormal(et.a).Dot(m.GetTriNormal(et.b)) < cos) c.SetOrUpdateEdgeConstraint(e, new EdgeConstraint(EdgeRefineFlags.NoFlip));
+            }
+            var fixedV = new Dictionary<int, Vector3d>();
+            foreach (int t in m.TriangleIndices().OrderBy(t => MinAngle(m, t)).ThenBy(t => t).Take(20))
+                foreach (int v in new[] { m.GetTriangle(t).a, m.GetTriangle(t).b, m.GetTriangle(t).c }) {
+                    c.SetOrUpdateVertexConstraint(v, VertexConstraint.Pinned);
+                    fixedV[v] = m.GetVertex(v);
+                }
+            var r = new RemeshQualityPass(m, reference) { MaxDeviation = delta, Constraints = c }.Compute();
+            Assert.Equal(RemeshQualityStatus.Improved, r.Status);
+            AssertCleanResult(start, m, reference, r, delta);
+            foreach (var kv in fixedV) {
+                Assert.True(m.IsVertex(kv.Key));
+                Assert.Equal(kv.Value, m.GetVertex(kv.Key));
+            }
+            Assert.True(CurveDistance(SharpEdges(reference), SharpEdges(m)) <= delta);
+
+            DMesh3 off = new DMesh3(start);
+            var crease = new Dictionary<int, Vector3d>();
+            foreach (int e in off.EdgeIndices()) {
+                Index2i et = off.GetEdgeT(e), ev = off.GetEdgeV(e);
+                if (off.GetTriNormal(et.a).Dot(off.GetTriNormal(et.b)) < cos) { crease[ev.a] = off.GetVertex(ev.a); crease[ev.b] = off.GetVertex(ev.b); }
+            }
+            var ro = new RemeshQualityPass(off, reference) { MaxDeviation = delta, EnableCreaseOperations = false }.Compute();
+            Assert.Equal(0, ro.CreaseInsertions + ro.CreaseRemovals);
+            AssertCleanResult(start, off, reference, ro, delta);
+            foreach (var kv in crease) {
+                Assert.True(off.IsVertex(kv.Key));
+                Assert.Equal(kv.Value, off.GetVertex(kv.Key));
+            }
+            Assert.True(ro.Worst1PercentAfter < r.Worst1PercentAfter || ro.Worst1PercentAfter < new RemeshQualityPass(new DMesh3(start), reference) { MaxDeviation = delta }.Compute().Worst1PercentAfter,
+                "the crease operations are what lifts the needles at the box's edges");
+        }
+
+        /// <summary> the operations can be switched off one by one: each switch stops its kind </summary>
+        [Fact]
+        public void EnableSwitches_StopTheirOperations()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 60, 1);
+            double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
+            RemeshQualityResult run(Action<RemeshQualityPass> set)
+            {
+                var p = new RemeshQualityPass(new DMesh3(start), reference) { MaxDeviation = delta };
+                set(p);
+                return p.Compute();
+            }
+            var all = run(p => { });
+            Assert.True(all.Flips > 0 && all.Collapses + all.CreaseRemovals > 0 && all.Splits + all.CreaseInsertions > 0 && all.Relocations > 0);
+            Assert.Equal(0, run(p => p.EnableFlips = false).Flips);
+            var nc = run(p => p.EnableCollapses = false);
+            Assert.Equal(0, nc.Collapses + nc.CreaseRemovals);
+            var ns = run(p => p.EnableSplits = false);
+            Assert.Equal(0, ns.Splits + ns.CreaseInsertions);
+            Assert.Equal(0, run(p => p.EnableRelocation = false).Relocations);
+            Assert.Equal(RemeshQualityStatus.Unchanged, run(p => p.MaxPasses = 0).Status);
+            // with a wide band the corners (three crease edges) still keep their position
+            DMesh3 wide = new DMesh3(start);
+            new RemeshQualityPass(wide, reference) { MaxDeviation = 0.05 }.Compute();
+            var have = new HashSet<Vector3d>(wide.VertexIndices().Select(v => wide.GetVertex(v)));
+            foreach (int v in reference.VertexIndices())
+                Assert.Contains(reference.GetVertex(v), have);
+        }
+    }
+}
