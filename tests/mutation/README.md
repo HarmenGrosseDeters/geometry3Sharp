@@ -620,6 +620,80 @@ mutants"; the artifacts are not reachable from the cloud sessions):
   `boolean-2` 75 % (before 78 % and 65 %): the uncovered paths of open input are now killed, and the slower open-input
   tests turn more mutants into timeouts, whose number varies between runs. The thresholds follow the rule above (the
   score rounded down, less two points, less half the share of timeouts): `rounding` 59, `boolean-1` 79, `boolean-2` 79.
+- **Bounds and boxes of the exact Boolean (#1423; `ExactBooleanBoundValueTests`, `ExactBooleanBoundValueFrameTests`,
+  `ExactBooleanBoundValueProjectionTests`, in the filters of `boolean-2`, `boolean-4` and, for the grid of
+  `CrossingGrid`, `boolean-5`).** A wrong box padding, scale, cell size or box index changes how many candidates a
+  query visits or when a guarded fallback is taken, not the Boolean's result, so result tests cannot kill it. The value
+  tests call `boundary_bound`, `box_distance`, `scaled_norm`, `sum_bound`, `gradient_bound`, `cluster_bound`, `piece_box`,
+  `piece_cost`, `carry_bound`, `search`, `patch_winding`, `input_segment`, `LocalFrame.ToGrid`, `exact_difference`,
+  `InPlane`, `SegmentProjection` (boxes, cells, `Project`, `Query`), `pierce_prefilter` and `CrossingGrid` (private ones by
+  reflection, on the pieces of a computed union of two tilted boxes) and compare each value with an independent
+  computation (the documented formula re-coded in the test, exact BigInteger arithmetic for the boxes and projections, a
+  brute-force query, exact ties found by search). The mutants of those lines that still survive (counted from the
+  Stryker runs of the PR; the master run 45299876025 had 302 survivors on them) are equivalent or harmless:
+  - Ties of a `>=` against `>` (`d >= near` is killed by constructed exact equality; the remaining ones are `pe` tie
+    `Math.Abs(d) > 2 dd`, the `Abs(side) > threshold` of `usable` and of the final test in `pierce_prefilter`, the
+    cell index `t >= n - 1`, `t < 0` of `clamp`): a double that equals the threshold bit for bit, where both branches
+    give a valid bound.
+  - Terms below the resolution of a value test: `7e-16 * n1` in `slope` (1e-9 of it in the regimes where the slope decides),
+    `margin ... + 1e-300`, `pad ... + 1e-300` of the patch query (only where the sum is 0): a change of at most 1e-9
+    relative, under the factor 1.01 each bound carries; likewise the `(1 + 1e-12)` on the error in the `Query` pad of
+    `CrossingGrid`. (The rest of that pad is pinned at 0.5 and 1.5 of it, the error term and the 1e-15 coordinate term
+    each, by `CrossingGrid_Query_FindsACandidateAtHalfThePad_AndNotAtOneAndAHalfPads`; the `(1 + 1e-15)` of `corner_box` by
+    `CrossingGrid_CornerBox_WidensTheErrorOfACornerCoordinateAtTheCentre`, on two octahedra about the origin, where a
+    corner coordinate is 0 and `a - e` shows the margin.) (`m2 - e2` and `m1 - e1` in `dn` are not in this list, they are
+    killed: they drop the product term 4 e1 e2 of `dn`, a relative 4 e1 e2 / dn of the slope, which is about 4e-10 for the
+    smallest usable faces (`PiercePrefilter_KeepsTheSegmentsBetweenTheSlope...`: a dense scan of the doubles between the
+    slope's threshold and the one without that term, run on a usable face of e / m = 4e-10) and about 6 % for a needle whose
+    base face has e / m of a few percent (`PiercePrefilter_ANeedle...`: probes at 0.9 .. 0.99 of the threshold). In between
+    the shift is a smooth, increasing function of e / m, so the probes that see it at 6 % see it at larger e / m too. For
+    e / m above about 3 the mutants and the code agree: a face is usable only where its side values n . (v - a) exceed
+    slope (|v|_1 + |a|_1) + margin, and n . (v - a) <= n1 D with D <= |v|_1 + |a|_1, so a usable face has slope < n1 <=
+    6 m1 m2; slope >= 2.02 (e1 m2 + m1 e2) (the mutants' value too) then gives e / m < 3, and beyond it neither the code nor
+    a mutant uses the face. `PiercePrefilter_AFaceFarFromTheOriginWith...` pins the e / m ~ 1 case on a tetrahedron far from the
+    origin: no usable face, nothing dropped.)
+  - `pad / Vector3d.One` in `patch_winding`: division by 1.0 is exact.
+  - Guards whose fall-through gives the same value: `scaled_norm` (`m == 0 || NaN || infinite`: `ScaleB` and the square
+    root of 0, NaN and infinity return the same; `>> 52` against `>>> 52`: the mask removes the sign; `e == -1023`: both
+    scalings leave the same final rounding), `box_distance` (`sum <= 1e300`: the scaled norm equals the plain one where the
+    squares do not under- or overflow; below, the plain norm underflows to a smaller distance, which only weakens the
+    bound), `pe + px + py` against `pe + px - py` in `Project` (`|d| > 2 dd` bounds |px|, |py| below about 2.2e15 in exact
+    arithmetic: |n_i| <= |x_i| + |r_i| and dd >= 2.3e-16 (max|x| + max|r|); the quotient can still be infinite if the difference
+    n_i overflows, and then pe is infinite as well. So either the three are finite, and a sum of finite values with |px|, |py| <
+    2.2e15 cannot overflow (pe + 2.2e15 rounds to pe unless pe is within 1e292 of the maximum, and then it still rounds to
+    pe), or one is infinite or NaN, and then `pe + px + py` and `pe + px - py` are both infinite or NaN: both guards give
+    the same answer),
+    the early returns of `search` and the `Clear` calls of its `Heap` and `HeapKey` (a search ends only when the heap is empty,
+    and the early returns come before the first push; verified by removing either call: no test fails, no input can), `old <= aq`
+    ties, `carryBox ??` and the cached `return` of `piece_box` (allocation and recomputation of the same
+    value), `if (sign > 0)` and `side >= 0` in `pierce_prefilter` (`side == 0` makes the face unusable anyway), the loop bounds
+    `i <= v.Length`, `j <= v.Length` and `j - 1` (empty loops or duplicates of a face), `pass <= 2` and `return` in
+    `SegmentProjection` (a third counting pass, the grid of an invalid projection, neither is read), the fast path
+    `odIsExact` of `LocalFrame` (the same values, lever 4), `k <= 3` over a three-component vector (the indexer maps 3 to z),
+    `cw >= 0`, `ch >= 0` in `CrossingGrid` (a zero width needs a degenerate triangle: its candidates are skipped).
+  - **Not proven, listed as unproven (not as equivalent)**: `(a - av) - (bv - b)` for `(a - av) + (bv - b)` in
+    `exact_difference`. With x = a - av and y = bv - b the exact error of the difference is x + y (TwoSum), and the mutant
+    differs from the code only where x = y != 0 (the code then says "inexact", the mutant "exact"; x = -y != 0 cannot happen:
+    an error of 0 makes bv = b and so y = 0). The claim that x = y != 0 never occurs has no proof here: 80 million random pairs
+    over exponent differences of -60 .. 60 (31 000 with both parts nonzero, so the earlier "at most one part is nonzero" is
+    wrong) and all pairs of the 3-bit and 4-bit formats of a 20-exponent window (sampled for 5 and 6 bits) gave no case with x = y
+    != 0, so no pair where the two zero tests differ. `ExactDifference_*` tests the code against exact arithmetic on
+    4 000 pairs and on grids of near-cancelling ones. Policy constants, accepted: the slack `1e-12 s` of the gradient bound
+    (a sound change of it moves only the exact ties, which the tie tests build for the literal 1e-12) and the factor, the near limit
+    and the winding pad are pinned by contract tests at 0.99 / 1.01 (0.999 / 1.001 for the pad) of the constant, not bit for bit.
+  - **Killed, not harmless: `ws.Cost.Clear()` in `search`.** `PatchSearch` is one per worker and is reused across the patches
+    and across the open meshes j, each with its own boundary `bb[j]`, while `piece_cost` caches by the piece index only. Without
+    the clear, the second open mesh reuses the costs of the first boundary; with a nearer boundary they are too small, and
+    pieces are decided on an accumulated variation that is too small (unsound).
+    `Search_OnAWorkSpaceThatServedAFarBoundary_UsesTheCostsOfTheNearerBoundaryOfTheNextOpenMesh` fails without it (verified
+    by removing the call: 0 expected, 3 decided). `ws.Acc.Clear()` is killed too (a stale entry with the same accumulated cost
+    skips a piece's push, `Search_DecidesAPieceWhere...` fails without it); `Heap` and `HeapKey` are the harmless ones, above.
+  - **Mirrors and properties.** Hand-derived bounds are tested twice: a bit-for-bit mirror of the derived formula (a change
+    detector: such a bound changes only together with its derivation) and, where exact arithmetic allows it, a property that
+    fails for an unsound bound (the exact corners in the box of `piece_box` and `corner_box`, the exact segment in the pad of
+    `input_segment`, the exact length of the grid points in `boundary_bound`'s `Lengths`, the exact projection in `Project`,
+    exact differences). The containment of `piece_box` cannot see a smaller `err` (the derivation is far more pessimistic than
+    the actual rounding), so there the mirror is the detector. Each class says at its top which tests are mirrors.
 
 Set `break` from a measured score as above and only raise it.
 
