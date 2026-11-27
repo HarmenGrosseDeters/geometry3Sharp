@@ -211,7 +211,7 @@ namespace geometry3Sharp.Tests
             foreach (int passes in half == 0 ? new[] { 10, 12, 14, 16, 18, 20, 22, 24, 26 } : new[] { 27, 28, 29, 30, 32, 35, 40, 50, 60 }) {
                 double s = QuadRemesherClosedOutputTests.TargetOf(name);
                 var before = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s, SkipCrossingRepair = true };
-                var after = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s };
+                var after = new QuadRemesher(QuadRemesherClosedOutputTests.Shape(name, passes)) { TargetEdgeLength = s, SkipSurfaceRepair = true };     // the crossing repair alone (#1689 is tested apart)
                 Assert.Equal(QuadRemeshStatus.Success, before.Compute());
                 Assert.Equal(QuadRemeshStatus.Success, after.Compute());
                 PolyMeshMetrics mb = PolyMeshMetrics.Compute(before.Result), ma = PolyMeshMetrics.Compute(after.Result);
