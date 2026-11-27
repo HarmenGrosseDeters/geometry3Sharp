@@ -2842,7 +2842,7 @@ namespace g3
                 }
                 if (ghosts != null) {
                     t.Segments = reals;
-                    // (the order of the pair loop is not the same on every run: the ghosts in the order of their ends, as the segments below)
+                    // (defensive: ghost_points only adds points to a set that touched_points sorts, so the order of the ghosts, which follows the pair loop, changes nothing; sorted anyway, as the segments below)
                     if (ghosts.Count > 1) ghosts.Sort((x, y) => {
                         int xa = (ComparePoints(x.P, x.Q) <= 0) ? x.P : x.Q, xb = (xa == x.P) ? x.Q : x.P;
                         int ya = (ComparePoints(y.P, y.Q) <= 0) ? y.P : y.Q, yb = (ya == y.P) ? y.Q : y.P;

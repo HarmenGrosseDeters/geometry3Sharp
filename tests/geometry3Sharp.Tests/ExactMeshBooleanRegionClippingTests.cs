@@ -227,6 +227,27 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(Ops.Union)]
+        [InlineData(Ops.Intersection)]
+        [InlineData(Ops.Difference)]
+        public void ARegionThatOverlapsItself_GetsTheGhostPointsOfAnotherMeshsEmbeddedRegion(Ops op)
+        {
+            // the spiral's top faces overlap themselves (identical triangles: not embedded, not culled); a fine box on its top gives it ghosts, its flat edges crossing the spiral's sides
+            var m = new List<DMesh3> { Spiral(), FineBox(-1.5, -0.5, 0.5, 0.5, 1.5, 1, 4) };
+            var old = new ExactMeshBoolean(m, op) { AllowOpenMeshes = true, CullOutsideA = false, RecordCertificate = true, ComputeExactVertices = true };
+            var neu = new ExactMeshBoolean(m, op) { AllowOpenMeshes = true, CullOutsideA = false, RegionClipping = true, RecordCertificate = true, ComputeExactVertices = true };
+            Assert.True(old.Compute(), old.Error);
+            Assert.True(neu.Compute(), neu.Error);
+            Assert.Equal(old.Result.TriangleCount == 0, neu.Result.TriangleCount == 0);
+            if (neu.Result.TriangleCount == 0) return;
+            // (the rounding of the result may remove a part or leave triangles outside the delta, as in the old rule: the same reason and the same count)
+            Assert.Equal(MeshRobustRepair.NotCleanReason(old.Result, false) ?? "", MeshRobustRepair.NotCleanReason(neu.Result, false) ?? "");
+            BooleanCertificate co = BooleanCertificate.From(old), c = BooleanCertificate.From(neu);
+            Assert.Equal(co.Check(), c.Check());
+            Assert.Equal(co.Uncovered, c.Uncovered);
+        }
+
         // ---- the pieces grow linearly
 
         static int PiecesOf(int K, double dx, bool regions)
