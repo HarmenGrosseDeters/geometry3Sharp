@@ -171,10 +171,24 @@ namespace g3
 
 
 
+        /// <summary>
+        /// Append the edge v0-v1 and return its id: InvalidID if a vertex is missing, v0 == v1, or a vertex would get more
+        /// than 32,766 edges (its count is a short: #1695, the graph is then unchanged); DuplicateEdgeID if the edge exists.
+        /// </summary>
         public int AppendEdge(int v0, int v1, int gid = -1)
         {
             return AppendEdge(new Index2i(v0, v1), gid);
         }
+        /// <summary>
+        /// A vertex count is a short (RefCountVector, part of the 1.0.324 API: 1 for the vertex and 1 for each edge at it),
+        /// so a vertex has at most 32,766 edges. True if the count of vertex vid can take <paramref name="add"/> more without
+        /// passing short.MaxValue (it would wrap, and the vertex would no longer be one: #1695, as #1684 for DMesh3).
+        /// </summary>
+        internal bool vertex_refs_fit(int vid, int add)
+        {
+            return vertices_refcount.rawRefCount(vid) + add <= short.MaxValue;
+        }
+
         public int AppendEdge(Index2i ev, int gid = -1)
         {
             if (IsVertex(ev[0]) == false || IsVertex(ev[1]) == false) {
@@ -188,6 +202,8 @@ namespace g3
             int e0 = FindEdge(ev[0], ev[1]);
             if (e0 != InvalidID)
                 return DuplicateEdgeID;
+            if (vertex_refs_fit(ev[0], 1) == false || vertex_refs_fit(ev[1], 1) == false)
+                return InvalidID;
 
             // increment ref counts and update/create edges
             vertices_refcount.increment(ev[0]);
@@ -415,6 +431,17 @@ namespace g3
 
             List<int> edges_b = vertex_edges[b];
             List<int> edges_a = vertex_edges[a];
+
+            // b takes every edge of a except ab and those to a vertex b already has an edge to (removed below): refused
+            // before anything changes if b's count would pass short.MaxValue at its peak (#1695)
+            int moved = 0;
+            foreach (int eax in edges_a) {
+                int o = edge_other_v(eax, a);
+                if (o != b && FindEdge(b, o) == InvalidID)
+                    moved++;
+            }
+            if (vertex_refs_fit(b, moved) == false)
+                return MeshResult.Failed_HitValenceLimit;
 
             // [TODO] if we are down to a single triangle (a,b,c), then
             //   this will happily discard vtx c and edges ac,bc, leaving us

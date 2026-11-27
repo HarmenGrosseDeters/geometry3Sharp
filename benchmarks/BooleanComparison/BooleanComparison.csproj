@@ -20,6 +20,7 @@
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\PipelineCertificate.cs" Link="Harness\PipelineCertificate.cs" />
     <Compile Include="..\SolidBooleanAudit\Corpus.cs" Link="Audit\Corpus.cs" />
     <Compile Include="..\SolidBooleanAudit\Oracle.cs" Link="Audit\Oracle.cs" />
+    <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanCertificate.Coverage.cs" Link="Harness\BooleanCertificate.Coverage.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\CertificateFile.cs" Link="Harness\CertificateFile.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanFuzzCases.cs" Link="Harness\BooleanFuzzCases.cs" />
     <Compile Include="..\..\tests\geometry3Sharp.Tests\Harness\BooleanOracle.cs" Link="Harness\BooleanOracle.cs" />
