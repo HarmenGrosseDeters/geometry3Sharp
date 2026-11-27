@@ -163,7 +163,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ALargeSheet_DoesNotRaiseTheBound()
+        public void ASheetInput_IsNotExamined_ForTheBound()
         {
             // a Difference with a stated sheet of 100 x 100 (diagonal 141) that cuts the box at z = 0.25: were the sheet counted,
             // the bound would be 1.4e-3 and the lens of NotThinLift (thickness 8.1e-5) would be dropped; it is not thin by its

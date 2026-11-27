@@ -187,7 +187,7 @@ namespace gs
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
         public List<SolidBooleanThinSolid> RemovedThinSolids = new List<SolidBooleanThinSolid>();
         /// <summary>
-        /// the inside-out components of the closed inputs that were thinner than the rounding bound and were dropped before the
+        /// the inside-out components of the closed inputs that were thinner than 1e-5 of their own box diagonal and were dropped before the
         /// boolean (see SolidBooleanPipeline.AllowInsideOutInputs); empty otherwise
         /// </summary>
         public List<SolidBooleanDroppedComponent> DroppedInsideOutComponents = new List<SolidBooleanDroppedComponent>();

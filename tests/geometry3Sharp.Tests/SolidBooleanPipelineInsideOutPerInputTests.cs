@@ -149,6 +149,31 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void AThinLens_InTheVoidOfAThinCavity_IsDropped_TheCavityStays()
+        {
+            // a box of 1000 (diagonal 1732) with a cavity 10 x 10 x 0.01 and, in the void of the cavity, an inside-out lens (thickness
+            // 3e-7). By the old bound (1.7e-2) both were candidates; the cavity (every vertex inside the box) stayed, and the lens, tested
+            // against the box alone, was inside it and stayed too. Now the cavity (thickness 1e-3 of its diagonal) is no candidate and
+            // belongs to the rest: the lens has winding number 0 against it and is dropped
+            DMesh3 b = Box(new Vector3d(5000, 0, 0), new Vector3d(500, 500, 500));
+            MeshEditor.Append(b, Box(new Vector3d(5000, 0, 0), new Vector3d(5, 5, 0.005), true));
+            var lens = new DMesh3();
+            T.AddLens(lens, 4999.75, 0, T.ThinLift);
+            MeshTransforms.Translate(lens, new Vector3d(0, -0.5, 0));
+            MeshEditor.Append(b, lens);
+            var p = Run(Unit(), b);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, p.Status);
+            Assert.True(p.Report.Clean, p.Report.NotCleanReason);
+            SolidBooleanDroppedComponent d = Assert.Single(p.Report.DroppedInsideOutComponents);
+            Assert.Equal(1, d.Input);
+            Assert.Equal(6, d.Triangles);
+            Assert.True(p.Result.IsClosed());
+            Assert.True(Invariance.AllFinite(p.Result));
+            // the solid of the box minus the cavity (1), plus the unit box
+            Assert.Equal(1e9 - 1 + 1, Invariance.Volume(p.Result), 3);
+        }
+
+        [Fact]
         public void Compute_Twice_GivesTheSameDecision()
         {
             var refused = new SolidBooleanPipeline(Box(Vector3d.Zero, new Vector3d(500, 500, 500)), BoxAndPlate(2000, 0.01), U);
