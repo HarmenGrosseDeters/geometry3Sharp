@@ -115,7 +115,7 @@ def interval_successor(timeout_ms):
 
 
 def segment_box(timeout_ms):
-    pin('mesh_ops/ExactMeshArrangement.cs', 'static bool segment_hits(', 'void morton_order(', 'bac6a0f706cfbd19578200573bad1d9a5f9caa837608eabd6c688ef0ac4d4124')
+    pin('mesh_ops/ExactMeshArrangement.cs', 'static bool segment_hits(', 'void morton_order(', 'f196f1dbea7023d5d3350bc5ef37ca043940bc788c4f67f293f04d85e67d09e4')
     p, other, lo, hi, t = z.Reals('slab_p slab_q slab_lo slab_hi slab_t')
     point = (1 - t) * p + t * other
     intersecting = [lo <= hi, t >= 0, t <= 1, lo <= point, point <= hi]

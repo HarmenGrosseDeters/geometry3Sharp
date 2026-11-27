@@ -3567,6 +3567,13 @@ namespace g3
             double t0 = 0, t1 = 1;
             for (int k = 0; k < 3; ++k) {
                 double lo = b[6 * i + k] - pad, hi = b[6 * i + 3 + k] + pad;
+                if (pad > 0) {
+                    // the padded faces rounded outward: fl(b - pad) can lie up to half an ulp of b inside b - pad, which
+                    // the slack does not cover under cancellation (a pad below one ulp of b was lost, #1691); one ulp
+                    // out is at or beyond b - pad (ExactInterval.Down / Up: the next double, Rump et al.)
+                    lo = ExactInterval.Down(lo);
+                    hi = ExactInterval.Up(hi);
+                }
                 double d = q[k] - p[k];
                 if (Math.Abs(d) < 1e-300) {
                     if ((p[k] < lo && q[k] < lo) || (p[k] > hi && q[k] > hi)) return false;
