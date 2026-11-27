@@ -58,7 +58,9 @@ namespace gs
         SolidNotClean = 3,
         /// <summary>
         /// an empty result and the exact result is empty (eg the intersection of two boxes that touch in a plane, or of disjoint solids): the
-        /// answer is right. Report.NotCleanReason is "empty" then, as for any empty mesh
+        /// answer is right. Report.NotCleanReason is "empty" then, as for any empty mesh. "Exact" means exact for the inputs as fed to the exact
+        /// stage: after an InputGrid snap (or the Grid step) a thin overlap may have been closed by the snap and the snapped solids only touch;
+        /// Report.InputSnappedVertices above 0 is the hint
         /// </summary>
         EmptyExact = 4,
         /// <summary>
@@ -174,7 +176,7 @@ namespace gs
         /// culled outside the first input (or of all inputs for an Intersection). The inputs of the run that is the result (after a Grid
         /// step or a fallback). It is a signal about the inputs, not a judgement of the result: the result is exact for the inputs as given, in
         /// winding number semantics, so a flagged input is one whose meaning may differ from what the caller meant. Status, Clean, NotCleanReason and
-        /// OnlyContacts keep their meaning. Also set for a run that is refused as InsideOutInput
+        /// OnlyContacts keep their meaning. Also set for a run that fails after the exact stage (InsideOutInput, Cancelled, a Verification refusal), where ResultKind is None. It is computed on the pieces the exact stage classified, with the early-out cull on
         /// </summary>
         public List<int> InputsWithWindingOutsideZeroOne = new List<int>();
         /// <summary> triangles per input as given (before any repair) </summary>
@@ -812,17 +814,18 @@ namespace gs
             bool done = computeRoute(total);
             if (done && Verification != VerificationModes.None)
                 done = verify(total);
-            Report.ResultKind = KindOf(Status, Result, Report, ThinInputs);
+            Report.ResultKind = KindOf(Status, Result, Report, ThinInputs, Operation);
             return done;
         }
 
         // the kind of the result that a run returned (None without one)
-        internal static SolidBooleanResultKind KindOf(PipelineStatus status, DMesh3 result, SolidBooleanReport report, ThinInputModes thinInputs)
+        internal static SolidBooleanResultKind KindOf(PipelineStatus status, DMesh3 result, SolidBooleanReport report, ThinInputModes thinInputs,
+            ExactMeshBoolean.Operations operation = ExactMeshBoolean.Operations.Union)
         {
             if (status != PipelineStatus.Success || result == null)
                 return SolidBooleanResultKind.None;
             if (result.TriangleCount == 0)
-                return RemovedSomething(report, thinInputs) ? SolidBooleanResultKind.EmptyAfterRounding : SolidBooleanResultKind.EmptyExact;
+                return RemovedSomething(report, thinInputs, operation) ? SolidBooleanResultKind.EmptyAfterRounding : SolidBooleanResultKind.EmptyExact;
             if (report.Clean)
                 return SolidBooleanResultKind.Solid;
             return report.OnlyContacts ? SolidBooleanResultKind.SolidWithContacts : SolidBooleanResultKind.SolidNotClean;
@@ -830,12 +833,20 @@ namespace gs
 
         // the empty result of this run is not the exact result: the pipeline removed what the exact stage had (a component that the rounding repair
         // removed and that is not a residue, a solid that MinThickness removed, an input treated as empty)
-        internal static bool RemovedSomething(SolidBooleanReport report, ThinInputModes thinInputs)
+        internal static bool RemovedSomething(SolidBooleanReport report, ThinInputModes thinInputs, ExactMeshBoolean.Operations operation)
         {
             foreach (MeshRoundingRepair.RemovedComponentInfo c in report.RoundingRemoved)
                 if (c.Reason != MeshRoundingRepair.RemovalReasons.InsideOutResidue)
                     return true;
-            return report.RemovedThinSolids.Count > 0 || (thinInputs == ThinInputModes.TreatAsEmpty && report.ThinInputs.Count > 0);
+            if (report.RemovedThinSolids.Count > 0)
+                return true;
+            // (an input left out as thin removes volume from the result only if the result can shrink without it: a tool of a Difference cannot, so
+            // the exact result is a subset of the empty one; any Union operand, the first operand of a Difference and any input of an Intersection can)
+            if (thinInputs == ThinInputModes.TreatAsEmpty)
+                foreach (SolidBooleanThinInput t in report.ThinInputs)
+                    if (operation != ExactMeshBoolean.Operations.Difference || t.Index == 0)
+                        return true;
+            return false;
         }
 
         // the run with its steps (sheet route, Grid step, fallback); the result is checked by Compute (Verification)

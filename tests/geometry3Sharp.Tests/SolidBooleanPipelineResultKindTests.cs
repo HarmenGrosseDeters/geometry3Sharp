@@ -190,6 +190,56 @@ namespace geometry3Sharp.Tests
             Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, p.Report.ResultKind);
         }
 
+        [Fact]
+        public void ThinToolOfADifference_LeftOutAsEmpty_CannotShrinkTheResult_SoTheEmptyResultIsExact()
+        {
+            // A - thin - big, big contains A: the Difference is empty with or without the thin tool
+            var p = new SolidBooleanPipeline(new List<DMesh3> { Box(0, 0, 0, 0.5), Grid(new Vector3d(0, 0, 0), new Vector3d(1, 1, 0.01)), Box(0, 0, 0, 2) }, D) {
+                MinThickness = 0.1, ThinInputs = SolidBooleanPipeline.ThinInputModes.TreatAsEmpty
+            };
+            Assert.True(p.Compute(), p.Error);
+            Assert.Equal(0, p.Result.TriangleCount);
+            Assert.Equal(1, p.Report.ThinInputs[0].Index);
+            Assert.Equal(SolidBooleanResultKind.EmptyExact, p.Report.ResultKind);
+            // the first operand thin: its removal does shrink the result
+            var first = new SolidBooleanPipeline(new List<DMesh3> { Grid(Vector3d.Zero, new Vector3d(1, 1, 0.01)), Box(5, 0, 0, 1) }, D) {
+                MinThickness = 0.1, ThinInputs = SolidBooleanPipeline.ThinInputModes.TreatAsEmpty
+            };
+            Assert.True(first.Compute(), first.Error);
+            Assert.Equal(0, first.Result.TriangleCount);
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, first.Report.ResultKind);
+        }
+
+        [Fact]
+        public void WithInputGrid_ASnapThatClosesAThinOverlap_GivesEmptyExact_WithSnappedVerticesAsTheHint()
+        {
+            // repro C (a 1e-12 overlap) on a grid of 1/1024: b's face moves onto x = 0.5, the snapped solids only touch (documented limit of "exact")
+            var p = Run(ReproA(), ReproB(1e-12), I, x => x.InputGrid = 1.0 / 1024);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, p.Status);
+            Assert.Equal(0, p.Result.TriangleCount);
+            Assert.Empty(p.Report.RoundingRemoved);
+            Assert.True(p.Report.InputSnappedVertices > 0);
+            Assert.Equal(SolidBooleanResultKind.EmptyExact, p.Report.ResultKind);
+            // without the snap the same inputs are EmptyAfterRounding
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, Run(ReproA(), ReproB(1e-12), I).Report.ResultKind);
+        }
+
+        [Fact]
+        public void KindOf_ATinyInputThatCannotShrinkTheResult_IsNotARemoval()
+        {
+            var thinTool = ReportOf("empty");
+            thinTool.ThinInputs.Add(new SolidBooleanThinInput { Index = 2 });
+            var treat = SolidBooleanPipeline.ThinInputModes.TreatAsEmpty;
+            DMesh3 empty = new DMesh3();
+            const SolidBooleanPipeline.PipelineStatus ok = SolidBooleanPipeline.PipelineStatus.Success;
+            Assert.Equal(SolidBooleanResultKind.EmptyExact, SolidBooleanPipeline.KindOf(ok, empty, thinTool, treat, D));
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, SolidBooleanPipeline.KindOf(ok, empty, thinTool, treat, U));
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, SolidBooleanPipeline.KindOf(ok, empty, thinTool, treat, I));
+            var thinFirst = ReportOf("empty");
+            thinFirst.ThinInputs.Add(new SolidBooleanThinInput { Index = 0 });
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, SolidBooleanPipeline.KindOf(ok, empty, thinFirst, treat, D));
+        }
+
         static DMesh3 Sheet(double z)
         {
             var s = new DMesh3();
