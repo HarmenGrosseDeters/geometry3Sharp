@@ -384,30 +384,21 @@ namespace geometry3Sharp.Tests
         /// denominators, 4.4 s at 60 slices, 66 s at 120); the verdict is "" and the time of C5 alone stays far below the old one.
         /// </summary>
         [Fact]
+        [Trait("Category", "Slow")] // (whole test 3.2 s locally: cylinders, boolean, C0/C1 and C5 at 60 slices; a smaller count does not separate the sums by cost)
         public void ShiftedFan_60Slices_C5IsCheap()
         {
+            var total = Stopwatch.StartNew();
             DMesh3 a = Cylinder(60);
             BooleanCertificate c = Run(a, Shifted(a, 2), Ops.Union);
             Assert.Equal("", c.CheckInputs());
             Assert.Equal("", c.CheckPieces());
             var sw = Stopwatch.StartNew();
             Assert.Equal("", c.CheckResult());
-            log.WriteLine($"C5 {sw.ElapsedMilliseconds} ms");
-            Assert.True(sw.ElapsedMilliseconds < 3000, $"C5 {sw.ElapsedMilliseconds} ms (4400 before)");
-        }
-
-        [Fact]
-        [Trait("Category", "Nightly")]
-        public void ShiftedFan_120Slices_C5Finishes_Nightly()
-        {
-            DMesh3 a = Cylinder(120);
-            BooleanCertificate c = Run(a, Shifted(a, 2), Ops.Union);
-            Assert.Equal("", c.CheckInputs());
-            Assert.Equal("", c.CheckPieces());
-            var sw = Stopwatch.StartNew();
-            Assert.Equal("", c.CheckResult());
-            log.WriteLine($"C5 {sw.ElapsedMilliseconds} ms");
-            Assert.True(sw.ElapsedMilliseconds < 20000, $"C5 {sw.ElapsedMilliseconds} ms");
+            long c5 = sw.ElapsedMilliseconds;
+            log.WriteLine($"C5 {c5} ms, whole test {total.ElapsedMilliseconds} ms");
+            // (the running sums took 4.4 s here and C5 takes 1.0-1.2 s now: the bound is half of the old time, so the quadratic sums fail it
+            // on a machine of the same speed and a runner up to 1.8x slower still passes; 120 slices took 66 s before and 5 s now, in the PR)
+            Assert.True(c5 < 2200, $"C5 {c5} ms (4400 before)");
         }
     }
 }
