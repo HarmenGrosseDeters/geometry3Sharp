@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using g3;
 using gs;
 using Xunit;
@@ -601,6 +602,151 @@ namespace geometry3Sharp.Tests
             Assert.True(simplified.TriangleCount < before, "the simplification collapsed edges");
             AssertGuarantees(simplified, input, 0, "the pass, then the simplification");       // (the simplified wrap: no distance floor)
             Assert.Equal(0, AlphaWrapNoContactTests.Crossings(simplified, input));
+        }
+
+        [Fact]
+        public void NotDegenerate_AngleAndHeight_ExtremeScales_AvoidOverflowAndUnderflow()
+        {
+            MethodInfo angleMi = typeof(AlphaWrapFeaturePass).GetMethod("angle", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo heightMi = typeof(AlphaWrapFeaturePass).GetMethod("height", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo minAngleMi = typeof(AlphaWrapFeaturePass).GetMethod("min_angle", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo maxAngleMi = typeof(AlphaWrapFeaturePass).GetMethod("max_angle", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(angleMi);
+            Assert.NotNull(heightMi);
+            Assert.NotNull(minAngleMi);
+            Assert.NotNull(maxAngleMi);
+
+            double[] scales = { 1.0, ExactPoint3.ScaleB(1.0, 600), ExactPoint3.ScaleB(1.0, -600) };
+            Vector3d refNormal;
+            Assert.True(AlphaWrapFeaturePass.NotDegenerate(new Triangle3d(Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0)), out refNormal));
+            double refAngle = (double)angleMi.Invoke(null, new object[] { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0) });
+
+            foreach (double s in scales) {
+                var tri = new Triangle3d(Vector3d.Zero, new Vector3d(s, 0, 0), new Vector3d(0, s, 0));
+                Vector3d n;
+                Assert.True(AlphaWrapFeaturePass.NotDegenerate(tri, out n), $"scale {s}: NotDegenerate failed");
+                Assert.Equal(refNormal, n);
+
+                double ang = (double)angleMi.Invoke(null, new object[] { new Vector3d(s, 0, 0), new Vector3d(s, s, 0) });
+                Assert.Equal(refAngle, ang);
+
+                var m = new DMesh3();
+                m.AppendTriangle(m.AppendVertex(tri.V0), m.AppendVertex(tri.V1), m.AppendVertex(tri.V2));
+                double h = (double)heightMi.Invoke(null, new object[] { m, 0 });
+                Assert.True(Math.Abs(h - s / Math.Sqrt(2.0)) <= 1e-12 * s, $"scale {s}: height {h}");
+            }
+
+            // mixed extreme scales (2^600 vs 2^-600)
+            double mixed = (double)angleMi.Invoke(null, new object[] {
+                new Vector3d(ExactPoint3.ScaleB(1.0, 600), 0, 0),
+                new Vector3d(0, ExactPoint3.ScaleB(1.0, -600), 0)
+            });
+            Assert.True(Math.Abs(mixed - 90.0) <= 1e-12, $"mixed-scale angle {mixed}");
+
+            // opposite-sign coordinates near double.MaxValue whose raw edge differences overflow
+            var hugeTri = new Triangle3d(new Vector3d(-1e308, -1e308, 0), new Vector3d(1e308, -1e308, 0), new Vector3d(0, 1e308, 0));
+            double minA = (double)minAngleMi.Invoke(null, new object[] { hugeTri });
+            double maxA = (double)maxAngleMi.Invoke(null, new object[] { hugeTri });
+            Assert.InRange(minA, 53.0, 53.3);
+            Assert.InRange(maxA, 63.3, 63.6);
+        }
+
+        [Fact]
+        public void BuildMiters_ExtremeOffset_CapsDimensionlessShift()
+        {
+            FieldInfo cosCreaseFi = typeof(AlphaWrapFeaturePass).GetField("cosCrease", BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo mitersFi = typeof(AlphaWrapFeaturePass).GetField("miters", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo buildMitersMi = typeof(AlphaWrapFeaturePass).GetMethod("build_miters", BindingFlags.Instance | BindingFlags.NonPublic);
+            Type sgType = typeof(AlphaWrapFeaturePass).GetNestedType("SegmentGrid", BindingFlags.NonPublic);
+            MethodInfo anyWithinMi = sgType.GetMethod("AnyWithin", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            FieldInfo segsFi = sgType.GetField("segs", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            // Nearly folded wedge (1 + n1.n2 ~ 2e-8 << 2 / MaxMiterShift^2): uncapped shift is ~10000 * offset,
+            // so the dimensionless cap must clamp the shift length to exactly MaxMiterShift * offset.
+            const double eps = 1e-4;
+            Func<double, Vector3d> runScale = (s) => {
+                var input = new DMesh3();
+                int v0 = input.AppendVertex(new Vector3d(0, 0, 0));
+                int v1 = input.AppendVertex(new Vector3d(0, 0, s));
+                int v2 = input.AppendVertex(new Vector3d(s, -eps * s, 0));
+                int v3 = input.AppendVertex(new Vector3d(s, eps * s, 0));
+                input.AppendTriangle(v0, v1, v2);
+                input.AppendTriangle(v1, v0, v3);
+
+                double offset = ExactPoint3.ScaleB(s, -10);
+                double alpha = ExactPoint3.ScaleB(s, -6);
+                var pass = new AlphaWrapFeaturePass(new DMesh3(input), input, alpha, offset);
+                cosCreaseFi.SetValue(pass, Math.Cos(30.0 * MathUtil.Deg2Rad));
+                buildMitersMi.Invoke(pass, null);
+
+                object miters = mitersFi.GetValue(pass);
+                Assert.True(miters != null, $"scale {s}: miters must be built");
+                var segs = (List<Segment3d>)segsFi.GetValue(miters);
+                Assert.Equal(2, segs.Count);
+
+                // The capped miter lies at (+4 * offset, 0, z) and (-4 * offset, 0, z); origin is 4 * offset away.
+                bool hitsExpected = (bool)anyWithinMi.Invoke(miters, new object[] { new Vector3d(4.0 * offset, 0, 0.5 * s), 0.1 * offset });
+                bool missesOrigin = !(bool)anyWithinMi.Invoke(miters, new object[] { new Vector3d(0, 0, 0.5 * s), 0.5 * offset });
+                Assert.True(hitsExpected, $"scale {s}: expected miter at +4*offset, got seg0.P0={segs[0].P0}");
+                Assert.True(missesOrigin, $"scale {s}: miter collapsed onto input edge");
+                return segs[0].P0;
+            };
+
+            Vector3d refP0 = runScale(1.0);
+            Vector3d bigP0 = runScale(ExactPoint3.ScaleB(1.0, 600));
+            Vector3d smallP0 = runScale(ExactPoint3.ScaleB(1.0, -600));
+            Assert.Equal(ExactPoint3.ScaleB(refP0.x, 600), bigP0.x);
+            Assert.Equal(ExactPoint3.ScaleB(refP0.x, -600), smallP0.x);
+
+            // Box whose diagonal exceeds double.MaxValue (~1.9e308) and miter edge length > double.MaxValue (but Extent < double.MaxValue)
+            var huge = new DMesh3();
+            int hv0 = huge.AppendVertex(new Vector3d(0, 0, 0));
+            int hv1 = huge.AppendVertex(new Vector3d(1.3e308, 1.3e308, 0));
+            int hv2 = huge.AppendVertex(new Vector3d(0, 0, 1e308));
+            int hv3 = huge.AppendVertex(new Vector3d(1.3e308, 0, 0));
+            huge.AppendTriangle(hv0, hv1, hv2);
+            huge.AppendTriangle(hv1, hv0, hv3);
+            var hugePass = new AlphaWrapFeaturePass(new DMesh3(huge), huge, 1e306, 1e305);
+            cosCreaseFi.SetValue(hugePass, Math.Cos(30.0 * MathUtil.Deg2Rad));
+            buildMitersMi.Invoke(hugePass, null);
+            object hugeMiters = mitersFi.GetValue(hugePass);
+            Assert.True(hugeMiters != null, "diagonal > double.MaxValue must still build miters");
+            var hugeSegs = (List<Segment3d>)segsFi.GetValue(hugeMiters);
+            Assert.Equal(2, hugeSegs.Count);
+            Assert.True(hugeSegs[0].Extent > 9e307 && !double.IsInfinity(hugeSegs[0].Extent), $"unexpected miter extent {hugeSegs[0].Extent}");
+        }
+
+        [Fact]
+        public void SegmentGrid_SubnormalAndOverflowingRadius_AndWideSegment_Safe()
+        {
+            Type sgType = typeof(AlphaWrapFeaturePass).GetNestedType("SegmentGrid", BindingFlags.NonPublic);
+            ConstructorInfo ctor = sgType.GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null,
+                new[] { typeof(List<Segment3d>), typeof(double), typeof(Vector3d) }, null);
+            MethodInfo anyWithinMi = sgType.GetMethod("AnyWithin", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            Assert.NotNull(ctor);
+            Assert.NotNull(anyWithinMi);
+
+            // 1. Subnormal r^2 == 0 and overflowing r^2 == +Inf (checked first so base fails immediately without hanging)
+            foreach (int exp in new[] { -540, 600 }) {
+                double r = ExactPoint3.ScaleB(1.0, exp);
+                var seg = new Segment3d(new Vector3d(0.5 * r, 0, 0), Vector3d.AxisX, 0.5 * r);
+                object grid = ctor.Invoke(new object[] { new List<Segment3d> { seg }, r, Vector3d.Zero });
+                bool near = (bool)anyWithinMi.Invoke(grid, new object[] { new Vector3d(0.5 * r, 0.5 * r, 0), r });
+                bool far = (bool)anyWithinMi.Invoke(grid, new object[] { new Vector3d(0.5 * r, 2.0 * r, 0), r });
+                Assert.True(near, $"exp {exp}: near point must be within r");
+                Assert.False(far, $"exp {exp}: far point at 2*r must not falsely match r");
+            }
+
+            // 2. Wide segment exceeding Int32.MaxValue steps and huge query radius (routed via wideSegs / linear scan)
+            var wide = new Segment3d(new Vector3d(5e11, 0, 0), Vector3d.AxisX, 5e11);
+            object wideGrid = ctor.Invoke(new object[] { new List<Segment3d> { wide }, 1.0, Vector3d.Zero });
+            Assert.True((bool)anyWithinMi.Invoke(wideGrid, new object[] { new Vector3d(5e11, 0.5, 0), 1.0 }));
+            Assert.False((bool)anyWithinMi.Invoke(wideGrid, new object[] { new Vector3d(5e11, 2.0, 0), 1.0 }));
+
+            var unit = new Segment3d(new Vector3d(0.5, 0, 0), Vector3d.AxisX, 0.5);
+            object unitGrid = ctor.Invoke(new object[] { new List<Segment3d> { unit }, 1.0, Vector3d.Zero });
+            Assert.True((bool)anyWithinMi.Invoke(unitGrid, new object[] { new Vector3d(0, 1e11, 0), 1e12 }));
+            Assert.False((bool)anyWithinMi.Invoke(unitGrid, new object[] { new Vector3d(0, 2e12, 0), 1e12 }));
         }
     }
 }

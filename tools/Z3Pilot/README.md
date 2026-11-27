@@ -1147,3 +1147,17 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+* `alpha_wrap_passes.py` checks local algebraic, integer-clamping and scale-invariance
+  obligations for `AlphaWrapFeaturePass` and `AlphaWrapQualityPass`: dimensionless
+  miter-shift normalization and capping (`build_miters`), plane incidence and
+  nearest-point orthogonality of `crease_point`, overlap preservation of monotone
+  clamping to `[-1, 66]` in `AlphaWrapQualityPass.cells`, `Int32` non-wrap bounds
+  under `SegmentGrid.CellLimit = 2^28`, and positive scale invariance of `angle` and
+  `unit_normal`, together with negative controls (SAT) and `binary64` replays at
+  `2^600`, `2^-600`, `2^-540`, and `2^-537`. End-to-end mesh topology, exact sweep tests, and
+  `DistSegment3Triangle3` internal rounding remain outside this pilot.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_alpha_wrap_passes.py -v
+```

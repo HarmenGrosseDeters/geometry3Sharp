@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using g3;
 using gs;
 using Xunit;
@@ -899,6 +900,131 @@ namespace geometry3Sharp.Tests
             DMesh3 direct = MeshRobustRepair.ImproveWrapQuality(off.Mesh, off.AlphaWrap.Result, 0.5 * off.AlphaWrap.UsedOffset, true, () => false,
                 (p) => { MeshRobustRepair.DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(MeshRobustRepairTests.ThinPlates(6), true); });
             Assert.Equal("", Invariance.Difference(direct, on.Mesh));
+        }
+
+        [Fact]
+        public void UnitNormalAndAngle_ExtremeScales_AvoidOverflowAndUnderflow()
+        {
+            MethodInfo unitNormalMi = typeof(AlphaWrapQualityPass).GetMethod("unit_normal", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo angleMi = typeof(AlphaWrapQualityPass).GetMethod("angle", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo minAngleMi = typeof(AlphaWrapQualityPass).GetMethod("min_angle", BindingFlags.Static | BindingFlags.NonPublic, null,
+                new[] { typeof(Vector3d), typeof(Vector3d), typeof(Vector3d) }, null);
+            MethodInfo maxAngleMi = typeof(AlphaWrapQualityPass).GetMethod("max_angle", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(unitNormalMi);
+            Assert.NotNull(angleMi);
+            Assert.NotNull(minAngleMi);
+            Assert.NotNull(maxAngleMi);
+
+            double[] scales = { 1.0, ExactPoint3.ScaleB(1.0, 600), ExactPoint3.ScaleB(1.0, -600) };
+            var refArgs = new object[] { Vector3d.Zero, new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), Vector3d.Zero };
+            Assert.True((bool)unitNormalMi.Invoke(null, refArgs));
+            Vector3d refNormal = (Vector3d)refArgs[3];
+            double refAngle = (double)angleMi.Invoke(null, new object[] { new Vector3d(1, 0, 0), new Vector3d(1, 1, 0) });
+
+            foreach (double s in scales) {
+                var args = new object[] { Vector3d.Zero, new Vector3d(s, 0, 0), new Vector3d(0, s, 0), Vector3d.Zero };
+                Assert.True((bool)unitNormalMi.Invoke(null, args), $"scale {s}: unit_normal failed");
+                Assert.Equal(refNormal, (Vector3d)args[3]);
+
+                double ang = (double)angleMi.Invoke(null, new object[] { new Vector3d(s, 0, 0), new Vector3d(s, s, 0) });
+                Assert.Equal(refAngle, ang);
+            }
+
+            double mixed = (double)angleMi.Invoke(null, new object[] {
+                new Vector3d(ExactPoint3.ScaleB(1.0, 600), 0, 0),
+                new Vector3d(0, ExactPoint3.ScaleB(1.0, -600), 0)
+            });
+            Assert.True(Math.Abs(mixed - 90.0) <= 1e-12, $"mixed-scale angle {mixed}");
+
+            // opposite-sign coordinates near double.MaxValue whose raw edge differences overflow
+            Vector3d h0 = new Vector3d(-1e308, -1e308, 0), h1 = new Vector3d(1e308, -1e308, 0), h2 = new Vector3d(0, 1e308, 0);
+            Assert.InRange((double)minAngleMi.Invoke(null, new object[] { h0, h1, h2 }), 53.0, 53.3);
+            Assert.InRange((double)maxAngleMi.Invoke(null, new object[] { h0, h1, h2 }), 63.3, 63.6);
+        }
+
+        [Fact]
+        public void ProtectedEdges_ExtremeScales_DoesNotFalseLockOrFalseUnlock()
+        {
+            MethodInfo buildProtectedMi = typeof(AlphaWrapQualityPass).GetMethod("build_protected", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo isProtectedMi = typeof(AlphaWrapQualityPass).GetMethod("is_protected", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(buildProtectedMi);
+            Assert.NotNull(isProtectedMi);
+
+            // Triangle occupies [-s, 0] x [-s, 0] x {0} shifted by o; a segment starting at o + (k*r, k*r, k*r)
+            // with k = 0.8 lies strictly inside the triangle's r-expanded AABB (forcing the cell query to test it),
+            // yet its Euclidean distance to the nearest corner o is sqrt(3) * 0.8 * r ~ 1.386 * r > r.
+            Func<double, double, double, bool> checkDiag = (scale, k, originShift) => {
+                Vector3d o = new Vector3d(originShift, 0, 0);
+                var m = new DMesh3();
+                m.AppendTriangle(
+                    m.AppendVertex(o),
+                    m.AppendVertex(o + new Vector3d(-scale, 0, 0)),
+                    m.AppendVertex(o + new Vector3d(0, -scale, 0)));
+                double r = 0.25 * scale;
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), r) { ProtectedDistance = r };
+                double d = k * r;
+                pass.ProtectedEdges.Add(new Segment3d(o + new Vector3d(d + 0.25 * scale, d, d), Vector3d.AxisX, 0.25 * scale));
+                buildProtectedMi.Invoke(pass, null);
+                return (bool)isProtectedMi.Invoke(pass, new object[] { 0 });
+            };
+
+            // Extreme scales: 2^600 (r^2 = +Inf on base), 2^-60 (Segment3d.Normalize epsilon dead zone), 2^-538 (r^2 = 0 on base)
+            foreach (int exp in new[] { 600, -60, -538 }) {
+                double s = ExactPoint3.ScaleB(1.0, exp);
+                Assert.True(checkDiag(s, 0.3, 0.0), $"exp {exp}: segment at 0.52*r must protect triangle");
+                Assert.False(checkDiag(s, 0.8, 0.0), $"exp {exp}: segment at 1.39*r inside expanded AABB must not falsely lock triangle");
+            }
+
+            // Small-scale edge proximity at 2^-60 (segment parallel to y, 0.05*s past V1 = (s,0,0), r = 0.25*s)
+            {
+                double s = ExactPoint3.ScaleB(1.0, -60);
+                var m = new DMesh3();
+                m.AppendTriangle(m.AppendVertex(Vector3d.Zero), m.AppendVertex(new Vector3d(s, 0, 0)), m.AppendVertex(new Vector3d(0, s, 0)));
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), 0.25 * s) { ProtectedDistance = 0.25 * s };
+                pass.ProtectedEdges.Add(new Segment3d(new Vector3d(1.05 * s, 0, 0), Vector3d.AxisY, 0.5 * s));
+                buildProtectedMi.Invoke(pass, null);
+                Assert.True((bool)isProtectedMi.Invoke(pass, new object[] { 0 }), "2^-60 near edge must not false-unlock");
+            }
+
+            // Large coordinate offset near double.MaxValue (where raw Segment3d(p0,p1) Center = 0.5*(p0+p1) overflows)
+            {
+                Vector3d o = new Vector3d(1e308, 0, 0);
+                var m = new DMesh3();
+                m.AppendTriangle(m.AppendVertex(o), m.AppendVertex(o + new Vector3d(0, 1, 0)), m.AppendVertex(o + new Vector3d(0, 0, 1)));
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), 0.5) { ProtectedDistance = 0.5 };
+                pass.ProtectedEdges.Add(new Segment3d(o + new Vector3d(0, 0.25, 0.25), Vector3d.AxisY, 0.25));
+                buildProtectedMi.Invoke(pass, null);
+                Assert.True((bool)isProtectedMi.Invoke(pass, new object[] { 0 }), "1e308 offset on-triangle segment must protect");
+            }
+
+            // Mixed exponents: unit triangle with segment at z = 2^-550 and r = 2^-560 (d^2 underflows to 0, linear distance 2^-550 > r)
+            {
+                var m = new DMesh3();
+                m.AppendTriangle(m.AppendVertex(Vector3d.Zero), m.AppendVertex(new Vector3d(1, 0, 0)), m.AppendVertex(new Vector3d(0, 1, 0)));
+                double r = ExactPoint3.ScaleB(1.0, -560);
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), r) { ProtectedDistance = r };
+                pass.ProtectedEdges.Add(new Segment3d(new Vector3d(0.25, 0.25, ExactPoint3.ScaleB(1.0, -550)), Vector3d.AxisX, 0.25));
+                buildProtectedMi.Invoke(pass, null);
+                Assert.False((bool)isProtectedMi.Invoke(pass, new object[] { 0 }), "mixed-exponent d2 underflow must not false-lock");
+            }
+
+            // Piercing segment with tiny r (2^-560 < 1e-16): exact intersection must protect despite LineClosest/TriangleClosest rounding mismatch
+            {
+                var m = new DMesh3();
+                m.AppendTriangle(
+                    m.AppendVertex(Vector3d.Zero),
+                    m.AppendVertex(new Vector3d(1, 0.3, 0.1)),
+                    m.AppendVertex(new Vector3d(0.2, 1, 0.4)));
+                double r = ExactPoint3.ScaleB(1.0, -560);
+                var pass = new AlphaWrapQualityPass(m, new DMesh3(m), r) { ProtectedDistance = r };
+                pass.ProtectedEdges.Add(new Segment3d(new Vector3d(0.1, 0.2, -0.3), new Vector3d(0.4, 0.5, 0.7)));
+                buildProtectedMi.Invoke(pass, null);
+                Assert.True((bool)isProtectedMi.Invoke(pass, new object[] { 0 }), "piercing segment with tiny r must protect");
+            }
+
+            // Large UTM-like coordinate offset
+            Assert.True(checkDiag(1.0, 0.3, 1e7));
+            Assert.False(checkDiag(1.0, 0.8, 1e7));
         }
     }
 }
