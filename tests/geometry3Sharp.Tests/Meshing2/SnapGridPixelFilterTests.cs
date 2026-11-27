@@ -125,5 +125,125 @@ namespace geometry3Sharp.Tests
             // the filter decides many cases, both ways, and leaves the touching ones (most of these picks, by design) to the exact test
             Assert.True(decided > 20000 && crossing > 10000 && undecided > 1000, decided + " decided, " + undecided + " undecided, " + crossing + " crossing");
         }
+
+        /// <summary>
+        /// Segments passing near a pixel corner at distance ~[1.5e-15, 7e-15] of the orientation scale were undecided
+        /// under the old 1e-14 constant and are now decided directly by CrossesInteriorFilter with 6e-16 (fails on old code).
+        /// Also stresses 28,000 near-corner segments across [1e-17, 1e-12] w and binary frames (-440..440) against CrossesInteriorExact.
+        /// </summary>
+        [Fact]
+        public void CrossesInteriorFilter_TightBoundDecidesNearCornerBandAndMatchesExact()
+        {
+            // Fails on old 1e-14 constant: at w = 1, pixel (0, 0) has corner (0.5, 0.5).
+            // Crossing: a = (-0.5, -0.5 + d), b = (1.5, 1.5 + d) has |o| = 2|d|, sum ≈ 6 -> old bound ≈ 6e-14 (undecided), new ≈ 3.6e-15 (decided +1).
+            // Non-crossing: a = (0.0, 1.0 + d), b = (1.0, 0.0 + d) passes just outside corner (0.5, 0.5) with d > 0 -> old undecided, new decided -1.
+            var unit = new SnapGrid(1.0);
+            foreach (double d in new[] { 3e-15, -3e-15, 1e-14, -1e-14, 2e-14, -2e-14 }) {
+                var a = new Vector2d(-0.5, -0.5 + d);
+                var b = new Vector2d(1.5, 1.5 + d);
+                int f = unit.CrossesInteriorFilter(a, b, 0, 0);
+                bool exact = unit.CrossesInteriorExact(a, b, 0, 0);
+                Assert.True(f > 0, $"expected tight 6e-16 filter to decide crossing (+1) at d={d:E2}, got {f}");
+                Assert.True(exact);
+                Assert.Equal(exact, unit.CrossesInterior(a, b, 0, 0));
+            }
+            foreach (double d in new[] { 3e-15, 1e-14, 2e-14 }) {
+                var a = new Vector2d(0.0, 1.0 + d);
+                var b = new Vector2d(1.0, 0.0 + d);
+                int f = unit.CrossesInteriorFilter(a, b, 0, 0);
+                bool exact = unit.CrossesInteriorExact(a, b, 0, 0);
+                Assert.True(f < 0, $"expected tight 6e-16 filter to decide non-crossing (-1) at d={d:E2}, got {f}");
+                Assert.False(exact);
+                Assert.Equal(exact, unit.CrossesInterior(a, b, 0, 0));
+            }
+
+            // Adversarial near-corner sweep across in-gate scales (-150..150) and out-of-gate extremes (-440, 440).
+            var rnd = new Random(20261124);
+            int decided = 0, undecided = 0;
+            foreach (int exp in new[] { -440, -150, -30, 0, 30, 150, 440 }) {
+                double w = 0.3 * Math.Pow(2.0, exp);
+                var grid = new SnapGrid(w);
+                for (int i = 0; i < 4000; ++i) {
+                    long kx = rnd.Next(-100, 100), ky = rnd.Next(-100, 100);
+                    double cx = kx * w, cy = ky * w, h = 0.5 * w;
+                    double off = Math.Pow(10.0, -17.0 + rnd.NextDouble() * 5.0) * w * (rnd.Next(2) * 2 - 1);
+                    double ang = rnd.NextDouble() * Math.PI * 2.0;
+                    var dir = new Vector2d(Math.Cos(ang), Math.Sin(ang));
+                    var corner = new Vector2d(cx + (rnd.Next(2) * 2 - 1) * h, cy + (rnd.Next(2) * 2 - 1) * h);
+                    var perp = new Vector2d(-dir.y, dir.x);
+                    var a = corner - dir * (2.0 * w) + perp * off;
+                    var b = corner + dir * (2.0 * w) + perp * off;
+
+                    int f = grid.CrossesInteriorFilter(a, b, kx, ky);
+                    bool exact = grid.CrossesInteriorExact(a, b, kx, ky);
+                    if (f == 0) ++undecided;
+                    else {
+                        ++decided;
+                        Assert.Equal(exact, f > 0);
+                    }
+                    Assert.Equal(exact, grid.CrossesInterior(a, b, kx, ky));
+                }
+            }
+            Assert.True(decided > 3000 && undecided > 1000, $"decided={decided}, undecided={undecided}");
+        }
+
+        [Fact]
+        public void CrossesInteriorFilter_InvarianceReuseAndDeterminism()
+        {
+            var grid = new SnapGrid(0.25);
+            var rnd = new Random(99);
+            for (int i = 0; i < 500; ++i) {
+                long kx = rnd.Next(-20, 20), ky = rnd.Next(-20, 20);
+                double cx = kx * grid.W, cy = ky * grid.W;
+                var a = new Vector2d(cx + (rnd.NextDouble() - 0.5) * 3.0 * grid.W, cy + (rnd.NextDouble() - 0.5) * 3.0 * grid.W);
+                var b = new Vector2d(cx + (rnd.NextDouble() - 0.5) * 3.0 * grid.W, cy + (rnd.NextDouble() - 0.5) * 3.0 * grid.W);
+
+                int f1 = grid.CrossesInteriorFilter(a, b, kx, ky);
+                int f2 = grid.CrossesInteriorFilter(a, b, kx, ky);
+                bool c1 = grid.CrossesInterior(a, b, kx, ky);
+                bool c2 = grid.CrossesInterior(a, b, kx, ky);
+                Assert.Equal(f1, f2);
+                Assert.Equal(c1, c2);
+
+                // Endpoint reversal and axis swap preserve crossing truth and agree with the filter where decided.
+                int fRev = grid.CrossesInteriorFilter(b, a, kx, ky);
+                Assert.True(fRev == 0 || (fRev > 0) == c1);
+                Assert.Equal(c1, grid.CrossesInterior(b, a, kx, ky));
+                int fSwap = grid.CrossesInteriorFilter(new Vector2d(a.y, a.x), new Vector2d(b.y, b.x), ky, kx);
+                Assert.True(fSwap == 0 || (fSwap > 0) == c1);
+                Assert.Equal(c1, grid.CrossesInterior(new Vector2d(a.y, a.x), new Vector2d(b.y, b.x), ky, kx));
+
+                // Exact power-of-two scaling preserves exact crossing truth.
+                var scaled = new SnapGrid(grid.W * 1024.0);
+                Assert.Equal(c1, scaled.CrossesInterior(a * 1024.0, b * 1024.0, kx, ky));
+            }
+
+            // Similarity.All2D() check: exact result invariance under axis-aligned similarities (UTM, 2^-10, 2^10, 1e-3, 1e3)
+            // and filter-equals-exact contract across all 2D similarities including rotated and rotated-UTM-millimetre frames.
+            double baseW = 0.25;
+            var baseGrid = new SnapGrid(baseW);
+            var segs = new[] {
+                (new Vector2d(-0.2, -0.1), new Vector2d(0.2, 0.15), 0L, 0L),        // strictly crossing (0, 0)
+                (new Vector2d(0.2, 0.2), new Vector2d(0.4, 0.05), 0L, 0L),          // strictly outside (0, 0)
+                (new Vector2d(-0.6, 0.1), new Vector2d(0.6, 0.2), 1L, 0L),          // crossing (1, 0)
+            };
+            foreach (var sim in Similarity.All2D()) {
+                var sGrid = new SnapGrid(sim.ApplyLength(baseW));
+                bool axisAligned = sim.Rotation.EpsilonEqual(Matrix3d.Identity, 0);
+                foreach (var (a, b, kx, ky) in segs) {
+                    Vector2d sa = sim.Apply2d(a), sb = sim.Apply2d(b);
+                    Vector2d sc = sim.Apply2d(new Vector2d(kx * baseW, ky * baseW));
+                    long skx = sGrid.Pixel(sc.x), sky = sGrid.Pixel(sc.y);
+                    bool exact = sGrid.CrossesInteriorExact(sa, sb, skx, sky);
+                    int f = sGrid.CrossesInteriorFilter(sa, sb, skx, sky);
+                    Assert.True(f == 0 || (f > 0) == exact, $"{sim.Name}: filter disagreed with exact");
+                    Assert.Equal(exact, sGrid.CrossesInterior(sa, sb, skx, sky));
+                    if (axisAligned) {
+                        bool baseExact = baseGrid.CrossesInterior(a, b, kx, ky);
+                        Assert.Equal(baseExact, exact);
+                    }
+                }
+            }
+        }
     }
 }

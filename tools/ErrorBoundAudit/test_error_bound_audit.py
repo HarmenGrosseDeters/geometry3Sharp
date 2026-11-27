@@ -74,6 +74,23 @@ class Mutants(unittest.TestCase):
         self.assertFalse(self.orient3d((7.0 + 56.0 * eps) * eps, 0.0).ok)  # no underflow term
         self.assertFalse(self.orient3d((7.0 + 56.0 * eps) * eps, 2.0**-1075).ok)
 
+    def test_sn5_constant_accepts_6e16_and_rejects_below_3u(self):
+        def check(constant):
+            c = Context()
+            dx, dy = c.diff('dx'), c.diff('dy')
+            cxv, CX = c.param('CX')
+            cyv, CY = c.param('CY')
+            ex = c.leaf('ex', CX * U + fpbound.Poly.atom('ex') * U)
+            ey = c.leaf('ey', CY * U + fpbound.Poly.atom('ey') * U)
+            o = dx * ey - dy * ex
+            b = c.const(constant) * (dx.abs() * (ey.abs() + cyv) + dy.abs() * (ex.abs() + cxv))
+            return fpbound.sign_dominates(o, b.lo, b.defect, abs_floor=Fraction(1e-140))
+
+        v_ok = check(6e-16)
+        self.assertTrue(v_ok.ok)
+        self.assertGreater(v_ok.margin, Fraction(3, 2))
+        self.assertFalse(check(3e-16).ok)     # below the proven 3 u (~3.331e-16) sign-filter threshold
+
     def test_a_guard_removed_from_one_function_is_seen(self):
         # the same guard line is in three functions: the anchor must be found in the entry's own function
         e = next(x for x in bounds.ENTRIES if x.id.startswith('EB-3'))
