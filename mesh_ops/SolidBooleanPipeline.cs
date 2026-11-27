@@ -303,7 +303,7 @@ namespace gs
         /// <summary> with SeparateSelfContacts: the vertices moved </summary>
         public int SelfContactVerticesMoved;
         /// <summary>
-        /// with SeparateSelfContacts: the contact vertices not moved because the move would have been below 16 units in the
+        /// with SeparateSelfContacts: the contact vertices not moved because the move would have been at or below 16 units in the
         /// last place of their coordinates (Skipped), and the moves put back because a triangle then crossed another one or was
         /// degenerate (UndoneCrossing) or turned over (UndoneFlipped)
         /// </summary>
@@ -319,7 +319,7 @@ namespace gs
         public int PairPassFirstTriangles;
         /// <summary> time of the second reduction (PairPassRan) with its final check, in milliseconds; part of TotalMilliseconds, not of ReductionMilliseconds </summary>
         public long PairPassMilliseconds;
-        /// <summary> time per stage in milliseconds: the input checks, the input repairs, the boolean, the reduction, the final check, and the sum </summary>
+        /// <summary> time per stage in milliseconds: the input checks, the input repairs, the boolean, the reduction, the final check (with SeparateSelfContacts including the separation), and the sum </summary>
         public long InputCheckMilliseconds, RepairMilliseconds, BooleanMilliseconds, ReductionMilliseconds, FinalCheckMilliseconds, TotalMilliseconds;
 
         // the fields a reduction sets (to put back those of the first reduction if the second one is not kept)
@@ -767,7 +767,7 @@ namespace gs
         /// whose tools touch each other at an edge or a corner inside the body), every vertex there moves into its own part of
         /// the solid by up to this distance (back into its own fan of triangles, along the area-weighted direction to their
         /// centroids; at most a quarter of its shortest edge; plus the rounding of the new coordinates, a few units in their last
-        /// place; a move below 16 units in the last place of the largest coordinate is skipped), so the solid no longer touches
+        /// place; a move at or below 16 units in the last place of the largest coordinate of the vertex is skipped), so the solid no longer touches
         /// itself there. Such a result is a valid closed, manifold mesh, but a boundary representation that merges coincident
         /// vertices (a mesh-to-solid conversion of a CAD system) sees a non-manifold vertex there and refuses it. Only contacts at
         /// coincident vertices are found: a vertex that lies on an edge or a face of the same solid without a vertex there is not
@@ -775,11 +775,11 @@ namespace gs
         /// what they share (an exact test; vertices at one position count as one), is degenerate (exact), or turns over (its
         /// normal against the one before, in floating point); putting back repeats until a check finds nothing, so the result
         /// is the state that was checked. A vertex put back stays put back, so a contact can be left although another choice of
-        /// moves would separate it (Report.SelfContactsLeft). Touching between different solids (contacts) is not changed. The
+        /// moves would separate it (Report.SelfContactsLeft). A contact of another solid at the same position is separated as well (the vertices of this solid move away from it); contacts elsewhere between different solids are not touched. The
         /// volume changes by about the moved distance times the area of the triangles around the moved vertices. The step runs
         /// after the reduction and the pair pass; if a vertex moved, the final check is made again (Report.Clean, NotCleanReason,
         /// ContactsResult, OnlyContacts, ResultKind): a result whose self-contacts are all separated and that is otherwise clean
-        /// is a Solid, one with contacts left stays SolidWithContacts.
+        /// is a Solid, one with contacts left stays SolidWithContacts. Verification does not see the moves (NoInventedSurface measures the boolean result before the reduction, RoundingVolume is that of the rounding); they are bounded by the distance. FinalCheckMilliseconds includes the time of this step.
         /// Report.SelfContactsFound / SelfContactsLeft / SelfContactVerticesMoved / SelfContactMaxMove /
         /// SelfContactVerticesSkipped / SelfContactMovesUndoneCrossing / SelfContactMovesUndoneFlipped say what was done.
         /// Negative or not finite: InvalidInput
@@ -1494,7 +1494,9 @@ namespace gs
             // 6. the self-contacts of the result, separated (the final check is made again if a vertex moved)
             if (SeparateSelfContacts > 0 && result.TriangleCount > 0) {
                 clock.Restart();
-                SeparateSelfContactsOf(result, SeparateSelfContacts, Report);
+                SeparateSelfContactsOf(result, SeparateSelfContacts, Report, Cancellation);
+                if (Cancellation.IsCancellationRequested)
+                    return fail(PipelineStatus.Cancelled, "cancelled", total);
                 if (Report.SelfContactVerticesMoved > 0)
                     FinalCheck(result, Report);
                 Report.FinalCheckMilliseconds += clock.ElapsedMilliseconds;
@@ -1547,13 +1549,13 @@ namespace gs
         /// <summary>
         /// Moves every vertex of a self-contact (SelfContacts) into its own part of the solid: back into its own fan (the
         /// area-weighted direction to the centroids of its triangles), by delta, at most a quarter of its shortest edge; a vertex
-        /// whose move would be below 16 units in the last place of its largest coordinate stays. A move is put back if a
+        /// whose move would be at or below 16 units in the last place of its largest coordinate stays. A move is put back if a
         /// triangle of the vertex then crosses another triangle beyond what they share (vertices at one position count as one,
         /// so a touch at another contact is allowed; CrossingTriangles, exact), is degenerate, or turned over. Putting back
         /// repeats until a check finds nothing left to put back: every round puts back at least one move, so this ends, and
         /// the state left is the one the last round checked. The counts go to the report (SelfContacts*)
         /// </summary>
-        internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, SolidBooleanReport report)
+        internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, SolidBooleanReport report, CancellationToken cancel = default(CancellationToken))
         {
             List<List<int>> contacts = SelfContacts(mesh);
             report.SelfContactsFound = report.SelfContactsLeft = contacts.Count;
@@ -1602,8 +1604,15 @@ namespace gs
                 // put back): a triangle stays within largestStep of its box there whatever is put back, so the queries grow
                 // their boxes by twice that and read the current coordinates from the mesh
                 var tree = new DMeshAABBTree3(new DMesh3(mesh, false, MeshComponents.None), true);
-                double pad = 2 * largestStep;
+                double pad = TreePad(largestStep);
                 while (old.Count > 0) {
+                    if (cancel.IsCancellationRequested) {
+                        // (a state that was not checked is not kept: every move still standing is put back)
+                        foreach (var kv in old)
+                            mesh.SetVertex(kv.Key, kv.Value);
+                        old.Clear();
+                        break;
+                    }
                     var undoX = new HashSet<int>();
                     var undoF = new HashSet<int>();
                     foreach (int t in CrossingTriangles(mesh, old.Keys, tree, pad)) {
@@ -1635,6 +1644,10 @@ namespace gs
                 report.SelfContactMaxMove = Math.Max(report.SelfContactMaxMove, mesh.GetVertex(kv.Key).Distance(kv.Value));
             report.SelfContactsLeft = SelfContacts(mesh).Count;
         }
+
+        // how far the boxes of the stale tree of SeparateSelfContactsOf are grown: a triangle is within largestStep of its box there
+        // whatever is put back, and so is the one that is checked
+        internal static double TreePad(double largestStep) { return 2 * largestStep; }
 
         /// <summary>
         /// The triangles at the given vertices that cross another triangle of the mesh beyond what they share, where vertices

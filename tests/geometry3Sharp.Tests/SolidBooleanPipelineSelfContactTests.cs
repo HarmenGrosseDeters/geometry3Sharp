@@ -446,6 +446,65 @@ namespace geometry3Sharp.Tests
             Assert.Equal(before, SolidBooleanPipeline.SelfContacts(m).Count);
         }
 
+        [Fact]
+        public void AContactOfAnotherSolidAtTheSamePosition_IsSeparatedAsWell_ContactsElsewhereAreNot()
+        {
+            // the pinch body with an octahedron whose bottom vertex touches the pinch point (4, 4, 8): the body's own vertices
+            // move away, so the contact of the two solids there is gone too
+            DMesh3 body = Run(EdgePinch(), D, 0).Result;
+            var inputs = new List<DMesh3> { body, Octahedron(4, 4, 9, 1) };
+            var plain = Run(inputs, U, 0);
+            Assert.Equal(SolidBooleanResultKind.SolidWithContacts, plain.Report.ResultKind);
+            Assert.Equal(2, plain.Report.ContactsResult);
+            var p = Run(inputs, U, 0.01);
+            Assert.Equal(SolidBooleanResultKind.Solid, p.Report.ResultKind);
+            Assert.Equal(0, p.Report.ContactsResult);
+            Assert.Equal(0, PositionsWithSeveralVertices(p.Result));
+            AssertSolid(p);
+        }
+
+        [Fact]
+        public void TheStaleTree_NeedsThePad()
+        {
+            // triangle A in the plane z = 0; B far above it when the tree was built, then a vertex of B moved down through A
+            var m = new DMesh3();
+            int a0 = m.AppendVertex(new Vector3d(0, 0, 0)), a1 = m.AppendVertex(new Vector3d(10, 0, 0)), a2 = m.AppendVertex(new Vector3d(0, 10, 0));
+            int b0 = m.AppendVertex(new Vector3d(2, 2, 1000)), b1 = m.AppendVertex(new Vector3d(1000, 2, 1000)), b2 = m.AppendVertex(new Vector3d(2, 1000, 1000));
+            int ta = m.AppendTriangle(a0, a1, a2);
+            m.AppendTriangle(b0, b1, b2);
+            // (small triangles far to the side, at z = 0 and z = 100, so that the tree splits the two layers into boxes of their own)
+            for (int i = 0; i < 24; ++i)
+                foreach (double z in new[] { 0.0, 1000.0 }) {
+                    double x = 20 + 2 * i;
+                    m.AppendTriangle(m.AppendVertex(new Vector3d(x, 0, z)), m.AppendVertex(new Vector3d(x + 1, 0, z)), m.AppendVertex(new Vector3d(x, 1, z)));
+                }
+            var tree = new DMeshAABBTree3(new DMesh3(m), true);
+            const double d = 1001;
+            m.SetVertex(b0, new Vector3d(2, 2, 1000 - d));
+            Assert.Empty(SolidBooleanPipeline.CrossingTriangles(m, new[] { a0 }, tree, 0));
+            Assert.Contains(ta, SolidBooleanPipeline.CrossingTriangles(m, new[] { a0 }, tree, SolidBooleanPipeline.TreePad(d)));
+            Assert.Contains(ta, SolidBooleanPipeline.CrossingTriangles(m, new[] { a0 }));
+            Assert.Equal(2 * d, SolidBooleanPipeline.TreePad(d));
+        }
+
+        [Fact]
+        public void ACancelledRun_IsCancelled_AndTheStepLeavesNoUncheckedMove()
+        {
+            var source = new System.Threading.CancellationTokenSource();
+            source.Cancel();
+            var p = new SolidBooleanPipeline(EdgePinch(), D) { SeparateSelfContacts = 0.01, Cancellation = source.Token };
+            Assert.False(p.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Cancelled, p.Status);
+            // the step itself: cancelled before its first check, every move is put back
+            DMesh3 m = Run(EdgePinch(), D, 0).Result;
+            DMesh3 before = new DMesh3(m);
+            var report = new SolidBooleanReport();
+            SolidBooleanPipeline.SeparateSelfContactsOf(m, 0.01, report, source.Token);
+            Assert.Equal("", Invariance.Difference(before, m));
+            Assert.Equal(0, report.SelfContactVerticesMoved);
+            Assert.Equal(2, report.SelfContactsLeft);
+        }
+
         // ---- the bounds of a move
 
         [Fact]
@@ -612,7 +671,8 @@ namespace geometry3Sharp.Tests
             Assert.True(Invariance.AllFinite(p.Result), s.Name);
             Assert.True(p.Result.IsClosed(), s.Name);
             if (s.IsRotated && PositionsWithSeveralVertices(Run(inputs, D, 0).Result) == 0) {
-                // (after a rotation the rounded corner of the two tools can differ: no contact is made, nothing is changed)
+                // (the rotated faces of the tools are not planar: they overlap or leave a gap, so no contact forms and nothing is
+                // changed; the rotation with a contact is covered by "rotated, scale 1e-3, utm" and by Handle_IsInvariantUnderSimilarities)
                 Assert.Equal(0, p.Report.SelfContactsFound);
                 Assert.Equal(0, p.Report.SelfContactVerticesMoved);
                 return;
