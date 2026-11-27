@@ -94,6 +94,41 @@ namespace g3.Examples
         }
 
         /// <summary>
+        /// What to check after Compute() (#1576): not Clean, but ResultKind. Run on the intersection of two boxes that touch in a plane (the exact
+        /// result is empty: EmptyExact, though NotCleanReason is "empty"), on one that overlap by 1e-12 (the exact result is a slab that the
+        /// rounding removes: EmptyAfterRounding, with the slab in Report.RoundingRemoved) and on a union whose second input overlaps itself
+        /// (Solid, and Report.InputsWithWindingOutsideZeroOne lists input 1). Returns the sentence that a caller would log.
+        /// </summary>
+        public static string ReadTheResultKind(SolidBooleanPipeline pipeline)
+        {
+            if (!pipeline.Compute())
+                return pipeline.Status + ": " + pipeline.Error;
+            SolidBooleanReport report = pipeline.Report;
+            string text;
+            switch (report.ResultKind) {
+                case SolidBooleanResultKind.Solid:
+                    text = "a clean solid";
+                    break;
+                case SolidBooleanResultKind.SolidWithContacts:
+                    text = "a solid whose only defects are contacts (OnlyContacts " + report.OnlyContacts + ")";
+                    break;
+                case SolidBooleanResultKind.SolidNotClean:
+                    text = "a solid that is not clean: " + report.NotCleanReason;
+                    break;
+                case SolidBooleanResultKind.EmptyExact:
+                    text = "empty: the exact result is empty";
+                    break;
+                default:
+                    text = "empty after the rounding removed " + report.RoundingRemoved.Count + " component(s) of volume "
+                        + string.Join(", ", report.RoundingRemoved.ConvertAll(c => c.Volume.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
+                    break;
+            }
+            if (report.InputsWithWindingOutsideZeroOne.Count > 0)
+                text += "; input(s) " + string.Join(", ", report.InputsWithWindingOutsideZeroOne) + " overlap themselves or are inside out";
+            return text;
+        }
+
+        /// <summary>
         /// Cuts the exact intersection curves of a cutter box into a target box without removing any triangles.
         /// Preserves target vertex IDs, orientation, and labels the imprinted curve edges.
         /// </summary>

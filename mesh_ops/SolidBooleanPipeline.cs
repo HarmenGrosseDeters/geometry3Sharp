@@ -37,6 +37,42 @@ namespace gs
         Exhausted = 8
     }
 
+    /// <summary>
+    /// What a SolidBooleanPipeline run returned, as a fact next to its Status (SolidBooleanReport.ResultKind): it tells the results a caller
+    /// treats differently apart, which Status (Success) and Clean do not: a clean solid, a solid with contacts, a solid with another defect, an
+    /// empty result that is exact, and an empty result that the pipeline made empty. It judges nothing: Clean, NotCleanReason and OnlyContacts
+    /// keep their meaning.
+    /// </summary>
+    public enum SolidBooleanResultKind
+    {
+        /// <summary> no result: Compute() failed (Status says why), was cancelled, was refused by Verification, or has not run </summary>
+        None = 0,
+        /// <summary> a non-empty result that is clean (Report.Clean). A result from which the rounding removed some parts, and that is clean, is a Solid too: Report.RoundingRemoved lists them </summary>
+        Solid = 1,
+        /// <summary>
+        /// a non-empty result whose only defects are contacts of the exact solid (Report.OnlyContacts: the solids touch at points or along
+        /// edges; NotCleanReason says "self-intersections" there). It is the exact result, valid, with duplicated vertices at the contacts
+        /// </summary>
+        SolidWithContacts = 2,
+        /// <summary> a non-empty result with another defect: Report.NotCleanReason says which (and with "self-intersections", Report.OnlyContacts is false: a real crossing) </summary>
+        SolidNotClean = 3,
+        /// <summary>
+        /// an empty result and the exact result is empty (eg the intersection of two boxes that touch in a plane, or of disjoint solids): the
+        /// answer is right. Report.NotCleanReason is "empty" then, as for any empty mesh. "Exact" means exact for the inputs as fed to the exact
+        /// stage: after an InputGrid snap (or the Grid step) a thin overlap may have been closed by the snap and the snapped solids only touch;
+        /// Report.InputSnappedVertices above 0 is the hint
+        /// </summary>
+        EmptyExact = 4,
+        /// <summary>
+        /// an empty result that the pipeline made empty, although the exact result had volume (rounding, MinThickness) or possibly had volume
+        /// (ThinInputs = TreatAsEmpty): the rounding removed all of it as a component thinner than its bound can resolve (Report.RoundingRemoved
+        /// lists them: a real slab of 1e-12 at coordinates of 0.5), or MinThickness removed the solids (Report.RemovedThinSolids), or an input
+        /// that MinThickness found thin was treated as empty (Report.ThinInputs; the exact stage never saw it, so the exact result may have been
+        /// empty too). Not an answer that "the solids do not overlap"
+        /// </summary>
+        EmptyAfterRounding = 5
+    }
+
     /// <summary> one input that was not closed in the winding number sense and was repaired before the boolean </summary>
     public sealed class SolidBooleanInputRepair
     {
@@ -127,6 +163,24 @@ namespace gs
     /// </summary>
     public sealed class SolidBooleanReport
     {
+        /// <summary>
+        /// what the run returned, as a fact next to Status (see SolidBooleanResultKind): None without a result; Solid, SolidWithContacts or
+        /// SolidNotClean for a non-empty result by Clean, OnlyContacts and NotCleanReason; EmptyExact or EmptyAfterRounding for an empty one.
+        /// Set by Compute() for the result it returns (also after the Grid step, the sheet route's fallback or an input repair: the final
+        /// result decides, and the removals it lists), None for a failed run
+        /// </summary>
+        public SolidBooleanResultKind ResultKind = SolidBooleanResultKind.None;
+        /// <summary>
+        /// the indices (as passed to the pipeline, ascending) of the closed inputs whose winding number is outside {0, 1} somewhere: 2 or more
+        /// where the input overlaps itself (eg two overlapping copies of a box in one input, a cavity wall given outward), -1 where it is inside out.
+        /// Read from the exact stage's winding numbers on both sides of the pieces of the arrangement, at no extra cost; empty if none, if the
+        /// exact stage did not run, for an open input and a sheet, and for the pieces that the early-out of an Intersection or a Difference
+        /// culled outside the first input (or of all inputs for an Intersection). The inputs of the run that is the result (after a Grid
+        /// step or a fallback). It is a signal about the inputs, not a judgement of the result: the result is exact for the inputs as given, in
+        /// winding number semantics, so a flagged input is one whose meaning may differ from what the caller meant. Status, Clean, NotCleanReason and
+        /// OnlyContacts keep their meaning. Also set for a run that fails after the classification: InsideOutInput, a Verification refusal, a Cancelled after the boolean (ResultKind is None). Empty for a failure of the boolean itself: RoundingNotClean, OpenInput, BudgetExceeded, Cancelled during the boolean. It is computed on the pieces the exact stage classified, with the early-out cull on
+        /// </summary>
+        public List<int> InputsWithWindingOutsideZeroOne = new List<int>();
         /// <summary> triangles per input as given (before any repair) </summary>
         public int[] InputTriangles = new int[0];
         /// <summary> per input: ExactMeshBoolean.IsWindingClosed of the input as given (with InputGrid: of its snapped copy) </summary>
@@ -761,7 +815,39 @@ namespace gs
             bool done = computeRoute(total);
             if (done && Verification != VerificationModes.None)
                 done = verify(total);
+            Report.ResultKind = KindOf(Status, Result, Report, ThinInputs, Operation);
             return done;
+        }
+
+        // the kind of the result that a run returned (None without one)
+        internal static SolidBooleanResultKind KindOf(PipelineStatus status, DMesh3 result, SolidBooleanReport report, ThinInputModes thinInputs,
+            ExactMeshBoolean.Operations operation = ExactMeshBoolean.Operations.Union)
+        {
+            if (status != PipelineStatus.Success || result == null)
+                return SolidBooleanResultKind.None;
+            if (result.TriangleCount == 0)
+                return RemovedSomething(report, thinInputs, operation) ? SolidBooleanResultKind.EmptyAfterRounding : SolidBooleanResultKind.EmptyExact;
+            if (report.Clean)
+                return SolidBooleanResultKind.Solid;
+            return report.OnlyContacts ? SolidBooleanResultKind.SolidWithContacts : SolidBooleanResultKind.SolidNotClean;
+        }
+
+        // the empty result of this run is not the exact result: the pipeline removed what the exact stage had (a component that the rounding repair
+        // removed and that is not a residue, a solid that MinThickness removed, an input treated as empty)
+        internal static bool RemovedSomething(SolidBooleanReport report, ThinInputModes thinInputs, ExactMeshBoolean.Operations operation)
+        {
+            foreach (MeshRoundingRepair.RemovedComponentInfo c in report.RoundingRemoved)
+                if (c.Reason != MeshRoundingRepair.RemovalReasons.InsideOutResidue)
+                    return true;
+            if (report.RemovedThinSolids.Count > 0)
+                return true;
+            // (an input left out as thin removes volume from the result only if the result can shrink without it: a tool of a Difference cannot, so
+            // the exact result is a subset of the empty one; any Union operand, the first operand of a Difference and any input of an Intersection can)
+            if (thinInputs == ThinInputModes.TreatAsEmpty)
+                foreach (SolidBooleanThinInput t in report.ThinInputs)
+                    if (operation != ExactMeshBoolean.Operations.Difference || t.Index == 0)
+                        return true;
+            return false;
         }
 
         // the run with its steps (sheet route, Grid step, fallback); the result is checked by Compute (Verification)
@@ -1260,6 +1346,10 @@ namespace gs
             }
             Report.InsideOutCells = op.InsideOutCells;
             Report.InsideOutUndecided = op.InsideOutUndecided;
+            if (op.WindingOutsideZeroOneOfInput != null)
+                for (int k = 0; k < op.WindingOutsideZeroOneOfInput.Length && k < active.Count; ++k)
+                    if (op.WindingOutsideZeroOneOfInput[k])
+                        Report.InputsWithWindingOutsideZeroOne.Add(active[k]);
             if (op.InsideOutUndecided > 0 && !AllowInsideOutInputs)
                 return fail(PipelineStatus.InsideOutInput, op.InsideOutUndecided + " component(s) of the closed inputs could not be tested for being inside-out (no ray found); set AllowInsideOutInputs to use them as they are", total);
             if (op.InsideOutCells > 0 && !AllowInsideOutInputs)
@@ -1517,21 +1607,6 @@ namespace gs
         internal const double InsideOutThinBound = 1e-5;
 
         /// <summary>
-        /// The inputs (given) with the thin inside-out components of the solid ones dropped (#1555), each listed in dropped. A
-        /// candidate is a component (by edges) of a solid input that has no boundary edge, is consistently oriented (the two
-        /// triangles of every edge run along it in opposite directions), has an exactly negative volume (ExactPredicates.VolumeSign)
-        /// and 2 |Volume| / Area below InsideOutThinBound times the extent of the component itself (the magnitude in doubles,
-        /// first; the sign exact; #1567). The rule is the shape of a residue (two nearly coincident sheets, thin by their own
-        /// extent) and depends on no other component or input: a plate 10 x 10 x 0.01 (1e-3 of its extent) is not one wherever it lies. It is dropped where the rest of its input (every triangle that is no candidate: the input is winding-closed,
-        /// so this is also exact for shells closed only by position, or split into several components) has a winding number of
-        /// 0 or less at one of its vertices (exact, ShellIndex.ExactWinding; a vertex on or within the touch distance of the rest
-        /// is skipped): it lies outside the solid there. A cavity (every vertex inside the rest) stays, and so does a candidate
-        /// no vertex decides; a candidate that crosses the rest with every vertex inside it stays too. An input that would lose all
-        /// of its triangles is kept as it is. Returns given itself when nothing is dropped, else a new list with copies of the
-        /// changed inputs (the others are the same objects). Volumes are taken relative to a vertex of each component, in a fixed
-        /// order: a scale by 2^k scales every value exactly
-        /// </summary>
-        /// <summary>
         /// the extent of a component (#1567): the largest distance from its first vertex (the lowest vertex index among its
         /// triangles) to its other vertices, between half its diameter and its diameter. Unlike the box diagonal it does not depend on
         /// the orientation: it scales exactly with 2^k and moves only by rounding under a rotation or a translation
@@ -1552,6 +1627,21 @@ namespace gs
             return Math.Sqrt(d2);
         }
 
+        /// <summary>
+        /// The inputs (given) with the thin inside-out components of the solid ones dropped (#1555), each listed in dropped. A
+        /// candidate is a component (by edges) of a solid input that has no boundary edge, is consistently oriented (the two
+        /// triangles of every edge run along it in opposite directions), has an exactly negative volume (ExactPredicates.VolumeSign)
+        /// and 2 |Volume| / Area below InsideOutThinBound times the extent of the component itself (the magnitude in doubles,
+        /// first; the sign exact; #1567). The rule is the shape of a residue (two nearly coincident sheets, thin by their own
+        /// extent) and depends on no other component or input: a plate 10 x 10 x 0.01 (1e-3 of its extent) is not one wherever it lies. It is dropped where the rest of its input (every triangle that is no candidate: the input is winding-closed,
+        /// so this is also exact for shells closed only by position, or split into several components) has a winding number of
+        /// 0 or less at one of its vertices (exact, ShellIndex.ExactWinding; a vertex on or within the touch distance of the rest
+        /// is skipped): it lies outside the solid there. A cavity (every vertex inside the rest) stays, and so does a candidate
+        /// no vertex decides; a candidate that crosses the rest with every vertex inside it stays too. An input that would lose all
+        /// of its triangles is kept as it is. Returns given itself when nothing is dropped, else a new list with copies of the
+        /// changed inputs (the others are the same objects). Volumes are taken relative to a vertex of each component, in a fixed
+        /// order: a scale by 2^k scales every value exactly
+        /// </summary>
         internal static List<DMesh3> DropThinInsideOut(List<DMesh3> given, bool[] solid, List<SolidBooleanDroppedComponent> dropped)
         {
             int n = given.Count;
@@ -2645,15 +2735,15 @@ namespace gs
             return true;
         }
 
+        /// <summary> the most intersecting triangle pairs (raw ids, contacts included) for which the final check counts the crossing triangles; above it SelfIntersectingTriangles is -1 </summary>
+        internal const int FinalCheckPairCap = 20000;
+
         /// <summary>
         /// the final check of a result into the report: ContactsResult, NotCleanReason, and for "self-intersections" the exact
         /// SelfIntersectingTriangles (CrossingTriangles over all vertices) and OnlyContacts; the three others are reset.
         /// countCrossings false: the two are left at 0 / false without the (more expensive) count of the crossing pairs, which
         /// is the full enumeration of the intersecting pairs (no cap, no cancellation check: its cost grows with their number)
         /// </summary>
-        /// <summary> the most intersecting triangle pairs (raw ids, contacts included) for which the final check counts the crossing triangles; above it SelfIntersectingTriangles is -1 </summary>
-        internal const int FinalCheckPairCap = 20000;
-
         internal static void FinalCheck(DMesh3 mesh, SolidBooleanReport report, bool countCrossings = true, int pairCap = FinalCheckPairCap)
         {
             report.ContactsResult = countContacts(mesh, null);
