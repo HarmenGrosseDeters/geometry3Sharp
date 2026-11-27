@@ -229,6 +229,130 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EarlyEndpointBudget_RefusesBeforeCrossings_ThenUsesExactPredictionOnReuse()
+        {
+            DMesh3 a = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 b = Box(new Vector3d(0.25, 0.25, 0.25), new Vector3d(1.25, 1.25, 1.25));
+            ExactMeshBoolean free = Computed(a, b, Ops.Union);
+            Assert.Equal(Status.Success, free.Status);
+            long prediction = free.Counts["predicted_pieces"];
+            var limited = new ExactMeshBoolean(a, b, Ops.Union) { MaxPieces = 24 };
+            Assert.False(limited.Compute());
+            Assert.Equal(prediction, limited.Counts["predicted_pieces"]);
+            Assert.False(limited.PhaseMilliseconds.ContainsKey("merge.endpoint_budget"));
+
+            limited.EnableEarlyPieceBudgetCheck = true;
+            Assert.False(limited.Compute());
+            Assert.Equal(Status.BudgetExceeded, limited.Status);
+            Assert.Null(limited.Result);
+            Assert.InRange(limited.Counts["piece_lower_bound"], 25, prediction);
+            Assert.Contains("at least", limited.Error);
+            Assert.False(limited.Counts.ContainsKey("predicted_pieces"));
+            Assert.False(limited.Counts.ContainsKey("pieces"));
+            Assert.False(limited.PhaseMilliseconds.ContainsKey("merge.crossings"));
+
+            limited.MaxPieces = prediction;
+            Assert.True(limited.Compute(), limited.Error);
+            Assert.Equal(prediction, limited.Counts["predicted_pieces"]);
+            Assert.False(limited.Counts.ContainsKey("piece_lower_bound"));
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(limited.Result));
+            Assert.Equal("", Invariance.Difference(free.Result, limited.Result));
+
+            limited.MaxPieces = 0;
+            Assert.True(limited.Compute(), limited.Error);
+            Assert.False(limited.PhaseMilliseconds.ContainsKey("merge.endpoint_budget"));
+            Assert.Equal(prediction, limited.Counts["predicted_pieces"]);
+            Assert.Equal("", Invariance.Difference(free.Result, limited.Result));
+        }
+
+        [Fact]
+        public void EarlyEndpointBudget_UsesExactPredictionWhenEndpointsDoNotProveRefusal()
+        {
+            DMesh3 a = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 b = Box(new Vector3d(0.3, 0.3, 0.5), new Vector3d(0.6, 0.6, 1.5));
+            ExactMeshBoolean free = Computed(a, b, Ops.Union);
+            Assert.Equal(Status.Success, free.Status);
+            long prediction = free.Counts["predicted_pieces"];
+            var limited = new ExactMeshBoolean(a, b, Ops.Union) {
+                EnableEarlyPieceBudgetCheck = true, MaxPieces = prediction - 1
+            };
+            Assert.False(limited.Compute());
+            Assert.Equal(Status.BudgetExceeded, limited.Status);
+            Assert.Equal(prediction, limited.Counts["predicted_pieces"]);
+            Assert.False(limited.Counts.ContainsKey("piece_lower_bound"));
+            Assert.True(limited.PhaseMilliseconds.ContainsKey("merge.crossings"));
+        }
+
+        [Fact]
+        public void EarlyEndpointBudget_DoesNotCountCulledSources()
+        {
+            var limited = new ExactMeshBoolean(Box(Vector3d.Zero, Vector3d.One),
+                Box(2 * Vector3d.One, 3 * Vector3d.One), Ops.Intersection) {
+                EnableEarlyPieceBudgetCheck = true, MaxPieces = 1
+            };
+            Assert.True(limited.Compute(), limited.Error);
+            Assert.Equal(0, limited.Counts["predicted_pieces"]);
+            Assert.Equal(24, limited.Counts["t3a_culled"]);
+            Assert.False(limited.Counts.ContainsKey("piece_lower_bound"));
+            Assert.Equal(0, limited.Result.TriangleCount);
+        }
+
+        [Theory]
+        [InlineData("coplanar boxes", Ops.Union)]
+        [InlineData("vertex on face", Ops.Union)]
+        [InlineData("degenerate", Ops.Union)]
+        [InlineData("touching boxes", Ops.Intersection)]
+        public void EarlyEndpointBudget_AgreesWithExactGuardOnDifferentIntersectionKinds(string name, Ops op)
+        {
+            (DMesh3 a, DMesh3 b) = Inputs(name);
+            ExactMeshBoolean free = Computed(a, b, op);
+            Assert.Equal(Status.Success, free.Status);
+            long prediction = free.Counts["predicted_pieces"];
+            long budget = Math.Max(1, prediction / 2);
+            var limited = Computed(a, b, op, s => {
+                s.EnableEarlyPieceBudgetCheck = true;
+                s.MaxPieces = budget;
+            });
+            Assert.Equal(prediction > budget ? Status.BudgetExceeded : Status.Success, limited.Status);
+            if (limited.Counts.TryGetValue("piece_lower_bound", out long bound))
+                Assert.InRange(bound, budget + 1, prediction);
+            else
+                Assert.Equal(prediction, limited.Counts["predicted_pieces"]);
+
+            limited.MaxPieces = Math.Max(1, prediction);
+            Assert.True(limited.Compute(), limited.Error);
+            Assert.Equal(prediction, limited.Counts["predicted_pieces"]);
+            Assert.Equal("", Invariance.Difference(free.Result, limited.Result));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void EarlyEndpointBudget_RefusalIsStableAcrossFramesAndSchedules(string name)
+        {
+            DMesh3 a = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 b = Box(new Vector3d(0.25, 0.25, 0.25), new Vector3d(1.25, 1.25, 1.25));
+            Similarity s = Similarity.ByName(name);
+            long Run(DMesh3 x, DMesh3 y)
+            {
+                var limited = new ExactMeshBoolean(x, y, Ops.Union) { EnableEarlyPieceBudgetCheck = true, MaxPieces = 24 };
+                Assert.False(limited.Compute());
+                Assert.Equal(Status.BudgetExceeded, limited.Status);
+                return limited.Counts["piece_lower_bound"];
+            }
+            DMesh3 x = Invariance.Transformed(a, s), y = Invariance.Transformed(b, s);
+            long parallel = Run(x, y);
+            bool serial = gParallel.SerialOnThisThread;
+            try {
+                gParallel.SerialOnThisThread = true;
+                Assert.Equal(parallel, Run(x, y));
+            } finally {
+                gParallel.SerialOnThisThread = serial;
+            }
+            if (s.IsExact)
+                Assert.Equal(Run(a, b), parallel);
+        }
+
+        [Fact]
         public void Cancellation_BeforeCompute_StopsWithoutResult_AndTheInstanceComputesAgain()
         {
             (DMesh3 a, DMesh3 b) = Inputs("spheres");

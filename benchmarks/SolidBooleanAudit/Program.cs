@@ -608,6 +608,29 @@ static class Program
     static int Main(string[] args)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+        if (args.Length > 0 && args[0] == "endpoint-weighted") {
+            if (args.Length < 5) {
+                Console.Error.WriteLine("Usage: endpoint-weighted <label> <operation> <positive-cap> <cube-count|mesh [mesh ...]> [--allow-open]");
+                return 2;
+            }
+            return EndpointBudgetAudit.Weighted(args[1], Enum.Parse<ExactMeshBoolean.Operations>(args[2], true),
+                long.Parse(args[3]), args.Skip(4).ToArray());
+        }
+        if (args.Length > 0 && args[0] == "endpoint-evidence") {
+            if (args.Length < 4) {
+                Console.Error.WriteLine("Usage: endpoint-evidence <label> <operation> <cube-count|mesh [mesh ...]> [--allow-open]");
+                return 2;
+            }
+            return EndpointBudgetAudit.Evidence(args[1], Enum.Parse<ExactMeshBoolean.Operations>(args[2], true), args.Skip(3).ToArray());
+        }
+        if (args.Length > 0 && args[0] == "endpoint-budget") {
+            if (args.Length < 6) {
+                Console.Error.WriteLine("Usage: endpoint-budget <label> <operation> <budget|tight|near|exact> <repetitions> <cube-count|mesh [mesh ...]> [--allow-open]");
+                return 2;
+            }
+            return EndpointBudgetAudit.Run(args[1], Enum.Parse<ExactMeshBoolean.Operations>(args[2], true),
+                args[3], int.Parse(args[4]), args.Skip(5).ToArray());
+        }
         // the oracle checks itself first: the volume and the winding of a cube and of a hollow cube
         var cube = Oracle.Of(Corpus.Cube(0, 2), Vector3d.Zero);
         var hollow = Oracle.Of(Corpus.Combine(Corpus.Cube(0, 4), Corpus.Invert(Corpus.Cube(1, 3))), Vector3d.Zero);

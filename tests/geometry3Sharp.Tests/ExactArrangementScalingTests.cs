@@ -37,6 +37,53 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EarlyEndpointBudget_DoesNotCountMaskedOrDegenerateSources()
+        {
+            var degenerate = new DMesh3();
+            degenerate.AppendVertex(Vector3d.Zero);
+            degenerate.AppendVertex(Vector3d.AxisX);
+            degenerate.AppendVertex(2 * Vector3d.AxisX);
+            degenerate.AppendTriangle(0, 1, 2);
+            var arr = new ExactMeshArrangement(new List<DMesh3> {
+                Box(0, 0, 0, 1, 1, 1), Box(2, 2, 2, 3, 3, 3), degenerate
+            }) {
+                TriangulateMeshes = new[] { true, false, true }, EnableEarlyPieceBudgetCheck = true, MaxPieces = 12
+            };
+            arr.Compute();
+            Assert.Equal(ExactMeshArrangement.StopReason.None, arr.Stopped);
+            Assert.Equal(12, arr.PredictedPieces);
+            Assert.Equal(12, arr.Output.Count);
+            Assert.Equal(0, arr.PieceLowerBound);
+            arr.MaxPieces = 11;
+            arr.Compute();
+            Assert.Equal(ExactMeshArrangement.StopReason.Budget, arr.Stopped);
+            Assert.Equal(12, arr.PieceLowerBound);
+            Assert.False(arr.HasPiecePrediction);
+            Assert.Empty(arr.Output);
+        }
+
+        [Fact]
+        public void EarlyEndpointBudget_UsesFullPredictionWithRegionClipping()
+        {
+            var operands = new List<DMesh3> {
+                Box(0, 0, 0, 2, 2, 1), Box(0.5, 0.5, 0, 2.5, 2.5, 1)
+            };
+            var baseline = new ExactMeshArrangement(operands) { RegionClipping = true, MaxPieces = 1 };
+            var optedIn = new ExactMeshArrangement(operands) {
+                RegionClipping = true, MaxPieces = 1, EnableEarlyPieceBudgetCheck = true
+            };
+            baseline.Compute();
+            optedIn.Compute();
+
+            Assert.Equal(ExactMeshArrangement.StopReason.Budget, optedIn.Stopped);
+            Assert.True(optedIn.HasPiecePrediction);
+            Assert.Equal(baseline.PredictedPieces, optedIn.PredictedPieces);
+            Assert.Equal(0, optedIn.PieceLowerBound);
+            Assert.Contains("merge.predict", optedIn.PhaseMilliseconds.Keys);
+            Assert.DoesNotContain("merge.endpoint_budget", optedIn.PhaseMilliseconds.Keys);
+        }
+
+        [Fact]
         public void PlateWithManyHoles_CandidateTestsAreAboutLinear()
         {
             DMesh3 plate, pins;
