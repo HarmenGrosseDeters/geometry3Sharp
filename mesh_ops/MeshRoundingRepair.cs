@@ -655,6 +655,18 @@ namespace g3
         bool pendingFromMesh;
         // the box tree's hits of a query in near (reused)
         readonly List<int> hits = new List<int>();
+        // for tests: the pairs of the full pair searches of the last Apply that the separating axes took from the pair test
+        internal long AxisApartPairs;
+        // for tests: Apply on this thread tests every box pair of a full pair search (no separating axes: the reference,
+        // the results must be the same)
+        [ThreadStatic] internal static bool NoSeparatingAxesOnThisThread;
+        bool useAxes = true;
+        // a full pair search over more triangles than this takes no separating axes (20 doubles per triangle in one
+        // array; the search then tests every box pair, as before). The limit keeps the array at 1 GiB (int.MaxValue / 16
+        // doubles), below every runtime's limit for one object (2 GB on .NET Framework, Array.MaxLength on .NET Core) and
+        // below int offsets, so that above it the search is the same on all runtimes. For tests: set lower
+        internal const int DefaultMaxAxesTriangles = (int.MaxValue / 16) / TriangleSeparatingAxes.Stride;
+        internal static volatile int MaxAxesTriangles = DefaultMaxAxesTriangles;
         // for tests: the queries of near compared with a scan (CheckOnThisThread)
         internal long NearChecks;
         // for tests: the builds of the tree of the changed triangles in the last Apply
@@ -962,7 +974,9 @@ namespace g3
             rebuild_tree();
             lastPairs = null;
             check = CheckOnThisThread;
+            useAxes = NoSeparatingAxesOnThisThread == false;
             NearChecks = 0;
+            AxisApartPairs = 0;
             PendingBoxRefreshes = PendingBoxQueries = 0;
             pendingFromMesh = PendingBoxesFromMeshOnThisThread;
             DirtyTreeBuilds = 0;
@@ -1541,10 +1555,28 @@ namespace g3
         {
             int[] tris = treeTids.ToArray();
             bool skip = skipExact && exactAtStart != null;
-            // (per triangle, in triangle order: deterministic without a lock; the skipped triangles are marked per slot
-            // and counted afterwards, so the threads share no counter)
+            // The separating axes of every triangle of the tree, once (TriangleSeparatingAxes: a pair that is apart
+            // along one of them has no common point, so its pair test would say "not intersecting"): on results with
+            // long thin triangles on tilted faces a query has hundreds of box neighbours and none of them intersects
+            // (docs/research/ROUNDING_COST_2026-11.md section 5). Not for the full search of the check, which tests
+            // every pair. The mesh does not change during the search (no edit is pending: the tree is the mesh)
+            double[] axes = null;
+            if (skipExact && useAxes && tris.Length <= MaxAxesTriangles) {
+                axes = new double[TriangleSeparatingAxes.Stride * tris.Length];
+                gParallel.ForRange((tris.Length + TriangleBlock - 1) / TriangleBlock, (b) => {
+                    int end = Math.Min(tris.Length, (b + 1) * TriangleBlock);
+                    for (int i = b * TriangleBlock; i < end; ++i) {
+                        // (the corners the pair test sees)
+                        Triangle3d T = triangle(Mesh.GetTriangle(tris[i]));
+                        TriangleSeparatingAxes.Compute(T.V0, T.V1, T.V2, axes, TriangleSeparatingAxes.Stride * i);
+                    }
+                });
+            }
+            // (per triangle, in triangle order: deterministic without a lock; the skipped triangles and the pairs the axes
+            // took are marked or counted per slot and summed afterwards, so the threads share no counter)
             var found = new List<Index2i>[tris.Length];
             bool[] skippedAt = skip ? new bool[tris.Length] : null;
+            int[] apartAt = axes != null ? new int[tris.Length] : null;
             gParallel.ForRangeSmall(tris.Length, (k) => {
                 int ta = tris[k];
                 // (an exact triangle's pairs with the others are found from those)
@@ -1557,6 +1589,7 @@ namespace g3
                 if (ExactTriangleIntersection.IsDegenerate(ref A))
                     return;
                 List<Index2i> local = null;
+                int apartHere = 0;
                 tree.Query(box(ia), (i) => {
                     int tb = tris[i];
                     // (a pair of two triangles that are not skipped once, from the smaller id; one with a skipped
@@ -1564,6 +1597,14 @@ namespace g3
                     if (tb == ta || (tb < ta && (skip == false || exact_triangle(tb) == false))) return;
                     Index3i ib = Mesh.GetTriangle(tb);
                     Triangle3d B = triangle(ib);
+                    if (axes != null && (TriangleSeparatingAxes.Apart(axes, TriangleSeparatingAxes.Stride * k, B.V0, B.V1, B.V2)
+                        || TriangleSeparatingAxes.Apart(axes, TriangleSeparatingAxes.Stride * i, A.V0, A.V1, A.V2))) {
+                        apartHere++;
+                        // (CheckOnThisThread: the pair test must agree; the counts of the check stay those without the axes)
+                        if (check && ExactTriangleIntersection.IsDegenerate(ref B) == false && (ta < tb ? intersects(ia, ref A, ib, ref B) : intersects(ib, ref B, ia, ref A)))
+                            throw new InvalidOperationException("MeshRoundingRepair: two triangles apart along a separating axis intersect");
+                        return;
+                    }
                     if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
                     // (the smaller id first, as without the skip)
                     bool hit = ta < tb ? intersects(ia, ref A, ib, ref B) : intersects(ib, ref B, ia, ref A);
@@ -1573,7 +1614,15 @@ namespace g3
                     }
                 });
                 found[k] = local;
+                if (apartAt != null)
+                    apartAt[k] = apartHere;
             });
+            if (apartAt != null) {
+                long apart = 0;
+                foreach (int n in apartAt)
+                    apart += n;
+                AxisApartPairs += apart;
+            }
             if (skip) {
                 long skipped = 0;
                 foreach (bool b in skippedAt)

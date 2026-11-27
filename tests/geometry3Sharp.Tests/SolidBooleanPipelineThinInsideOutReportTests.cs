@@ -31,9 +31,9 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(d.Volume + 0.25 * T.ThinLift / 3) <= 1e-9 * 0.25 * T.ThinLift / 3, d.Volume.ToString("R"));
             Assert.True(d.Area > 0.5 && d.Area < 0.5 + 1e-9);
             Assert.Equal(2 * -d.Volume / d.Area, d.Thickness);
-            // the bound (#1567): 1e-5 of the box diagonal of the lens itself, not of the larger components around it
-            Assert.Equal(new Vector3d(0.5, 0.5, T.ThinLift).Length, d.Diagonal);
-            Assert.Equal(1e-5 * d.Diagonal, d.Bound);
+            // the bound (#1567): 1e-5 of the extent of the lens itself, not of the larger components around it
+            Assert.Equal(new Vector3d(0.5, 0.5, 0).Length, d.Extent, 12);
+            Assert.Equal(1e-5 * d.Extent, d.Bound);
             Assert.True(d.Thickness < d.Bound);
             Assert.Equal(new Vector3d(x0 + 0.25, 0.5, 0.5 + T.ThinLift / 2), d.Center);
             // (the input as given is not changed: the lens is dropped from a copy)
@@ -90,7 +90,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(d0.Area * k * k, d.Area);
                 Assert.Equal(d0.Thickness * k, d.Thickness);
                 Assert.Equal(d0.Bound * k, d.Bound);
-                Assert.Equal(d0.Diagonal * k, d.Diagonal);
+                Assert.Equal(d0.Extent * k, d.Extent);
                 Assert.Equal(d0.Center * k, d.Center);
             }
         }
@@ -103,7 +103,7 @@ namespace geometry3Sharp.Tests
             Assert.True(p.Compute(), p.Error);
             SolidBooleanDroppedComponent d = Assert.Single(p.Report.DroppedInsideOutComponents);
             Assert.Equal(1, d.Input);
-            Assert.Equal(1e-5 * new Vector3d(0.5, 0.5, T.ThinLift).Length, d.Bound);
+            Assert.Equal(1e-5 * new Vector3d(0.5, 0.5, 0).Length, d.Bound, 15);
             Assert.Equal(0.5, Invariance.Volume(p.Result), 14);
         }
 
@@ -186,8 +186,8 @@ namespace geometry3Sharp.Tests
             };
             Assert.True(q.Compute(), q.Error);
             SolidBooleanDroppedComponent d = Assert.Single(q.Report.DroppedInsideOutComponents);
-            Assert.Equal(new Vector3d(0.5, 0.5, T.ThinLift).Length, d.Diagonal);
-            Assert.Equal(1e-5 * d.Diagonal, d.Bound);
+            Assert.Equal(new Vector3d(0.5, 0.5, 0).Length, d.Extent, 12);
+            Assert.Equal(1e-5 * d.Extent, d.Bound);
             Assert.True(q.Result.IsClosed());
         }
     }

@@ -623,6 +623,14 @@ namespace g3
         /// all of its source's coplanar triangles, for A/B tests; the same stacks)
         /// </summary>
         internal bool CoplanarBoxFilter = true;
+        /// <summary>
+        /// #1630: the coplanar stacks of the pieces of an input triangle with at least CoplanarWalkMinCoplanar coplanar triangles and CoplanarWalkMinPieces pieces
+        /// are carried from piece to piece across the edges they share (one exact scan for the first piece, then only the coplanar triangles whose boundary the crossed
+        /// edge lies on are tested again) instead of a scan per piece; the same stacks in the same order (docs/design/COPLANAR_FAN_DIAGNOSIS.md, COPLANAR_PROPAGATION.md).
+        /// False: the scan of every piece, for A/B tests; 0 and 0 walk every source with coplanar triangles
+        /// </summary>
+        internal bool CoplanarWalk = true;
+        internal int CoplanarWalkMinCoplanar = 16, CoplanarWalkMinPieces = 8;
         /// <summary> #1047: L2's exact sides of a piece's centroid, per triangle and piece, computed once per cluster (off: per test, for A/B tests) </summary>
         internal bool MemoTracedSides = true;
         /// <summary> tests: keep the coplanar stack of every piece (StacksPerPiece; null for a piece without one) </summary>
@@ -815,7 +823,8 @@ namespace g3
         {
             return new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
                 FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters,
-                HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard, PreDecideCoplanar = ArrangementPreDecideCoplanar };
+                HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard, PreDecideCoplanar = ArrangementPreDecideCoplanar,
+                RecordEdgeLines = CoplanarWalk, EdgeLinesMinCoplanar = CoplanarWalkMinCoplanar };
         }
 
         /// <summary>
@@ -1977,7 +1986,19 @@ namespace g3
             var stack = new List<int>[n];
             bool[] representative = new bool[n];
             double[] coplanarBoxes = coplanar_boxes();
-            gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], coplanarBoxes, out stack[i]));
+            // (#1630: the sources that are walked; their pieces are not scanned one by one)
+            List<int> walks = CoplanarWalk ? walked_sources(output) : null;
+            bool[] walked = null;
+            if (walks != null && walks.Count > 0) {
+                walked = new bool[n];
+                for (int w = 0; w < walks.Count; w += 2)
+                    for (int i = walks[w]; i < walks[w + 1]; ++i)
+                        walked[i] = true;
+            }
+            gParallel.ForRange(n, (i) => { if (walked == null || walked[i] == false) representative[i] = coplanar_stack(output[i], coplanarBoxes, out stack[i]); });
+            if (walked != null)
+                gParallel.ForRange(walks.Count / 2, (w) => coplanar_walk(output, walks[2 * w], walks[2 * w + 1], coplanarBoxes, representative, stack));
+            arr.ReleaseEdgeLines();       // (#1630: the edge planes are read by the walk only)
             StacksPerPiece = (RecordStacks || RetainClassification) ? stack : null;
             steps.LapMicroseconds("classification.stacks");
 
@@ -2462,6 +2483,135 @@ namespace g3
             }
             System.Threading.Interlocked.Add(ref coplanarTests, tests);
             return representative;
+        }
+
+        // #1630: the runs of pieces (start, end, as pairs in the list) of the input triangles that are walked: the pieces of a source are consecutive in the output,
+        // and the arrangement kept the edge planes of its edges (RecordEdgeLines: it has at least CoplanarWalkMinCoplanar coplanar triangles)
+        List<int> walked_sources(List<ExactMeshArrangement.OutputTriangle> output)
+        {
+            var runs = new List<int>();
+            int n = output.Count;
+            for (int s = 0; s < n; ) {
+                int e = s + 1, source = output[s].Source;
+                while (e < n && output[e].Source == source)
+                    ++e;
+                var src = arr.Triangles[source];
+                if (e - s >= CoplanarWalkMinPieces && src.Coplanar.Count >= CoplanarWalkMinCoplanar && src.Coplanar.Count > 0 && arr.EdgeLinesOf(source) != null) {
+                    runs.Add(s);
+                    runs.Add(e);
+                }
+                s = e;
+            }
+            return runs;
+        }
+
+        /// <summary>
+        /// #1630: the coplanar stacks of the pieces output[s .. e) of one input triangle: the first piece by the scan (coplanar_stack), the others from a neighbour across a
+        /// shared edge. A coplanar triangle u contains a piece's centroid or not; two pieces that share an edge are on the same side of the boundary of u unless the
+        /// edge lies on that boundary (the interiors of the two pieces and the edge's relative interior do not meet it: every segment of the boundary of u inside the
+        /// source is a constraint of the triangulation, and an edge of a piece is on it only if it is a part of a constraint segment, and then the arrangement has
+        /// recorded the edge plane of u for the edge), so the stack of the neighbour is the stack of the piece with the triangles whose edge planes are recorded for
+        /// the edge tested again at the new centroid. The lists are built in ascending order as the scan builds them.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        void coplanar_walk(List<ExactMeshArrangement.OutputTriangle> output, int s, int e, double[] boxes, bool[] representative, List<int>[] stack)
+        {
+            int count = e - s, source = output[s].Source;
+            var src = arr.Triangles[source];
+            Dictionary<long, int[]> lines = arr.EdgeLinesOf(source);
+            // the neighbours of each piece across its three edges (-1: none), and the key of the edge
+            var neighbour = new int[3 * count];
+            var edgeKey = new long[3 * count];
+            var open = new Dictionary<long, int>(3 * count, EdgeKeyComparer.Instance);
+            for (int i = 0; i < count; ++i) {
+                ExactMeshArrangement.OutputTriangle ot = output[s + i];
+                for (int k = 0; k < 3; ++k) {
+                    int a = k == 0 ? ot.A : k == 1 ? ot.B : ot.C, b = k == 0 ? ot.B : k == 1 ? ot.C : ot.A;
+                    long key = ExactMeshArrangement.EdgeKey(a, b);
+                    int slot = 3 * i + k, other;
+                    neighbour[slot] = -1;
+                    edgeKey[slot] = key;
+                    if (open.TryGetValue(key, out other)) {
+                        neighbour[slot] = other / 3;
+                        neighbour[other] = i;
+                    }
+                    else
+                        open[key] = slot;
+                }
+            }
+            representative[s] = coplanar_stack(output[s], boxes, out stack[s]);
+            var seen = new bool[count];
+            var queue = new int[count];
+            int head = 0, tail = 0;
+            queue[tail++] = 0;
+            seen[0] = true;
+            long tests = 0;
+            var members = new int[0];
+            while (head < tail) {
+                int p = queue[head++];
+                for (int k = 0; k < 3; ++k) {
+                    int q = neighbour[3 * p + k];
+                    if (q < 0 || seen[q])
+                        continue;
+                    seen[q] = true;
+                    queue[tail++] = q;
+                    List<int> sp = stack[s + p];
+                    int[] planes;
+                    lines.TryGetValue(edgeKey[3 * p + k], out planes);
+                    if (planes == null) {
+                        // (no coplanar triangle has this edge on its boundary: the same side of every one of them)
+                        List<int> copy = null;
+                        if (sp != null) {
+                            copy = new List<int>(sp.Count);
+                            for (int m = 0; m < sp.Count; ++m)
+                                copy.Add(sp[m]);
+                        }
+                        stack[s + q] = copy;
+                        representative[s + q] = representative[s + p];
+                        continue;
+                    }
+                    int c = centroid(output[s + q]);
+                    // (the members of p's stack after the source, in ascending order, then the changes)
+                    int size = sp == null ? 0 : sp.Count - 1;
+                    if (members.Length < size + planes.Length)
+                        members = new int[size + planes.Length];
+                    for (int m = 0; m < size; ++m)
+                        members[m] = sp[m + 1];
+                    foreach (int ui in planes) {
+                        // (a recorded plane is the edge plane of a clipped edge of u, so u is in src.Coplanar: clip_into adds it to the source's list whenever it adds a segment)
+                        ++tests;
+                        bool inside = inside_coplanar(src, arr.Triangles[ui], c);
+                        int at = 0;
+                        while (at < size && members[at] < ui)
+                            ++at;
+                        bool present = at < size && members[at] == ui;
+                        if (inside && present == false) {
+                            for (int m = size; m > at; --m)
+                                members[m] = members[m - 1];
+                            members[at] = ui;
+                            ++size;
+                        }
+                        else if (inside == false && present) {
+                            for (int m = at; m + 1 < size; ++m)
+                                members[m] = members[m + 1];
+                            --size;
+                        }
+                    }
+                    if (size == 0) {
+                        stack[s + q] = null;
+                        representative[s + q] = true;
+                    }
+                    else {
+                        var list = new List<int>(size + 1);
+                        list.Add(source);
+                        for (int m = 0; m < size; ++m)
+                            list.Add(members[m]);
+                        stack[s + q] = list;
+                        representative[s + q] = members[0] > source;
+                    }
+                }
+            }
+            System.Threading.Interlocked.Add(ref coplanarTests, tests);
         }
 
         // #1047: per input triangle that has coplanar triangles (6 entries each: min x, y, z, max x, y, z; NaN for the others),

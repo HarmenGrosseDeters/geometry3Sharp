@@ -162,5 +162,359 @@ namespace geometry3Sharp.Tests
             two.AppendFace(new[] { 0, 2, 1, 3, 0 });                 // a closing quad-like face with vertex 0 twice
             Assert.False(QuadRemesher.HasNoRepeatedVertex(two));
         }
+
+        // a K4 on the roof whose face (A, B, C) is a sliver across the fold: its surface angles add up to pi, but the chord triangle of the vertices has an area vector against the
+        // vertex normals (-0.7), so BuildFaces drops it as a folded face and leaves a hole
+        static QuadRemesher.PolyGraph SliverK4()
+        {
+            Vector3d nl = new Vector3d(-1, 0, 1).Normalized, nr = new Vector3d(1, 0, 1).Normalized;
+            var g = new QuadRemesher.PolyGraph();
+            g.Add(new Vector3d(-3, -1, -3), nl, 0); g.Add(new Vector3d(1, 0.5, -1), nr, 0); g.Add(new Vector3d(-0.5, 0, -0.5), nl, 0); g.Add(new Vector3d(-1, 1.5, -1), nl, 0);
+            for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) g.Link(i, j);
+            return g;
+        }
+
+        [Fact]
+        public void ASliverAcrossAFold_IsDroppedByTheAreaTest_AndKeptByTheSurfaceAngles()
+        {
+            int dropped;
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = SliverK4(); var seen = new List<int[]>();
+            var rot = QuadRemesher.SurfaceRotations(g, m, new[] { 0, 1, 2, 3 }, tree);        // (the tangent plane orders of the fold are not consistent: the repair of 1689 first)
+            DPolyMesh plain = QuadRemesher.BuildFaces(SliverK4(), 6, out dropped, rot);
+            Assert.Equal("faces 2 dropped 2", "faces " + plain.FaceCount + " dropped " + dropped);              // the sliver and the outer loop
+            DPolyMesh kept = QuadRemesher.BuildFaces(g, 6, out dropped, rot, loop => { seen.Add(loop); return QuadRemesher.SurfaceFaceDeviation(g, m, tree, loop) <= QuadRemesher.SurfaceSliverTolerance; });
+            Assert.Equal(3, kept.FaceCount); Assert.Equal(1, dropped);                // only the outer loop stays dropped
+            Assert.True(kept.Validate().IsValid);
+            Assert.Equal(2, seen.Count);                                              // asked for the faces the area test dropped only, not for the two that passed it
+            var sliver = seen.Single(l => l.Length == 3 && l.Contains(0) && l.Contains(1) && l.Contains(2));
+            Assert.True(QuadRemesher.SurfaceFaceDeviation(g, m, tree, sliver) < 1e-6);
+            Assert.InRange(QuadRemesher.SurfaceSliverTolerance, 0.1 * Math.PI / 180, 2 * Math.PI / 180);       // the measured sums are 0 to 1e-13 degrees off; a corner is off by tens of degrees
+            // the same loop the other way round (an inverted face, or the outer loop of a patch): not a face (the other links of the K4 run through the side it has on its left)
+            Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(g, m, tree, Enumerable.Reverse(sliver).ToArray())));
+            // alone, without other links: the angles on its left add up to (k + 2) pi, 4 pi more
+            var alone = new QuadRemesher.PolyGraph();
+            for (int i = 0; i < 3; ++i) alone.Add(g.Pos[i], g.Nrm[i], 0);
+            alone.Link(0, 1); alone.Link(1, 2); alone.Link(2, 0);
+            Assert.Equal(0.0, QuadRemesher.SurfaceFaceDeviation(alone, m, tree, sliver), 6);
+            Assert.Equal(4 * Math.PI, QuadRemesher.SurfaceFaceDeviation(alone, m, tree, Enumerable.Reverse(sliver).ToArray()), 6);
+        }
+
+        [Fact]
+        public void ALoopThatIsNotASimpleFaceOfTheSurface_IsNotRescued()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = new QuadRemesher.PolyGraph();
+            foreach (var p in new[] { new Vector3d(-2, 0, -2), new Vector3d(-1, 1, -1), new Vector3d(-1, 0, -1), new Vector3d(-2, 1, -2) }) g.Add(p, new Vector3d(-1, 0, 1).Normalized, 0);
+            // 0-1-2-3 crosses itself (0-1 and 2-3 cross); a repeated vertex; two vertices
+            Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 1, 2, 3 })));
+            Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 1, 0 })));
+            Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 1 })));
+            // the square 0-2-1-3 is simple: a face (the angles add up to 2 pi)
+            Assert.True(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 2, 1, 3 }) < 1e-6);
+        }
+
+        [Fact]
+        public void TheRescueIsNotAskedBeyondTheNumberOfSidesOfAFace()
+        {
+            // a square, maxSides 3: both its loops are too long, whatever rescue says
+            var g = new QuadRemesher.PolyGraph();
+            foreach (var p in new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0) }) g.Add(p, Vector3d.AxisZ, 0);
+            g.Link(0, 1); g.Link(1, 2); g.Link(2, 3); g.Link(3, 0);
+            int dropped; int asked = 0;
+            DPolyMesh r = QuadRemesher.BuildFaces(g, 3, out dropped, null, loop => { asked++; return true; });
+            Assert.Equal(0, r.FaceCount); Assert.Equal(2, dropped); Assert.Equal(0, asked);
+            // and a rescue that says yes keeps the loop that the area test dropped (maxSides 4): the outer loop of the square, dropped by its area, is taken as a second face
+            r = QuadRemesher.BuildFaces(g, 4, out dropped, null, loop => true);
+            Assert.Equal(2, r.FaceCount); Assert.Equal(0, dropped);
+        }
+
+        // two links that cross on the surface (a (-1, 0.5) - c (-1, 1) and b (-3, 1) - d (3, 0.5) over the ridge of the roof, unfolded) while their chords in space pass 4 times the shorter one apart
+        static QuadRemesher.PolyGraph CrossingOverTheRidge(byte kindB = 0, byte kindD = 0)
+        {
+            Vector3d nl = new Vector3d(-1, 0, 1).Normalized, nr = new Vector3d(1, 0, 1).Normalized;
+            var g = new QuadRemesher.PolyGraph();
+            g.Add(new Vector3d(-1, 0.5, -1), nl, 0); g.Add(new Vector3d(-3, 1, -3), nl, kindB); g.Add(new Vector3d(-1, 1, -1), nl, 0); g.Add(new Vector3d(3, 0.5, -3), nr, kindD);
+            g.Link(0, 2); g.Link(1, 3);
+            return g;
+        }
+
+        [Fact]
+        public void LinksThatCrossOnTheSurface_AreFound_WhereTheirChordsInSpaceDoNotCross()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = CrossingOverTheRidge();
+            Assert.Equal(0, QuadRemesher.RemoveCrossings(QuadRemesher.CopyGraph(g)));           // the 3D gap is too wide (the crossing repair of #1674)
+            var found = QuadRemesher.SurfaceCrossings(g, m, tree, new[] { 0, 1, 2, 3 });
+            Assert.Equal(new[] { Tuple.Create(1, 3) }, found.ToArray());                         // the longer of the two
+            // the same links with the end d on the other side of the first link do not cross
+            var apart = CrossingOverTheRidge(); apart.Pos[3] = new Vector3d(3, 1.5, -3); apart.Pos[1] = new Vector3d(-3, 2, -3);
+            Assert.Empty(QuadRemesher.SurfaceCrossings(apart, m, tree, new[] { 0, 1, 2, 3 }));
+            Assert.Empty(QuadRemesher.SurfaceCrossings(g, m, tree, new int[0]));
+        }
+
+        [Fact]
+        public void ALinkOfAChain_IsKept_AndTheOtherGoes_AndNeitherIfBothAreLinks()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = CrossingOverTheRidge(1, 1);                                                 // the longer link joins two crease vertices
+            Assert.Equal(new[] { Tuple.Create(0, 2) }, QuadRemesher.SurfaceCrossings(g, m, tree, new[] { 0, 1, 2, 3 }).ToArray());
+            g.Kind[0] = 1; g.Kind[2] = 1;                                                       // both are links
+            Assert.Empty(QuadRemesher.SurfaceCrossings(g, m, tree, new[] { 0, 1, 2, 3 }));
+        }
+
+        [Fact]
+        public void TheSurfaceCrossingsAreOnlyLookedForAtFewVertices()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = CrossingOverTheRidge();
+            Assert.Single(QuadRemesher.SurfaceCrossings(g, m, tree, Enumerable.Range(0, 4)));
+            for (int i = 4; i < 33; ++i) g.Add(new Vector3d(-2, -1, -2), new Vector3d(-1, 0, 1).Normalized, 0);       // 33 vertices (the cap is 32)
+            Assert.Empty(QuadRemesher.SurfaceCrossings(g, m, tree, Enumerable.Range(0, 33)));
+            Assert.Single(QuadRemesher.SurfaceCrossings(g, m, tree, Enumerable.Range(0, 32)));
+        }
+
+        [Fact]
+        public void AK4InConvexPositionOnTheRoof_IsNotPlanarWithTheSurfaceOrders_ButWithoutTheLongerDiagonal()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = CrossingOverTheRidgeK4();
+            var all = new[] { 0, 1, 2, 3 };
+            int dropped;
+            DPolyMesh withAll = QuadRemesher.BuildFaces(CrossingOverTheRidgeK4(), 6, out dropped, QuadRemesher.SurfaceRotations(g, m, all, tree));
+            Assert.True(dropped >= 1 && withAll.FaceCount <= 1);          // the two crossing links: no planar rotation system (a figure of eight), however the neighbours are ordered
+            var cross = QuadRemesher.SurfaceCrossings(g, m, tree, all);
+            Assert.Equal(new[] { Tuple.Create(1, 3) }, cross.ToArray());
+            g.Unlink(1, 3);
+            DPolyMesh planar = QuadRemesher.BuildFaces(g, 6, out dropped, QuadRemesher.SurfaceRotations(g, m, all, tree));
+            Assert.Equal(2, planar.FaceCount); Assert.Equal(1, dropped);   // two triangles and the outer loop
+            Assert.True(planar.Validate().IsValid);
+        }
+
+        static QuadRemesher.PolyGraph CrossingOverTheRidgeK4()
+        {
+            var g = CrossingOverTheRidge();
+            for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) g.Link(i, j);
+            return g;
+        }
+
+        static DPolyMesh Triangles(int count, bool repeatedVertex = false)
+        {
+            var m = new DPolyMesh();
+            for (int t = 0; t < count; ++t) { int o = m.VertexCount; m.AppendVertex(new Vector3d(t, 0, 0)); m.AppendVertex(new Vector3d(t + 0.5, 1, 0)); m.AppendVertex(new Vector3d(t + 1, 0, 0)); m.AppendFace(new[] { o, o + 1, o + 2 }); }
+            if (repeatedVertex) m.AppendFace(new[] { 0, 1, 0, 2 });
+            return m;
+        }
+
+        [Fact]
+        public void ARebuild_IsKept_OnlyWithStrictlyFewerDroppedFaces_NoMoreBoundaryEdges_AndNoRepeatedVertex()
+        {
+            DPolyMesh two = Triangles(2);                                  // 6 boundary edges
+            Assert.True(QuadRemesher.SurfaceRebuildAccepted(two, 1, 2, 6));
+            Assert.False(QuadRemesher.SurfaceRebuildAccepted(two, 2, 2, 6));       // as many dropped faces: not kept
+            Assert.False(QuadRemesher.SurfaceRebuildAccepted(two, 3, 2, 6));
+            Assert.False(QuadRemesher.SurfaceRebuildAccepted(two, 1, 2, 5));       // fewer dropped faces, but more boundary edges than the result before
+            Assert.True(QuadRemesher.SurfaceRebuildAccepted(two, 1, 2, 7));
+            Assert.False(QuadRemesher.SurfaceRebuildAccepted(Triangles(2, true), 1, 2, 100));      // a face with a repeated vertex
+        }
+
+        static QuadRemesher.PolyGraph LeftFaceGraph(params double[][] xy)
+        {
+            var g = new QuadRemesher.PolyGraph();
+            foreach (var p in xy) g.Add(new Vector3d(p[0], p[1], -Math.Abs(p[0])), new Vector3d(-1, 0, 1).Normalized, 0);
+            return g;
+        }
+
+        [Fact]
+        public void ALinkInsideTheWedgeOfAFace_MakesTheLoopNoFace()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = LeftFaceGraph(new[] { -3.0, -1 }, new[] { -1.0, -1 }, new[] { -2.0, 1 }, new[] { -2.0, -0.5 });          // the triangle 0 1 2 and a vertex 3 inside it
+            g.Link(0, 1); g.Link(1, 2); g.Link(2, 0);
+            Assert.Equal(0.0, QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 1, 2 }), 6);
+            g.Link(0, 3);                                                                                        // a link of vertex 0 into the triangle: no face
+            Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 1, 2 })));
+        }
+
+        [Fact]
+        public void ALoopThatCrossesItselfInTheChart_IsNoFace_ForFiveAndSixSides()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            // the five points of a pentagon on the left face: in order a convex pentagon, in the order 0 2 4 1 3 a pentagram
+            var g = LeftFaceGraph(new[] { -2.0, -1 }, new[] { -1.0, -0.5 }, new[] { -1.0, 0.5 }, new[] { -2.0, 1.0 }, new[] { -3.0, 0 });
+            Assert.True(QuadRemesher.IsSimpleInChart(g, m, tree, new[] { 0, 1, 2, 3, 4 }));
+            Assert.False(QuadRemesher.IsSimpleInChart(g, m, tree, new[] { 0, 2, 4, 1, 3 }));
+            Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 2, 4, 1, 3 })));
+            Assert.True(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 1, 2, 3, 4 }) < 1e-6);
+            // six points: the bow-tie order 0 1 2 5 4 3 (the sides 2-5 and 3-0... cross)
+            var h = LeftFaceGraph(new[] { -3.0, -1 }, new[] { -2.0, -1 }, new[] { -1.0, -1 }, new[] { -3.0, 1 }, new[] { -2.0, 1 }, new[] { -1.0, 1 });
+            Assert.True(QuadRemesher.IsSimpleInChart(h, m, tree, new[] { 0, 1, 2, 5, 4, 3 }));
+            Assert.False(QuadRemesher.IsSimpleInChart(h, m, tree, new[] { 0, 1, 5, 4, 2, 3 }));
+            Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(h, m, tree, new[] { 0, 1, 5, 4, 2, 3 })));
+        }
+
+        [Fact]
+        public void ALoopThatVisitsAVertexTwice_IsNoFace()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = LeftFaceGraph(new[] { -3.0, -1 }, new[] { -1.0, -1 }, new[] { -2.0, 1 });
+            g.Link(0, 1); g.Link(0, 2);
+            Assert.True(double.IsPositiveInfinity(QuadRemesher.SurfaceFaceDeviation(g, m, tree, new[] { 0, 1, 0, 2 })));
+        }
+
+        // a grid of n x n vertices (normals up) without the vertices (i, j) with lo <= i, j <= hi (a hole) if lo <= hi; the vertices next to the hole and on the border are boundary vertices (Kind 1)
+        static QuadRemesher.PolyGraph Grid(int n, int lo = 1, int hi = 0)
+        {
+            var g = new QuadRemesher.PolyGraph(); var id = new int[n, n];
+            Func<int, int, bool> removed = (i, j) => i >= lo && i <= hi && j >= lo && j <= hi;
+            for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) {
+                id[i, j] = -1; if (removed(i, j)) continue;
+                bool border = i == 0 || j == 0 || i == n - 1 || j == n - 1 || removed(i - 1, j) || removed(i + 1, j) || removed(i, j - 1) || removed(i, j + 1) || removed(i - 1, j - 1) || removed(i + 1, j - 1) || removed(i - 1, j + 1) || removed(i + 1, j + 1);
+                id[i, j] = g.Add(new Vector3d(i, j, 0), Vector3d.AxisZ, (byte)(border ? 1 : 0));
+            }
+            for (int j = 0; j < n; ++j) for (int i = 0; i < n; ++i) {
+                if (id[i, j] < 0) continue;
+                if (i + 1 < n && id[i + 1, j] >= 0) g.Link(id[i, j], id[i + 1, j]);
+                if (j + 1 < n && id[i, j + 1] >= 0) g.Link(id[i, j], id[i, j + 1]);
+            }
+            return g;
+        }
+
+        [Fact]
+        public void TheBoundaryLoopsOfAnOpenInput_AreNotBad_OuterLoopAndHole()
+        {
+            Assert.Empty(QuadRemesher.BadLoopVertices(Grid(4), 6, null, 32));                 // the outer loop of 12 vertices
+            Assert.Empty(QuadRemesher.BadLoopVertices(Grid(7, 2, 4), 6, null, 32));           // a 3 x 3 hole (16 vertices around it) and the outer loop of 24
+            // the outer loop of 12 vertices of a patch whose vertices are not boundary vertices is bad (no sign of an area decides)
+            var inner = Grid(4); for (int i = 0; i < inner.Kind.Count; ++i) inner.Kind[i] = 0;
+            Assert.Equal(12, QuadRemesher.BadLoopVertices(inner, 6, null, 32).Count);
+            var one = Grid(4); one.Kind[0] = 0;                                                  // one vertex of the loop is no boundary vertex: not a boundary loop
+            Assert.Equal(12, QuadRemesher.BadLoopVertices(one, 6, null, 32).Count);
+        }
+
+        [Fact]
+        public void TheBoundaryRingsOfAnOpenTube_AreNotBad_WhateverTheSignOfTheirVectorArea()
+        {
+            // an open cylinder: rings of 12 vertices with radial normals; the vector area of a ring along the axis is orthogonal to its normals (a dot product of noise)
+            var g = new QuadRemesher.PolyGraph(); int rings = 4, per = 12;
+            for (int r = 0; r < rings; ++r)
+                for (int i = 0; i < per; ++i) {
+                    double t = 2 * Math.PI * i / per;
+                    g.Add(new Vector3d(Math.Cos(t), Math.Sin(t), r * 0.5), new Vector3d(Math.Cos(t), Math.Sin(t), 0), (byte)(r == 0 || r == rings - 1 ? 1 : 0));
+                }
+            for (int r = 0; r < rings; ++r) for (int i = 0; i < per; ++i) { g.Link(r * per + i, r * per + (i + 1) % per); if (r + 1 < rings) g.Link(r * per + i, (r + 1) * per + i); }
+            Assert.Empty(QuadRemesher.BadLoopVertices(g, 6, null, 32));
+        }
+
+        [Fact]
+        public void ALongFigureOfEight_IsBad_EvenWhenItsInvertedLobeIsTheLargerAndItsVerticesAreBoundaryVertices()
+        {
+            // two squares that share a corner: the loop around both visits it twice and has 8 vertices, and is traced the other way round than the squares
+            Func<byte, QuadRemesher.PolyGraph> build = kind => {
+                var g = new QuadRemesher.PolyGraph();
+                foreach (var p in new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0), new Vector3d(-1, 0, 0), new Vector3d(-1, -1, 0), new Vector3d(0, -1, 0) }) g.Add(p, Vector3d.AxisZ, kind);
+                g.Link(0, 1); g.Link(1, 2); g.Link(2, 3); g.Link(3, 0); g.Link(0, 4); g.Link(4, 5); g.Link(5, 6); g.Link(6, 0);
+                return g;
+            };
+            Assert.Equal(7, QuadRemesher.BadLoopVertices(build(0), 6, null, 32).Count);
+            Assert.Equal(7, QuadRemesher.BadLoopVertices(build(1), 6, null, 32).Count);      // (boundary vertices: still a figure of eight)
+        }
+
+        [Fact]
+        public void TheStillBadVertices_AreComputedWithTheSurfaceOrders()
+        {
+            DMesh3 m = Roof();
+            var g = RoofK4();
+            var rot = QuadRemesher.SurfaceRotations(g, m, new[] { 0, 1, 2, 3 });
+            Assert.NotEmpty(QuadRemesher.BadLoopVertices(QuadRemesher.CopyGraph(g), 6, null, 32));
+            Assert.Empty(QuadRemesher.StillBadVertices(g, 6, rot));
+        }
+
+        [Fact]
+        public void TheOrdersOfTheEndsOfARemovedLink_AreComputedAgain_NotKept()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = CrossingOverTheRidgeK4();
+            var all = new[] { 0, 1, 2, 3 };
+            var rot = QuadRemesher.SurfaceRotations(g, m, all, tree);
+            g.Unlink(1, 3);
+            var rot2 = QuadRemesher.RotationsAfterRemoval(g, new[] { 1, 3 }, m, tree, rot);
+            Assert.Equal(g.Adj[1].OrderBy(x => x), rot2[1].OrderBy(x => x));          // two neighbours, not the three of before
+            Assert.Equal(2, rot2[1].Length); Assert.Equal(2, rot2[3].Length);
+            Assert.Equal(rot[0], rot2[0]); Assert.Equal(rot[2], rot2[2]);               // the others stay
+            // a vertex whose neighbour cannot be reached gets no order (not the old one, which no longer fits)
+            var stale = new Dictionary<int, int[]> { [3] = new[] { 0, 1, 2 }, [0] = rot[0] };
+            var sheets = TwoSheets(); var tree2 = new DMeshAABBTree3(sheets, true);
+            var rot3 = QuadRemesher.RotationsAfterRemoval(g, new[] { 3 }, sheets, tree2, stale);
+            Assert.False(rot3.ContainsKey(3));
+            Assert.Equal(rot[0], rot3[0]);
+        }
+
+        static DMesh3 TwoSheets()
+        {
+            var m = new DMesh3();
+            foreach (int side in new[] { -1, 1 })
+                for (int i = 0; i < 7; ++i) for (int j = 0; j < 7; ++j) { double x = side * 0.5 * i; m.AppendVertex(new Vector3d(x, -1 + 0.5 * j, -Math.Abs(x))); }
+            for (int side = 0; side < 2; ++side)
+                for (int i = 0; i < 6; ++i) for (int j = 0; j < 6; ++j) {
+                    int o = side * 49, a = o + i * 7 + j, b = o + (i + 1) * 7 + j, c = o + (i + 1) * 7 + j + 1, d = o + i * 7 + j + 1;
+                    if (side == 0) { m.AppendTriangle(a, b, c); m.AppendTriangle(a, c, d); } else { m.AppendTriangle(a, c, b); m.AppendTriangle(a, d, c); }
+                }
+            return m;
+        }
+
+        [Fact]
+        public void TheRescueAppliesToTheFacesOfTheGraphWithoutTheRemovedLinks()
+        {
+            // the sliver K4 (its face 0 1 2 is a face only with the rescue) and a link between two other vertices, which is removed
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = SliverK4();
+            Vector3d nl = new Vector3d(-1, 0, 1).Normalized;
+            g.Add(new Vector3d(-2, 1.5, -2), nl, 0); g.Add(new Vector3d(-1.5, 1.5, -1.5), nl, 0); g.Link(4, 5);
+            var rot = QuadRemesher.SurfaceRotations(g, m, new[] { 0, 1, 2, 3 }, tree);
+            var links = new[] { Tuple.Create(4, 5) };
+            int withRescue, withoutRescue;
+            DPolyMesh a = QuadRemesher.RebuildWithoutLinks(g, links, m, tree, 6, rot, out withRescue);
+            var c = QuadRemesher.CopyGraph(g); c.Unlink(4, 5);
+            DPolyMesh b = QuadRemesher.BuildFaces(c, 6, out withoutRescue, QuadRemesher.RotationsAfterRemoval(c, new[] { 4, 5 }, m, tree, rot));
+            Assert.Equal(2, b.FaceCount); Assert.Equal(2, withoutRescue);
+            Assert.Equal(3, a.FaceCount); Assert.Equal(1, withRescue);                // the sliver is a face only with the rescue
+        }
+
+        [Fact]
+        public void ALinkInConvexPositionK4_IsFoundWhereTheLongerDiagonalCrossesTheOther()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = new QuadRemesher.PolyGraph();
+            Vector3d nl = new Vector3d(-1, 0, 1).Normalized, nr = new Vector3d(1, 0, 1).Normalized;
+            g.Add(new Vector3d(-2, -1, -2), nl, 0); g.Add(new Vector3d(0.5, 1, -0.5), nr, 0); g.Add(new Vector3d(1, 1.5, -1), nr, 0); g.Add(new Vector3d(-1.5, -0.5, -1.5), nl, 0);
+            for (int i = 0; i < 4; ++i) for (int j = i + 1; j < 4; ++j) g.Link(i, j);
+            Assert.Equal(new[] { Tuple.Create(0, 2) }, QuadRemesher.SurfaceCrossings(g, m, tree, new[] { 0, 1, 2, 3 }).ToArray());
+        }
+
+        [Fact]
+        public void OfCrossingLinks_TheLongerGoes_ThenTheShorterOnesThatCrossedIt_StayIfTheyOnlyCrossedARemovedLink()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            // K (0-1, a link of a chain) crosses I (2-3), and J (4-5) crosses I but not K; I is the shortest, J longer than I, K the longest
+            // the links in the order J, I, K by their numbers: without the sort by length the pair (J, I) would come first and take J
+            var g = LeftFaceGraph(new[] { -0.5, 0.5 }, new[] { -2.0, -1 }, new[] { -1.5, -1 }, new[] { -2.5, 0.5 }, new[] { -3.0, -1 }, new[] { -0.5, 2 });
+            g.Kind[4] = 1; g.Kind[5] = 1;
+            g.Link(0, 1); g.Link(2, 3); g.Link(4, 5);
+            var found = QuadRemesher.SurfaceCrossings(g, m, tree, Enumerable.Range(0, 6));
+            // K (4-5) is the longer of (K, I) but a chain link: I (2-3) goes. J (0-1) crosses only I, which is gone: J stays
+            Assert.Equal(new[] { Tuple.Create(2, 3) }, found.ToArray());
+        }
+
+        [Fact]
+        public void OfTwoCrossingLinksOfTheSameLength_TheOneWithTheLowerNumbersGoes()
+        {
+            DMesh3 m = Roof(); var tree = new DMeshAABBTree3(m, true);
+            var g = new QuadRemesher.PolyGraph();
+            Vector3d nl = new Vector3d(-1, 0, 1).Normalized, nr = new Vector3d(1, 0, 1).Normalized;
+            g.Add(new Vector3d(-1, 0, -1), nl, 0); g.Add(new Vector3d(1, 1, -1), nr, 0); g.Add(new Vector3d(-1, 1, -1), nl, 0); g.Add(new Vector3d(1, 0, -1), nr, 0);
+            g.Link(0, 1); g.Link(2, 3);
+            Assert.Equal(new[] { Tuple.Create(0, 1) }, QuadRemesher.SurfaceCrossings(g, m, tree, new[] { 0, 1, 2, 3 }).ToArray());
+        }
     }
 }

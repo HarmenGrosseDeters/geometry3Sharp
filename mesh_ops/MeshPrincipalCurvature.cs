@@ -1,5 +1,6 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
+using g3.CoreMathPort;
 using System.Linq;
 using g3;
 
@@ -66,7 +67,7 @@ namespace gs
                 for (int k = 0; k < 3; ++k) {
                     Vector3d a = mesh.GetVertex(t[(k + 1) % 3]) - mesh.GetVertex(t[k]);
                     Vector3d b = mesh.GetVertex(t[(k + 2) % 3]) - mesh.GetVertex(t[k]);
-                    double ang = Math.Atan2(a.Cross(b).Length, a.Dot(b));
+                    double ang = CoreMath.Atan2(a.Cross(b).Length, a.Dot(b));
                     cornerNormal[3 * ti + k] = ang * n;
                 }
             });
@@ -189,10 +190,10 @@ namespace gs
                 double a = kuu[v] / wsum[v], b = kuv[v] / wsum[v], d = kvv[v] / wsum[v];
                 double mean = 0.5 * (a + d), diff = 0.5 * (a - d);
                 double root = Math.Sqrt(diff * diff + b * b);
-                double psi = 0.5 * Math.Atan2(b, diff);       // angle of the K1 direction in (bu, bv)
+                double psi = 0.5 * CoreMath.Atan2(b, diff);       // angle of the K1 direction in (bu, bv)
                 if (double.IsNaN(mean) || double.IsNaN(root) || double.IsNaN(psi)) return;
                 c.K1[v] = mean + root; c.K2[v] = mean - root;
-                c.Dir1[v] = Math.Cos(psi) * bu[v] + Math.Sin(psi) * bv[v];
+                c.Dir1[v] = CoreMath.Cos(psi) * bu[v] + CoreMath.Sin(psi) * bv[v];
                 c.Dir2[v] = c.Normal[v].Cross(c.Dir1[v]);
                 c.Valid[v] = true;
             });

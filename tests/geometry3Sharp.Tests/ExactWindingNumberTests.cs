@@ -30,6 +30,21 @@ namespace geometry3Sharp.Tests
             return sum / MathUtil.FourPI;
         }
 
+        // the principal value by the solid-angle sum: a triangle whose plane contains p counts 0 (decided by the exact predicate;
+        // its rounded solid angle at p is at the branch cut of the formula)
+        static double PrincipalBruteForce(DMesh3 mesh, Vector3d p)
+        {
+            double sum = 0.0;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int tid in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                if (ExactPredicates.Orient3d(a, b, c, p) == 0)
+                    continue;
+                sum += MathUtil.TriSolidAngle(a, b, c, ref p);
+            }
+            return sum / MathUtil.FourPI;
+        }
+
         static DMesh3 Box(double size, Vector3d center)
         {
             return new TrivialBox3Generator() { Box = new Box3d(center, 0.5 * size * Vector3d.One) }.Generate().MakeDMesh();
@@ -388,7 +403,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void OnSurfacePoints_FacesEdgesVerticesAndOpenBoundaryEdges_MatchBruteForce()
+        public void OnSurfacePoints_FacesEdgesVerticesAndOpenBoundaryEdges_MatchPrincipalBruteForce()
         {
             DMesh3 cube = Box(2.0, Vector3d.Zero);
             var cubeTree = new DMeshAABBTree3(cube, true);
@@ -400,8 +415,9 @@ namespace geometry3Sharp.Tests
                 new Vector3d(0, 1, 1), new Vector3d(1, 0, 1), new Vector3d(0, -1, -1)
             }) {
                 double w = cubeTree.WindingNumber(p);
-                double brute = BruteForce(cube, p);
+                double brute = PrincipalBruteForce(cube, p);
                 Assert.True(Math.Abs(w - brute) < 1e-12, $"cube edge {p}: exact={w:R} vs brute={brute:R}");
+                Assert.Equal(0.25, w, 12);          // the dihedral fraction of a cube edge
             }
 
             // Strictly interior face points (cls == 2) on both closed cube and open box
@@ -411,8 +427,9 @@ namespace geometry3Sharp.Tests
                 new Vector3d(0.2, -0.3, 1), new Vector3d(-0.2, 0.3, -1)
             }) {
                 double w = cubeTree.WindingNumber(p);
-                double brute = BruteForce(cube, p);
+                double brute = PrincipalBruteForce(cube, p);
                 Assert.True(Math.Abs(w - brute) < 1e-12, $"cube face {p}: exact={w:R} vs brute={brute:R}");
+                Assert.Equal(0.5, w);               // inside a face of a closed mesh: exactly the mean of the two sides
             }
 
             DMesh3 openBox = OpenBox(2.0);
@@ -420,12 +437,12 @@ namespace geometry3Sharp.Tests
             foreach (int vid in openBox.VertexIndices()) {
                 Vector3d v = openBox.GetVertex(vid);
                 double w = openTree.WindingNumber(v);
-                double brute = BruteForce(openBox, v);
+                double brute = PrincipalBruteForce(openBox, v);
                 Assert.True(Math.Abs(w - brute) < 1e-12, $"openBox vertex {v}: exact={w:R} vs brute={brute:R}");
             }
             foreach (Vector3d p in new[] { new Vector3d(-1, 0.25, -0.35), new Vector3d(0.2, 1, -0.3), new Vector3d(-0.2, -0.3, 1) }) {
                 double w = openTree.WindingNumber(p);
-                double brute = BruteForce(openBox, p);
+                double brute = PrincipalBruteForce(openBox, p);
                 Assert.True(Math.Abs(w - brute) < 1e-12, $"openBox face {p}: exact={w:R} vs brute={brute:R}");
             }
 
@@ -442,7 +459,7 @@ namespace geometry3Sharp.Tests
                 var t = new DMeshAABBTree3(m, true);
                 foreach (Vector3d p in new[] { tv[0], tv[1], tv[2], 0.5 * (tv[0] + tv[1]), 0.5 * (tv[1] + tv[2]), 0.5 * (tv[2] + tv[0]) }) {
                     double w = t.WindingNumber(p);
-                    double brute = BruteForce(m, p);
+                    double brute = PrincipalBruteForce(m, p);
                     Assert.True(IsFinite(w));
                     Assert.True(Math.Abs(w - brute) < 1e-12, $"tri point {p}: exact={w:R} vs brute={brute:R}");
                 }

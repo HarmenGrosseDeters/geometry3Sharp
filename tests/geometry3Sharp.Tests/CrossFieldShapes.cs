@@ -94,7 +94,7 @@ namespace geometry3Sharp.Tests
             for (int j = 0; j <= n; ++j)
                 for (int i = 0; i <= n; ++i) {
                     double x = (double)i / n, y = (double)j / n;
-                    ids[i, j] = m.AppendVertex(new Vector3d(x, y, 0.15 * Math.Sin(3 * x) * Math.Cos(2 * y)));
+                    ids[i, j] = m.AppendVertex(new Vector3d(x, y, 0.15 * PortableMath.Sin(3 * x) * PortableMath.Cos(2 * y)));
                 }
             for (int j = 0; j < n; ++j)
                 for (int i = 0; i < n; ++i) {
