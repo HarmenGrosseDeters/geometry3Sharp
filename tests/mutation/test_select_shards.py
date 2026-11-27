@@ -141,7 +141,7 @@ class SelectShards(unittest.TestCase):
     def test_exact_winding_shard(self):
         # the exact winding number cache (#1294): the error bounds of finish_edge_angle and the exact leaf paths
         self.assertEqual(("none", {"exact-winding": "source"}), run("spatial/ExactWindingCache.cs"))
-        for f in ("ExactWindingNumberTests.cs", "ExactWindingCacheInternalTests.cs", "FastWindingExpansionUsedTests.cs",
+        for f in ("ExactWindingNumberTests.cs", "ExactWindingCacheInternalTests.cs", "ExactWindingOnSurfaceTests.cs", "FastWindingExpansionUsedTests.cs",
                   "WindingNumberTests.cs", "WindingEdgeCaseTests.cs"):
             self.assertEqual(("none", {"exact-winding": "tests"}), run(TESTS + f), f)
 
