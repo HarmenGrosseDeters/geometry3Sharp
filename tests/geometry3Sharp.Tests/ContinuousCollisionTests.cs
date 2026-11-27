@@ -633,6 +633,29 @@ namespace geometry3Sharp.Tests
             Assert.True(worstSubnormal > 1.0 / 16, $"worst observed subnormal error / bound {worstSubnormal}");
         }
 
+        [Fact]
+        public void Filter_SubnormalHalfwayProductsNeedAbsoluteErrorTerm()
+        {
+            const double spacing = double.Epsilon;
+            var q = new Query { VF = false };
+            q.S[0] = q.S[1] = q.S[2] = V(-2 * spacing, 0, 0);
+            q.S[3] = V(-spacing, 0, 0);
+            q.E[0] = q.E[1] = V(-3 * spacing, 0, 0);
+            q.E[2] = V(-spacing, 0, 0);
+            q.E[3] = Vector3d.Zero;
+
+            var solver = new CcdSolver();
+            solver.Set(q.S[0], q.S[1], q.S[2], q.S[3], q.E[0], q.E[1], q.E[2], q.E[3]);
+            var errors = new double[3];
+            double[] corners = solver.FilterCornersForTests(q.VF, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, errors);
+            ExactDyadic error = ExactDyadic.Of(corners[0]) - ExactF(q, 0, 0.5, 0.5, 0.5);
+
+            Assert.Equal(0.0, corners[0]);
+            // Without FilterAbsolute, the relative term rounds to zero and Up(0) is one spacing.
+            Assert.True(ExactDyadic.Compare(error, ExactDyadic.Of(spacing)) > 0);
+            Assert.True(ExactDyadic.Compare(error, ExactDyadic.Of(errors[0])) <= 0);
+        }
+
         // the filter's bound is used in the discard test: a vertex that reaches a moving triangle's corner exactly at
         // t = 1 (and only there), where the rounding of start + 1 * (end - start) can put the computed value at the
         // contact on the far side of zero

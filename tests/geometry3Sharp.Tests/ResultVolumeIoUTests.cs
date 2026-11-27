@@ -322,7 +322,8 @@ namespace geometry3Sharp.Tests
             // (a coarser wrap, alpha = diagonal / 30, for the test time; the pattern does not depend on it)
             DMesh3 input = Soup(Holed(Sphere(1, Vector3d.Zero, 8), Vector3d.AxisX, 0.5));
             MeshEditor.Append(input, Soup(Holed(Sphere(1, new Vector3d(1.2, 0, 0.3), 8), -Vector3d.AxisY, 0.5)));
-            var r = Run(new DMesh3(input), true, c => { c.WrapRelativeAlpha = 30; c.WrapRelativeOffset = 300; });
+            // (the thin-shell guard of #1575 refuses this wrap, ThinShellWrap; off here: the test is about the diagnostic of such a wrap)
+            var r = Run(new DMesh3(input), true, c => { c.WrapRelativeAlpha = 30; c.WrapRelativeOffset = 300; c.NoThinShellCheck = true; });
             MeshFidelityMetrics f;
             AssertWrapIsNearTheInput_ButItsSolidDiffers(input, r, out f);
             Assert.InRange(r.ResultVolumeIoU, 0.0, 0.2);

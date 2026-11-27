@@ -63,8 +63,8 @@ namespace g3
             Quantity = 0;
 
             double t, b1, b2;
-            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
-            if (hit(ref ray, ref p, ref triangle.V0, ref triangle.V1, ref triangle.V2, true, out t, out b1, out b2) == false) {
+            Vector3d d = ExactRayTriangle.LineDirection(ray.Origin, ray.Direction);
+            if (hit(ref ray, ref d, ref triangle.V0, ref triangle.V1, ref triangle.V2, true, out t, out b1, out b2) == false) {
                 Result = IntersectionResult.NoIntersection;
                 return false;
             }
@@ -83,29 +83,29 @@ namespace g3
         /// </summary>
         public static bool Intersects(ref Ray3d ray, ref Vector3d V0, ref Vector3d V1, ref Vector3d V2, out double rayT)
         {
-            Vector3d p = ExactRayTriangle.SecondPoint(ray.Origin, ray.Direction);
-            return Intersects(ref ray, ref p, ref V0, ref V1, ref V2, out rayT);
+            Vector3d d = ExactRayTriangle.LineDirection(ray.Origin, ray.Direction);
+            return Intersects(ref ray, ref d, ref V0, ref V1, ref V2, out rayT);
         }
 
-        /// <summary> Intersects with the ray's second point (ExactRayTriangle.SecondPoint) computed once per ray </summary>
-        internal static bool Intersects(ref Ray3d ray, ref Vector3d secondPoint, ref Vector3d V0, ref Vector3d V1, ref Vector3d V2, out double rayT)
+        /// <summary> Intersects with the ray's exact line direction (ExactRayTriangle.LineDirection) computed once per ray </summary>
+        internal static bool Intersects(ref Ray3d ray, ref Vector3d lineDirection, ref Vector3d V0, ref Vector3d V1, ref Vector3d V2, out double rayT)
         {
             double b1, b2;
-            return hit(ref ray, ref secondPoint, ref V0, ref V1, ref V2, false, out rayT, out b1, out b2);
+            return hit(ref ray, ref lineDirection, ref V0, ref V1, ref V2, false, out rayT, out b1, out b2);
         }
 
-        // Whether the ray hits is decided exactly (ExactRayTriangle.RayHitClosed: the line through the origin and
-        // secondPoint against the closed triangle, so that a ray onto a shared edge or vertex hits every triangle
+        // Whether the ray hits is decided exactly (ExactRayTriangle.RayHitClosedDirection: the line of the origin and
+        // the exact direction, lineDirection a positive power-of-two multiple of ray.Direction or ray.Direction itself, against the closed triangle, so that a ray onto a shared edge or vertex hits every triangle
         // there and never misses all of them, at any scale). The ray parameter and the barycentrics are computed in
         // doubles as before (identical to upstream for every ray that both hit; near-parallel rays within upstream's
         // tolerance now hit too, and a ray within rounding of the edge of a lone or boundary triangle can change
         // between hit and miss, as the exact decision says).
-        static bool hit(ref Ray3d ray, ref Vector3d secondPoint, ref Vector3d V0, ref Vector3d V1, ref Vector3d V2, bool bary,
+        static bool hit(ref Ray3d ray, ref Vector3d lineDirection, ref Vector3d V0, ref Vector3d V1, ref Vector3d V2, bool bary,
             out double rayT, out double b1, out double b2)
         {
             rayT = double.MaxValue;
             b1 = b2 = 0;
-            int h = ExactRayTriangle.RayHitClosed(ray.Origin, secondPoint, V0, V1, V2);
+            int h = ExactRayTriangle.RayHitClosedDirection(ray.Origin, lineDirection, V0, V1, V2);
             if (h == ExactRayTriangle.Miss)
                 return false;
 
@@ -127,11 +127,22 @@ namespace g3
                 edge2 = ScaledBy(edge2, scaleExp);
             }
             Vector3d normal = edge1.Cross(ref edge2);
-            // the hit is exact for the line through ray.Origin and secondPoint (ray.Direction rounded by about 2^-51
-            // relative), so the true t, b1, b2 of that line are >= 0 and a negative rounded value is tiny: their magnitudes (the same doubles as upstream's
+            // (the direction likewise, by its own power of two 2^dirExp, if its largest component is outside [2^-100,
+            // 2^100]: a subnormal direction made 1 / |D . N| infinite and t NaN, #1672. t is scaled back by 2^dirExp,
+            // the barycentrics are ratios of terms linear in D; a direction within that range keeps its bits. The
+            // scaling is exact unless a component falls into the subnormal range or to 0 (a direction whose components
+            // span more than about 1000 binades, eg (2^150, 2^-930, 0)): then that component is rounded, which changes t
+            // and the barycentrics by its rounding only, as any double computation of them; the hit decision does not
+            // use it)
+            Vector3d dir = ray.Direction;
+            int dirExp = ScaleExponent(ref dir, ref dir, ref dir);
+            if (dirExp != 0)
+                dir = new Vector3d(ExactPoint3.ScaleB(dir.x, dirExp), ExactPoint3.ScaleB(dir.y, dirExp), ExactPoint3.ScaleB(dir.z, dirExp));
+            // the hit is exact for the ray itself (the line of ray.Origin and ray.Direction, #1672), so the true t, b1,
+            // b2 are >= 0 and a negative rounded value is tiny: their magnitudes (the same doubles as upstream's
             // sign-corrected values wherever upstream hit; a rounded D . N of the wrong sign, near parallel, cannot
             // make them negative)
-            double DdN = Math.Abs(ray.Direction.Dot(ref normal));
+            double DdN = Math.Abs(dir.Dot(ref normal));
             double inv = (1) / DdN;
             if (h == ExactRayTriangle.AtOrigin) {
                 rayT = 0;
@@ -140,18 +151,23 @@ namespace g3
                 if (double.IsNaN(rayT) || double.IsInfinity(rayT)) {
                     // D . N rounded to 0 (a ray within about 1e-16 of the plane): the projection of the centroid
                     Vector3d c = (V0 + V1 + V2) / 3.0;
-                    rayT = Math.Max(0, (c - ray.Origin).Dot(ray.Direction) / ray.Direction.LengthSquared);
-                } else if (scaleExp != 0) {
-                    rayT = ScaledBy(rayT, -scaleExp);
+                    rayT = Math.Max(0, (c - ray.Origin).Dot(dir) / dir.LengthSquared);
+                    if (dirExp != 0) {
+                        rayT = ExactPoint3.ScaleB(rayT, dirExp);
+                        if (double.IsInfinity(rayT))
+                            rayT = double.MaxValue;      // (farther than the doubles reach)
+                    }
+                } else if (scaleExp != 0 || dirExp != 0) {
+                    rayT = dirExp == 0 ? ScaledBy(rayT, -scaleExp) : ExactPoint3.ScaleB(rayT, dirExp - scaleExp);
                     if (double.IsInfinity(rayT))
                         rayT = double.MaxValue;      // (farther than the doubles reach)
                 }
             }
             if (bary) {
                 Vector3d cross = diff.Cross(ref edge2);
-                double DdQxE2 = Math.Abs(ray.Direction.Dot(ref cross));
+                double DdQxE2 = Math.Abs(dir.Dot(ref cross));
                 cross = edge1.Cross(ref diff);
-                double DdE1xQ = Math.Abs(ray.Direction.Dot(ref cross));
+                double DdE1xQ = Math.Abs(dir.Dot(ref cross));
                 if (DdQxE2 + DdE1xQ > DdN) {
                     // (rounded past the third edge, where upstream rejected: onto it)
                     double sum = DdQxE2 + DdE1xQ;

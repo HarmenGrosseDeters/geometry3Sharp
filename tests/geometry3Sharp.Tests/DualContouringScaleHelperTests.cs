@@ -102,5 +102,80 @@ namespace geometry3Sharp.Tests
                 Assert.False(DualContouring.values_differ(double.PositiveInfinity, double.PositiveInfinity, relative));
             }
         }
+
+        // (#1376, item 2) triangles for degenerate(): an equilateral one, a right one, a needle (area 1e-13 of the squared edge),
+        // a sliver just above and just below the 2e-12 threshold, and a repeated point
+        static readonly (Vector3d a, Vector3d b, Vector3d c, bool degenerate)[] Triangles = {
+            (new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0.5, 0.8660254037844386, 0), false),
+            (new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0), false),
+            (new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0.5, 1e-13, 0), true),
+            (new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0.5, 1e-11, 0), false),
+            (new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0.5, 3e-12, 0), false),
+            (new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0.5, 1e-12, 0), true),
+            (new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 0, 0), true),
+        };
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-100)]
+        [InlineData(-170)]      // 2^-170: the squares of the cross product are below 2^-512
+        [InlineData(-300)]
+        [InlineData(-500)]
+        [InlineData(100)]
+        [InlineData(200)]
+        [InlineData(300)]       // the fourth power is infinite
+        [InlineData(500)]
+        public void Degenerate_AnySizeOfTriangle_GivesTheDecisionOfTheUnitTriangle(int e)
+        {
+            double s = Pow2(e);
+            foreach (var t in Triangles)
+                Assert.Equal(t.degenerate, DualContouring.degenerate(t.a * s, t.b * s, t.c * s));
+            // the same triangles tilted and moved off the origin (the edges are differences of large coordinates)
+            Vector3d o = new Vector3d(3, -5, 7) * s;
+            foreach (var t in Triangles)
+                Assert.Equal(t.degenerate, DualContouring.degenerate(o + new Vector3d(t.a.z, t.a.x, t.a.y) * s, o + new Vector3d(t.b.z, t.b.x, t.b.y) * s, o + new Vector3d(t.c.z, t.c.x, t.c.y) * s));
+        }
+
+        [Fact]
+        public void Degenerate_NaNAndInfiniteTriangles_AreDegenerate()
+        {
+            Vector3d nan = new Vector3d(double.NaN, 0, 0), inf = new Vector3d(double.PositiveInfinity, 0, 0);
+            Assert.True(DualContouring.degenerate(Vector3d.Zero, nan, Vector3d.AxisY));
+            Assert.True(DualContouring.degenerate(Vector3d.Zero, inf, Vector3d.AxisY));
+        }
+
+        [Theory]
+        [InlineData(0.9999e-100)]
+        [InlineData(1.0001e-100)]
+        [InlineData(0.9999e100)]
+        [InlineData(1.0001e100)]
+        public void CrossExceeds_AroundTheEdgesOfTheUnscaledRange_BothBranchesAgree(double r2)
+        {
+            // r2 on either side of the branch limit: the scaled comparison (a power of two, exact) must give the unscaled one
+            double len = Math.Sqrt(r2);
+            var r = new Vector3d(len, 0, 0);
+            foreach (double height in new[] { 1e-13, 1.9e-12, 2.1e-12, 1e-6, 0.5 }) {
+                var u = new Vector3d(len, 0, 0); var v = new Vector3d(0.5 * len, height * len, 0);
+                bool unscaledDecision = u.Cross(v).Length > 2e-12 * r.LengthSquared;
+                Assert.Equal(unscaledDecision, DualContouring.cross_exceeds(u, v, r, 2e-12));
+                // the same triangle scaled by 2^+-1 across the limit
+                foreach (double k in new[] { 0.5, 2.0 }) {
+                    Assert.Equal(unscaledDecision, DualContouring.cross_exceeds(u * k, v * k, r * k, 2e-12));
+                }
+            }
+        }
+
+        [Fact]
+        public void CrossExceeds_InTheOrdinaryRange_IsTheUnscaledComparison()
+        {
+            var r = new Random(3);
+            for (int i = 0; i < 3000; ++i) {
+                Vector3d u = new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5), v = new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5);
+                double scale = Math.Pow(10, r.Next(-40, 40)), f = Math.Pow(10, -r.Next(0, 3));
+                u *= scale; v *= scale;
+                Vector3d ref1 = u.LengthSquared >= v.LengthSquared ? u : v;
+                Assert.Equal(u.Cross(v).Length > f * ref1.LengthSquared, DualContouring.cross_exceeds(u, v, ref1, f));
+            }
+        }
     }
 }

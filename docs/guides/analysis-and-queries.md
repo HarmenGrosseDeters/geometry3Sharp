@@ -9,6 +9,7 @@ This guide covers mesh measurements, 3D spatial trees and batch queries (`DMeshA
 - **Namespace & classes:** `g3.MeshMeasurements`, `g3.MeshQueries`, `g3.DMeshAABBTree3`, `g3.PointHashGrid3d<T>`, `g3.PointAABBTree3`, `g3.MeshBatchQueries`
 - **Examples:** [MeasurementsExample.cs](../examples/MeasurementsExample.cs), [SpatialQueriesExample.cs](../examples/SpatialQueriesExample.cs), [PointQueriesExample.cs](../examples/PointQueriesExample.cs), [BatchQueriesAndCcdExample.cs](../examples/BatchQueriesAndCcdExample.cs)
 - **Further reading:** [BATCH_QUERIES.md](../design/BATCH_QUERIES.md)
+- **Volume and area:** there is no one-argument `Volume(mesh)`; `MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex)` returns the signed volume in `.x` (positive for a closed mesh with outward normals, meaningless for an open or inconsistently oriented one) and the area in `.y`.
 
 ```csharp
 using g3;
@@ -72,6 +73,8 @@ bool found = tree.TryGetHeight(new Vector2d(10, 10), out double height, toleranc
 | Geometric primitive fitting | `g3.PrimitiveFit3` | Fits plane, sphere, cylinder, or cone to 3D points (optional normals) via deterministic RANSAC + Levenberg-Marquardt | [AnalysisBuildingBlocksExample.cs](../examples/AnalysisBuildingBlocksExample.cs) |
 
 ### Notes on Key Metrics
+
+- **`MeshWallThickness` and the nesting of closed shells (#1609):** `OrientInvertedParts` (default true) reads the nesting by parity (`MeshPostRepairCleanup.FindInvertedComponents`): a closed shell inside an odd number of others is a cavity and its wall normals are reversed. An outward shell inside another (an insert in a housing) is taken as a cavity too; both readings are legitimate, so nothing is refused and the thicknesses follow the parity one. `ComponentsFlippedByNesting` counts the shells that are outward by their own volume and are reversed (0 for a real cavity, a mesh without a nested shell, and with `OrientInvertedParts` false), so a caller can tell; an insert in a housing with both shells inside-out is not seen (only the housing is flagged, count 0; the limit of `MeshRobustRepair`, #1566). The same count for the references of `MeshRepairMetrics` (`VolumeIoU`, which keeps the parity reading) is `MeshRepairMetrics.ComponentsFlippedByNesting`, and the IoU of the parity reading and the plain union of the shells `MeshRepairMetrics.NestingReadingsIoU`.
 
 - **`MeshFidelityMetrics`:** Catches defects that Hausdorff distance and raw volume IoU miss—such as reversed normal patches, smoothed-away sharp edges, or lost components. Outer volume IoU compares against the solid bounded by the input's outer faces (ignoring interior faces, nested shells, and double-sided sheets).
 - **`MeshCurvature`:** Handles degenerate triangles, boundaries, and bowtie vertices gracefully (marking affected vertices `Valid == false` rather than producing NaN or infinite values).

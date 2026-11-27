@@ -89,9 +89,9 @@ a 4-core Linux container, net10.0, 2026-11-22.
 | 16 | 2 | two-level | Ok | 3 | 760 828 | 1.02 | 2369 |
 | 16 | 1 | marching cubes | Ok | 1 | 368 292 | 0.67 | 800 |
 | 16 | 1 | two-level | Ok | 2 | 815 552 | 1.01 | 2552 |
-| 16 | 0.5 | marching cubes | Ok | 9 216 | 147 456 | 0.33 | 304 |
+| 16 | 0.5 | marching cubes | NotResolved (refused, #1596: 0.8 % of the volume asked) | - | - | - | 304 |
 | 16 | 0.5 | two-level | Ok | 1 | 780 420 | 0.99 | 1657 |
-| 16 | 0.25 | marching cubes | Ok | 6 144 | 49 152 | 0.20 | 114 |
+| 16 | 0.25 | marching cubes | NotResolved (refused, #1596: 0.03 % of the volume asked) | - | - | - | 114 |
 | 16 | 0.25 | two-level | Ok | 1 | 774 276 | 1.01 | 1653 |
 | 16 | 0.1 | marching cubes | ContouringFailed (empty) | - | - | - | 29 |
 | 16 | 0.1 | two-level | Ok | 1 | 761 220 | 1.09 | 1573 |
@@ -101,7 +101,8 @@ a 4-core Linux container, net10.0, 2026-11-22.
 Reading (this workload: a gyroid sheet, 4 periods, 8 and 16 cubes per period; other types and domains are covered by tests, not here):
 
 - From a wall of one cube down, marching cubes loses the wall: at one cube the mean wall is 0.58 to 0.67 of the one asked for, at half a
-  cube and below the result is thousands of fragments reported as `Ok` (16 divisions) or empty. The two-level result keeps the wall asked
+  cube and below the result is empty, or thousands of fragments (before #1596 reported as `Ok`, now refused as `NotResolved`: the
+  volume realized is under half of the one asked, here 0.8 % and 0.03 %). The two-level result keeps the wall asked
   for (0.99 to 1.09) down to a tenth of a cube, in one or two components, and passes the same certificate.
 - Where both resolve the wall (2 and 3 cubes at 16 divisions) they agree: the same number of components and the mean wall within 2 %.
 - Cost: 2.5 to 2.7 times the triangles of marching cubes (five tetrahedra per cube) and 2.5 times the time of `Compute` at 16
@@ -110,3 +111,35 @@ Reading (this workload: a gyroid sheet, 4 periods, 8 and 16 cubes per period; ot
   same grid; not investigated).
 - The component counts differ in places (8 divisions, 2 cubes: 3 against 1; 1 cube: 1 against 2). At thick walls the extra components are
   small pieces that the box cuts off; this benchmark does not check the counts against a reference.
+
+## #1577: correctly rounded sin / cos (CoreMath) with per-axis node tables
+
+`TpmsLattice.Evaluate` uses `g3.CoreMathPort.CoreMath.Sin / Cos` (correctly rounded, the same bits on every runtime, WebAssembly included) instead of the
+platform `Math.Sin / Math.Cos`. A plain drop-in costs 7 to 73 % of `Compute()` (total +24 %: the field is 8 to 10 times slower, and marching cubes evaluates every
+node once for each of the up to eight cells around it). The result is the same bit for bit with a speed-up of the CoreMath variant: the grid nodes take their sines and cosines
+from per-axis tables (the field is a function of three separable phases; a point that is not exactly a node, such as an edge root, takes the direct path), and a graded lattice
+(`Grade` / `PhaseMap`: not separable) keeps the value of each node once (8 bytes a node, 32 MB at most: only up to 2^22 nodes per grid attempt, a larger grid evaluates directly; the benchmark rows are below the cap). Test: `TpmsAxisTableTests`.
+
+"compute" ms of `Compute()` with `VerifySelfIntersections = false`, `dotnet run --project benchmarks/TpmsLattice -c Release -f net10.0 -- 2,4,6 16`, a 4-core Linux
+container, master (804560de) and the candidate built from the same checkout and run alternately, the minimum of 4 runs each:
+
+| row | master ms | candidate ms | change |
+|---|---|---|---|
+| Gyroid/Sheet, 2 periods | 140.4 | 140.0 | -0.3 % |
+| Gyroid/Sheet, 4 periods | 488.2 | 446.5 | -8.5 % |
+| Gyroid/Sheet, 6 periods | 1137.7 | 1036.7 | -8.9 % |
+| SchwarzP/SkeletalLow, 2 periods | 54.5 | 32.6 | -40.2 % |
+| SchwarzP/SkeletalLow, 4 periods | 121.6 | 92.3 | -24.1 % |
+| SchwarzP/SkeletalLow, 6 periods | 373.5 | 328.7 | -12.0 % |
+| Neovius/Sheet, 2 periods | 203.2 | 186.5 | -8.2 % |
+| Neovius/Sheet, 4 periods | 381.3 | 381.3 | +0.0 % |
+| Neovius/Sheet, 6 periods | 1120.6 | 1075.5 | -4.0 % |
+| Gyroid(graded)/Sheet, 2 periods | 40.3 | 35.4 | -12.2 % |
+| Gyroid(graded)/Sheet, 4 periods | 248.8 | 219.9 | -11.6 % |
+| Gyroid(graded)/Sheet, 6 periods | 807.9 | 813.8 | +0.7 % |
+| Gyroid(+IWP)/Sheet, 2 periods | 78.4 | 51.7 | -34.1 % |
+| Gyroid(+IWP)/Sheet, 4 periods | 370.5 | 305.9 | -17.4 % |
+| Gyroid(+IWP)/Sheet, 6 periods | 1277.0 | 1087.2 | -14.9 % |
+| total | 6843.9 | 6234.0 | -8.9 % |
+
+The "field" column (bare `Evaluate` at every node, serial, direct CoreMath) is 8 to 10 times slower than before (for example Gyroid 4 periods 14.6 ms to 140 ms); it is not what `Compute()` pays.

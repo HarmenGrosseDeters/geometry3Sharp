@@ -67,3 +67,52 @@ The loops of `ExactMeshArrangement` / `ExactMeshBoolean` call `ForRange` and sta
 `DeterministicApis.txt` (a changed `ForRange` body or a new member used from these files is a build error of the determinism proof
 scope until the ledger and `DETERMINISM_PROOF.md` 5.4 are updated), and the Boolean cases above are dominated by loops of 2-15
 heavy items (a body per mesh or patch) that an inline-first loop cannot take.
+
+## 4. Caller-first loops (#1502 part 2, 2026-11-25)
+
+`ForRange`, `ForEach` and the handovers of the Small loops no longer call `Parallel.For` / `Parallel.ForEach`: the caller queues
+helpers (one at a time: each helper queues the next while indices are left) and takes guided chunks of the indices itself; it waits
+only for chunks a helper has taken. `Parallel.For` waited for every task it had queued, and from a thread outside the pool (the
+benchmark's `Main`, a test runner's thread, an application thread) those tasks sit in the global queue behind the busy pool's work.
+Base = master `eee440ae`, new = this branch, built side by side and run alternately in one job (base, new, base, ...).
+
+Busy pool, caller on a dedicated thread (`e2e ... busy`; ms per run, median):
+
+| case | base | new |
+|---|---|---|
+| Boolean box pairs (40 x union, intersection) | 20219 | 118-181 |
+| Reducer small | 343 | 132-152 |
+| Remesher small | 124 | 58-76 |
+| Reducer 199692 tris -> 20000 | 1685 | 931-1224 |
+| Remesher 41772 tris | 292 | 107-153 |
+| RemesherPro 41772 tris | 465 | 133-235 |
+| Boolean Union 2 x 18252 tris | 2456 | 250-337 |
+| Boolean Union 2 x 169932 tris | 3844 | 1255-1330 |
+| `MeshRobustRepair` test body of `SolidifyNotClean_AlphaWrapped` (scratch probe, 5 steps) | 82672 | 15740 (all serial: 15032) |
+| one `ForRange` of 32 trivial items (crossover busy, per call) | 12000-177000 us | 1.5 us |
+
+Alone (ms per run, median over all runs of three alternating series; Reducer rows six more series):
+
+| case | runs | base | new | new / base |
+|---|---|---|---|---|
+| Reducer 199692 tris -> 20000 | 45 | 863 | 819 | 0.95 |
+| Reducer (projection) | 27 | 769 | 725 | 0.94 |
+| Remesher 41772 tris, 5 passes | 15 | 87 | 78 | 0.90 |
+| RemesherPro, same | 15 | 70 | 73 | 1.04 |
+| Boolean Union 2 x 18252 tris | 15 | 155 | 132 | 0.85 |
+| Boolean Union 2 x 169932 tris | 9 | 588 | 555 | 0.94 |
+| Boolean box pairs | 10 | 146 | 98 | 0.67 |
+| Remesher small | 10 | 68 | 56 | 0.82 |
+| **Reducer small** (20 x Sphere(12) to 100 tris) | 10 | 80 | 92 | **1.16** (an earlier series of the first version: 91 / 98, 1.07) |
+| `HausdorffBenchmark`, sum of 21 rows (first version) | 2 | 1678 | 1680 | 1.00 |
+| `SolidifyBenchmark`, sum of 7 medians (first version; result hashes identical) | 2 | 15723 | 16004 | 1.02 |
+
+Crossover alone (median of 4 alternating runs, us per call): `ForRange` new / base is 0.04-0.9 below 64 items and above 1024 items,
+and **1.07-1.20 for 64-256 items** (1-3 us per call; for example 128 items x 200 ns: 11.5 / 13.5 us). There the Small loops or a
+serial loop are faster than either. `ForEach` new / base is 0.05-0.9 except one row (128 items x 2 us: 90 / 116 us, 1.28, not
+seen in the other series). Raw tables: the PR.
+
+Design steps measured on the way (scratch micro-benchmark, alone, new / `Parallel.For`): fixed chunks of n / 16 participants with all
+helpers queued at once and a blocking wait were 1.15-1.39 on mid-size loops of 200 ns items and 1.5-3.7 on loops of a few us;
+guided chunks with a spinning wait brought the mid-size rows to 0.98-1.07, queuing one helper at a time the few-us rows from 3.0 to
+1.9-2.5.

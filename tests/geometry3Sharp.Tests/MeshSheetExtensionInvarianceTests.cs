@@ -143,12 +143,16 @@ namespace geometry3Sharp.Tests
         public void TheRibOnTheSlotWall_IsRefusedOrCutRight_InEveryFrame(string frame)
         {
             // a finding of the build, kept as a test: the design says the rib is refused (a monotone strip cannot go round it). In the identity frame it is (InvertedQuad); in a rotated frame the
-            // subdivision happens to find a strip that goes round, and the cut is right (the rib above the sheet is kept: 506.12). Never a wrong cut, but not frame invariant either
+            // subdivision happens to find a strip that goes round, and the cut is right (the rib above the sheet is kept: 506.12). Never a wrong cut, but not frame invariant either.
+            // Since the ray queries decide on the exact ray (#1672) the rotated frame refuses too, at the same rim edge 45, with OuterEdgeInside (its outer edge passes
+            // through the workpiece after 14 subdivisions): another refusal of the design's, so a refusal is InvertedQuad or, in a rotated frame, OuterEdgeInside
             Similarity s = Similarity.ByName(frame);
             SheetRun r = SheetRunner.Run(MeshSheetExtensionTests.Get("rib on the slot wall (no way round)"), p => s.Apply(p));
             double s3 = s.Scale * s.Scale * s.Scale;
             if (r.Status == Status.Success)
                 Assert.True(Math.Abs(r.Kept / s3 - 506.12) <= 1e-5 * 1000, frame + ": accepted with the volume " + r.Kept / s3);
+            else if (s.IsRotated && r.Status == Status.OuterEdgeInside)
+                Assert.Contains("rim edge 45", r.Report.Witness);
             else
                 Assert.Equal(Status.InvertedQuad, r.Status);
             if (!s.IsRotated)

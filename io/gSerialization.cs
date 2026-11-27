@@ -655,7 +655,7 @@ namespace g3
         // An element count stored in the stream: not negative, and (for a seekable stream) not more elements of
         // elementSize bytes than the stream has left, so that a damaged or hostile file cannot make us allocate
         // gigabytes before the read fails.
-        static int read_count(BinaryReader reader, int elementSize)
+        internal static int read_count(BinaryReader reader, int elementSize)
         {
             int N = reader.ReadInt32();
             if (N < 0)
@@ -669,7 +669,7 @@ namespace g3
             return N;
         }
 
-        static byte[] read_bytes(BinaryReader reader, int count)
+        internal static byte[] read_bytes(BinaryReader reader, int count)
         {
             byte[] bytes;
             if (reader.BaseStream.CanSeek || count <= ReadChunk) {

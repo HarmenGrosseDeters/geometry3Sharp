@@ -25,9 +25,20 @@ python3 -m venv /tmp/g3-z3
 dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter 'FullyQualifiedName~SnapGridPixelFilterTests|FullyQualifiedName~Meshing2OracleZoneFilterTests'
 ```
 
+## CI time budgets
+
+The pull-request workflow runs the fast test modules with a 10-second limit
+per module and a 10-minute job limit. Use **Run workflow** in GitHub Actions
+to select one extended suite. The same suites can run locally with
+`python3 -m unittest discover -s tools/Z3Pilot -p 'test_<suite>.py' -v`.
+Extended runs keep the pinned dependency versions and allow a longer solver
+timeout. Selecting an extended suite runs all its tests, including source drift
+and mutant controls. New verification work should start in the fast gate and put longer
+searches in an on-demand suite.
+
 ## What is proved, and what is assumed
 
-The default gate checks six quantifier-free **binary64** counterexample queries,
+The on-demand Pixel suite checks six quantifier-free **binary64** counterexample queries,
 with roundNearestTiesToEven for each floating operation and roundTowardNegative
 for Math.Floor. Each must return UNSAT; SAT and UNKNOWN both fail. Every obligation also checks
 that its assumptions are SAT, so an impossible guard cannot produce vacuous success. A separate
@@ -145,6 +156,54 @@ Prior art / building-block check:
   status, FP constructors/operators and exact IEEE-bit extraction.
 - [Z3 source/license](https://github.com/Z3Prover/z3): MIT; only public API and
   package metadata are used. No external geometry implementation was read.
+
+## Local checks for numerical certificates
+
+* **Volume comparison.** Given an enclosure of the exact volume, rounding
+  monotonicity proves both strict comparisons in `VolumeCompareFilter`,
+  including ties and cancellation. Reversed margins admit a
+  false decision at equality. Overflow of `3*t` takes the undecided path;
+  an overflowing upper endpoint cannot make a below-threshold claim.
+* **Polyhedral envelope.** A rational certificate compares the rounded
+  `delta` factor to `1/sqrt(3)` without rounding that reference. Omitting the
+  contraction fails at a concrete binary64 epsilon. A separate one-axis
+  model checks that the expanded search box encloses the epsilon-expanded
+  triangle box. The full facet construction and inside test remain separate.
+* **Geodesic windows.** A one-norm bound checks `DiskOfBox`, including halves
+  that round in the subnormal range. The **successor bridge** uses the
+  current `Up` after #1646. For finite rounded `r` the exact result is
+  below its next larger representable value by monotonic RNE, including
+  ties. Up's tiny branch steps by one subnormal spacing, with explicit
+  negative zero at `-double.Epsilon`. In the middle branch multiplication
+  by 2^54 is exact. The successor in that normal frame rescales exactly
+  because the original value is above the minimum normal magnitude.
+  The large branch uses the corrected half-ulp factor and overflows
+  outward at the largest positive double. The geodesic model assumes
+  finite inputs to Up and uses this bridge for rounded differences and
+  sums. Without midpoint padding the model
+  replay excludes one end of an actual binary64 interval. The short-edge
+  guard rules out overlapping endpoint disks given a certified midpoint
+  length lower bound and valid endpoint disks. A subnormal length replay
+  shows why that lower-bound premise cannot be assumed unconditionally
+  for `len * (1 - 4e-16)`. The final `TransformDisk` radius is outside the
+  proof.
+* **Double-word division.** Independent checks cover the two rounded
+  denominator subtractions, the positive divisor bound and normal-case
+  error inflation. The subnormal floor is checked
+  as a separate condition. The pilot takes the residual enclosure and
+  normalized operand ranges as premises. Omitting inflation admits a
+  rounded-down residual quotient.
+* **Contouring bins.** For a monotone grid with a bracketed target, the two
+  source predicates move toward the chosen inclusive bin. The equality
+  mutants change which neighboring bin owns an exact grid boundary. The integer range proof assumes the estimate
+  and target fit the packed bin domain and the bin size is at most 1024.
+  The estimate's standalone cap allows an overflowing product in the
+  arithmetic model. Reachability through a complete contour build remains
+  open.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_numerical_certificate_pilots.py -v
+```
 
 ## Pilot 2: the error-bound rules of the predicate generator
 
@@ -613,24 +672,34 @@ python -m unittest discover -s tools/Z3Pilot -p 'test_drift_reference.py' -v
 - **A, convexity** (nonlinear real arithmetic): a point of a triangle moves by at most the largest move of a corner,
   in R^3, as two queries (the dot bound in coordinates, the claim over the Gram entries). The claim on the
   coordinates directly returned unknown and is not counted.
-- **B, the one-edit lemma**, shape-free, distances as real variables, as `drift_apex.generic_formula`.
+- **B, the one-edit lemma**, shape-free, distances as real variables, as `drift_apex.generic_formula`. `lemma_pair_corners`: the joint move
+  (`try_move_pair`) is an instance of the displacement edit: its bound is the largest distance of any corner from its anchor, so the joint check is the
+  conjunction of the checks at the two moved vertices (the check that drops the second vertex's corner is the SAT mutant).
 - **C, the bounded search** (linear real arithmetic, complete for its configurations): chains of 3 to 5 vertices on
   the real line, every script of up to three edits (two for five vertices), 7038 scripts, each with one query for
   "a segment has a point beyond its bound, or the start has a point beyond the largest bound, or a bound exceeds
   the apex rule's drift, or a bound at the end exceeds the reported drift". `Chain` is written once over a backend, so the same code replays a witness with fractions.
+  **The joint move** (`Chain.move_pair`, edit `move_pair`): two distinct vertices, each at its own position (`q{k}`, `r{k}`), as one displacement
+  edit; judged by the largest bound of the segments at either vertex and of the ghosts at either, all at the new positions. The scripts with at
+  least one joint move (`PAIR_SEARCH`: 3 vertices up to 3 edits, 4 and 5 vertices up to 2; 2150 scripts) are asked the same four claims plus a
+  fifth, the reduction: the script with every joint move replaced by the two single moves in turn ends with the same positions and the same bound
+  at every segment and ghost (a displacement edit changes no anchor), so the lemma of the single move covers each bound the joint move
+  accepts. Mutants: the second vertex's segments and ghosts not evaluated, its ghosts not evaluated, its segments evaluated with it still in place.
 - **D, the rounding**: `Vector3d.Distance` in three steps (Higham (2.4) per operation), and the induction step of
   the chain bound (Higham (2.5) for the stored sums; the (2.4) variant is the SAT mutant, as in step 1).
-- **Mutants**: 16, each SAT with a replayed witness; the seven of the rule are pinned in the test (`PINNED`) as
+- **Mutants**: 20, each SAT with a replayed witness; the ten of the rule (seven of the single edits, three of the joint move) are pinned in the test (`PINNED`) as
   regression cases for the implementation, among them the spike that shows why collapsed triangles must be kept as
   ghosts and why one anchor per vertex is not enough. As meshes they are the scripted cases of
   `MeshRoundingRepairTestsDriftReference` (each fails with its mutant in the C# code).
 - **Source contract**: the facts about `MeshRoundingRepair.cs` and `Vector3d.Distance` that the lemma assumes (one
-  writer of positions; only `try_move` and `try_collapse` propose a moved vertex and list its triangles corner for
-  corner), and the rule as implemented: the methods of the bounds, the proposal, the ghosts and the commit compared as
+  writer of positions; only `try_move`, `try_collapse` and the joint move `try_move_pair` propose a moved vertex and list its triangles corner for
+  corner), the joint move itself (`try_move_pair`: the triangles of both stars, a triangle at both once, both positions proposed together and judged by
+  `improves`, both written afterwards; `pos`; `search_pairs`: the sizes of each vertex from its own `room_at`, every candidate through `try_move_pair`),
+  and the rule as implemented: the methods of the bounds, the proposal, the ghosts and the commit compared as
   text (`RULE_METHODS`), the drift checked first in `improves`, no move proposed past the evaluation limit (and no second copy of the rule),
   the position search (`search_corners`) taking only its candidate sizes from `room_at` and passing every candidate to
   `try_move`, every generic edit naming its added triangles, the records starting at `Apply`. A test applies the seven
-  mutants and seven other changes to the code and expects the contract to fail on each.
+  mutants, eleven changes to the joint move and seven other changes to the code and expects the contract to fail on each.
 
 Review only: the two-sided bounds (E1), (E2) per edit type; ghosts on edges (a chain has ghosts at vertices only);
 which simplices an edit removes; the induction over the edits; the rounding model. Result of 2026-11-09:
@@ -661,6 +730,26 @@ coordinate range of `MeshRoundingRepair`; a build scales the axes by a power of 
 and not recommended for building (the note, 5.3); `test_separating_axis.py` holds a source contract on the prototype
 `benchmarks/SnapRoundingExperiment/CandidateCulling.cs`. 14 queries, about 3.5 s; result of 2026-11-12:
 `results/separating_axis_2026-11-12.json`.
+
+## Pilot 9: the segment test and the wide bound of the Antipodal sum (#1587, library code)
+
+`antipodal_segment.py` checks the two changes of #1587 in `ExactMeshBoolean.antipodal_sum` (an exact-code file). The
+segment test "the point on or next to the segment" is now `|a + b| <= tol`, linear in the angle between `-a` and `b`; the
+old `1 + a.b <= tol` was quadratic in it against a linear `tol`, so it fired up to about `sqrt(2 tol)` away and the piece
+was undecided, read as outside. N1 (the rounded norm of the rounded `a + b`, within `4u`; as N1a-c, one rounding step
+each, and their linear composition), N2 (a normalized vector has `|a|^2` within `10u` of 1; N2a per coordinate, then the
+composition), D1 (the rounded dot product), S1 (a point on the segment gives status 1), S2 (status 1 gives
+`|A + B| <= 1.2 tol` for the exact unit vectors) and S3 (the new status 1 implies the old one, so every value that was
+decided keeps its bits) are UNSAT with satisfiable assumptions. T1 bounds a term of the wide evaluation of an undecided
+value (`maxBound` 0.25): with `tol <= 0.4 hypot` per term the sum's `4 tol / hypot` still bounds twice the angle of the
+term's error: T1 proves `cos(phi) >= 1 - 2 t^2 + (2/3) t^4`, which is at least `cos(2 t)`, so `phi <= 2 t` (review of
+#1624: the earlier `1 - 2 t^2`, the lower bound of `cos(2 t)`, gave only `phi <= 2 asin t`). Bridges by review (the docstring, B1-B4): the error of the unit vectors from the rounding of the point and
+the ends (the sum's own model, with its 16 times margin), the triangle inequality and Cauchy-Schwarz, `cos x <= 1 - x^2/2 + x^4/24`,
+and the invariance of T1 under scale and rotation. Eight mutants are SAT: the old quadratic test (S2), `tol` without its
+factor 16 (S1), without its `1e-15` (S3), the condition `0.8 hypot` and the angle bound `tol / hypot` (T1), a dot bound of
+`2u`, a norm bound of `3u` (N1), a normalization bound of `6u` (N2). `test_antipodal_segment.py` holds the source contract on `mesh_ops/ExactMeshBoolean.cs` and `math/Vector3d.cs`.
+30 queries in about 0.6 s in all, the slowest (D1) about 0.5 s (0.45 to 0.53 s measured; one query of the whole norm took up to the 120 s timeout,
+review of #1624, hence the split); the report records each query's time; result of 2026-11-25: `results/antipodal_segment_2026-11-25.json`.
 
 ## Pilot 8: the plateau variant of the position search (a design, not library code)
 
@@ -757,6 +846,7 @@ workflow (its report is uploaded; the paths filter includes `DMeshAABBTree.cs` a
 ```sh
 python3 tools/Z3Pilot/split_termination.py --out /tmp/split-termination.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_split_termination.py' -v
+```
 
 ## Step loops (pilot 5, `step_loops.py`, QA 2.0 T14, 2026-11-12)
 
@@ -773,6 +863,38 @@ of drift is detected. Runs in under a second; part of the `Z3 pilot` workflow (i
 ```sh
 python3 tools/Z3Pilot/step_loops.py --out /tmp/step-loops.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_step_loops.py' -v
+```
+
+## Interval successors and finite segment slabs
+
+`interval_segment_pilots.py` covers two local checks.
+
+* For `ExactInterval.Up`, the bit-vector and floating-point check compares the small branch
+  with an independent next-up encoding for every signed binary64 value through the minimum
+  normal magnitude. Removing the explicit negative-zero case changes the result at
+  `-double.Epsilon`. Integer-significand inequalities prove the two correction midpoints
+  for the normal Rump formula. Between half and one spacing the correction rounds the
+  sum towards the next value; the negative exact-power case instead has a half-spacing
+  successor. The middle path scales by exact powers of two since both the input and
+  successor stay normal under the shifts. The replay checks both `Up` and `Down` in every
+  normal exponent bin and at the non-finite values. NaN classification is checked;
+  payload propagation and x87 extended rounding are outside the model.
+* For `TriangleBoxTree.QuerySegment`, the pilot follows up on the L1 lead in the
+  [error-bound audit](../../docs/research/ERROR_BOUND_AUDIT_2026-11.md). The branch
+  that treats a small direction as parallel rejects an actual intersection. With one box `[1e-310,1] × [0,1]²`, the endpoints
+  `(0,0.5,0.5)` and `(2e-310,0.5,0.5)`, and zero padding, a .NET 10 run returned zero
+  candidates even though the second endpoint is in the box (#1673). Scaling all coordinates
+  by 2^600 gives one candidate. The replacement, in the source since #1673,
+  rejects a near-parallel slab only if both endpoints lie strictly outside the same side;
+  Z3 proves that rejection sound (the start-only rule of before is the checked mutant). A separate proof covers the existing finite quotient
+  and slack calculation relative to the rounded box faces; since #1691 a padded face is rounded outward
+  (`ExactInterval.Down` / `Up` when pad > 0), so the rounded faces enclose the exact padded box and the proof covers it. Overflow cases (since #1673 an
+  overflowing q - p of finite ends takes the quotients from halves; tested against a BigInteger oracle, not modelled
+  here) and the effect on a complete polyhedral-envelope query remain outside these checks.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_interval_segment_pilots.py -v
+```
 
 ## Clipper2 frame (pilot 6, `clipper_frame.py`, QA 2.0 T10, 2026-11-12)
 
@@ -787,4 +909,241 @@ monotonicity of a rounded subtraction or product): that a coordinate within the 
 ```sh
 python3 tools/Z3Pilot/clipper_frame.py --out /tmp/clipper-frame.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_clipper_frame.py' -v
+```
+
+## Continuous collision: corner error and axis discard
+
+`continuous_collision.py` checks the B1 bound in [CCD §10.2](../../docs/design/CCD.md#102-bound-b1-as-derived-for-the-review)
+for one axis of `ContinuousCollision`. It propagates exact rational error bounds through the source evaluation order
+and uses Z3 linear real arithmetic to check that the bound covers the corner error and that a discard
+places every exact corner on the indicated side of the separation threshold. The two strict discard
+comparisons each have satisfiable assumptions. The model assumes binary64 round-to-nearest with separate
+multiplication and addition. Outward rounding and extension from the corners to the box are mathematical
+arguments described in CCD. The SHA-256 pins include the strict axis discard at both call sites.
+The enclosure uses `ExactInterval.Up` and the convex-combination bridge in the CCD design.
+
+Removing the absolute term gives a subnormal regression case. With edge-edge inputs and all parameters
+equal to 1/2, the float corner is zero and the exact corner is −3/2 subnormal spacings. The weakened bound
+would allow one spacing. The pilot replays the fixed witness in binary64 and exact rationals, and
+`ContinuousCollisionTests.Filter_SubnormalHalfwayProductsNeedAbsoluteErrorTerm` exercises the same case
+through the C# implementation.
+
+```sh
+python3 tools/Z3Pilot/continuous_collision.py --out /tmp/z3-continuous-collision-report.json
+python3 -m unittest discover -s tools/Z3Pilot -p test_continuous_collision.py -v
+```
+
+## Ray/AABB culling
+
+The pilot checks the two-rounding envelope for finite slab times and the final miss comparison. Infinity propagation in the final comparison has separate controls. The reference uses the same rounded expanded faces as the exact C# routine. The reported entry-time lower bound is outside this check.
+
+```sh
+python3 tools/Z3Pilot/ray_aabb_may.py --out /tmp/z3-ray-aabb-may-report.json
+```
+
+## Terrain domain box expansion
+
+The pilot checks the padding conditional on the supplied reach and finite arithmetic.
+The original replay advances the padded edge by 4 for reach 4.2, width 20000
+and edge 2^52. A .NET 10 straight-toe run also reaches this class of rounding
+with slope 1, endpoints (2^52-20000,0,0) and (2^52,0,0), HeightLimit 5/8,
+and Tolerance 500. Compute returned Success with one triangle, margin 1e-6
+and 16 facets. Reconstructing dMax from those choices gives about 5.05613,
+while the padded domain edge advances by 5. This is a reachable arithmetic
+case; it did not demonstrate a missing mesh face.
+
+Proper outward rounding of the final face encloses the reference in the
+model. Round-to-nearest also suffices when dMax is at least 11 times the
+local spacing used to bound the sum's error. The pilot checks both of
+these conditions and replays using one successor step for the upper face.
+The analogous lower-face result follows by reflecting the coordinate.
+
+```sh
+python3 tools/Z3Pilot/terrain_box_expansion.py --out /tmp/z3-terrain-box-expansion-report.json
+```
+
+## Saturating floor conversions
+
+The pilot compares the guarded and .NET 9 definitions for 32- and 64-bit results using the specified cast semantics. It also checks the grid neighbor guard and reproduces the old unchecked-wrap condition at int.MaxValue.
+
+```sh
+python3 tools/Z3Pilot/saturating_conversions.py --out /tmp/z3-saturating-conversions-report.json
+```
+
+## Intrinsic flip counts
+
+The pilot checks the long intermediate range for stored edge counts and the forward/reverse identity for the local formula under exact corner divisions and a representable new count. It checks a concrete input-edge round trip in integer arithmetic. Parity for arbitrary realizable neighborhoods, geometric flip eligibility and roundabout restoration remain outside the proof. The reverse formula uses the edge relocation documented in FlipEdge.
+
+```sh
+python3 tools/Z3Pilot/intrinsic_flip.py --out /tmp/z3-intrinsic-flip-report.json
+```
+
+## Exact-bound inventory lemmas (2026-11-25, `docs/qa/exact-bound-inventory.md`)
+
+Three lemmas for the top gaps of the inventory. Each obligation is an UNSAT counterexample query with its assumptions SAT;
+each has a controlled mutant that must be SAT and is replayed outside Z3; each reads the constants it uses from the source
+and fails on a change of the code around them. Part of the `Z3 pilot` workflow (paths filter, uploaded reports), about 1 to 2 min
+together.
+
+**`adaptive_range.py` (G2, the hand mutant H6 of #1572).** The range of `Expansion.InRange` against what `AdaptivePredicates`
+needs. Proved (binary64 / wide frame, bit-precise): a double >= 2^-m is a multiple of 2^-(m + 52), and RNE sums, differences and
+products of integers in the wide frame (precision 53, 15-bit exponent) are integers (TwoSum, the split and TwoProduct are
+chains of these). With m and M read from `math/ExactPredicates.cs` (powers of two, else the contract fails): for each predicate
+of degree d (orient2d 2, orient3d 3, incircle 4, reviewed) d (m + 52) <= 1022 (no underflow) and d (M + 1) + 33 <= 1023 (no
+overflow; 33 counts the terms, the sums and the splitter, as AP-1 of `tools/ErrorBoundAudit` does). Stated, not queried: the
+bridge, that a binary64 operation whose exact result is 0 or normal is the wide frame's (the IEEE definition; Z3 does not decide
+the frame equality for + and * in 300 s, and the variant with the condition on the rounded result is false: an exact product
+just below 2^-1022 rounds up to a normal number). Mutants: H6 (2^-250: a degree-4 product of the grid unit 2^-302 is 0 in
+binary64; the .NET replay is `ExactPredicatesRangeEdgeTests`, InCircle +1 for exactly cocircular points at 2^-220), the
+maximum 2^250, the grid one bit too fine, a quotient of integers. Margins in the report: the lemma admits MinMagnitude down to
+2^-203 and MaxMagnitude up to 2^246 for the expansions' intermediates (the stage B/C filter products, eg IccErrBoundC * permanent,
+are not in the lemma and underflow earlier). The degrees and the growth count are reviewed against `AdaptivePredicates.cs`, whose
+normalized text is pinned by its SHA-256: any change fails the contract until they are reviewed again. The contract also pins the `InRange` overloads (each checks all its arguments) and the public predicates of
+`AdaptivePredicates`, and scans the library for calls of `AdaptivePredicates.Orient2d / Orient3d / InCircle` without
+`if (Expansion.InRange(<all the call's arguments>) == false)` in the three lines before (`tools/ErrorBoundAudit/range_callers.py`;
+its own test runs in `ci.yml` on every library change, since this workflow runs only on its paths): the two calls in
+`mesh_generators/DualContouring.cs` (place_face_vertex) are the known exception; a new one fails.
+
+**`may_meet_box.py` (G3).** `ContouringTopologyCertificate.may_meet_box` drops a triangle if fl(bmax + err) < fl(tmin - err) (or
+the mirror), err = fl(fl(12 u M) + 4 eta). Linear real arithmetic over the rounding model |P - p| <= u |P| + eta (products),
+|S - s| <= u |S| (sums): the computed separation implies the exact one, for one box corner and one triangle point (the corner of
+the largest projection by monotone rounding, tmin below every point's projection). Mutants: the factor 1 instead of 3, no eta
+term (SAT, models replayed in exact rationals). The smallest integer factor the lemma admits is 3 (16 u M is not enough in the
+model): the code's 24 u M has no spare factor, as the comment's 22 u M derivation says.
+
+**`slope_approx.py` (G1, the corner error of the terrain prefilter; issue #1586, fixed by #1619).** `TerrainSlopeMap.prefilter_skips`
+assumes the corners from `ExactSlopeKernel.Approx` are within e = 4e-12 (|x| + |y|) + 2^-1074. Approx used to accept if
+err <= 1e-12 (|x| + |y|); at the subnormal edge that failed (the finding, kept as the IEEE replay `issue_1586`: X = [2^-1074,
+2^-1074], Y = [0, 0], W = [-8, 4] gave x = y = -0 accepted, while the exact vertex for W* = 2^-1000 is x* = 2^-74). The fix
+(`approx_position`) also needs 2^-1022 <= |x| + |y| <= double.MaxValue and a narrow W ((W.Hi - W.Lo) 5e11 <= |w|); each of the
+two halves alone fails (replays `width_only`, `guard_only`), and so does an overflowed |x| + |y| (`overflow`). Proved: four
+lemmas, one per step (width of W, width of X and Y, one coordinate, the claim), linear except the coordinate step (nlsat),
+under two seconds; the midpoint in its interval by monotone rounding, or with Z3's binary64 theory (`--fp`, 89 s here, 253 s on another machine). Mutants
+(SAT): the claim without the guard, with twice the width, with a consumer of 3e-12 (the last two show the 2x slack of the proof, which uses |W* - w| <= dW where the midpoint gives dW / 2, not wrong code; a width condition of 1e11 is wrong, killed by a .NET test). Run it as a plain script or from the module directory, not with `python3 -I` (it imports `pilot` from its own directory). Kept from the first version (its scope:
+no underflow): acceptance gives W* the sign of w (both signs); mutant: err without its W term.
+
+```sh
+python3 tools/Z3Pilot/adaptive_range.py --out /tmp/adaptive-range.json
+python3 tools/Z3Pilot/may_meet_box.py
+python3 tools/Z3Pilot/slope_approx.py [--fp]
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_adaptive_range.py' -v
+```
+
+## Follow-up on PRs #1656, #1657 and #1658
+
+`pilot_followups.py` checks additional obligations, with the original
+pilot assumptions kept explicit. Run the follow-up with the pinned solver.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_pilot_followups.py -v
+```
+
+| Pilot | Follow-up result and remaining obligation |
+| --- | --- |
+| Continuous collision | The axis-only root shortcut visits the vertex-triangle simplex or edge-edge square corners at both times. The convex-combination argument uses the original corner bound as a premise. Normal-direction culling needs its own interval proof. |
+| Ray/AABB | The entry lower bound follows from the two normal-rounded slab operations and the normal subtraction model. The final absolute subtraction and zero clamp preserve it. Entry bounds through subnormal intermediates remain open in the current code. The proposed conservative alternative uses zero below 2^-969 for the rounded entry, which ensures that the correction product is normal on the other path. |
+| Terrain box | A straight-toe build reaches the offset case from #1657. Outward rounding encloses the reference reach in the model. The straight-toe build succeeded, and no missing face was demonstrated. A full implication from the domain edge to output coverage remains open. |
+| Saturating conversions | The 32/64-bit floor and grid neighbor obligations in #1657 close the stated arithmetic checks. Runtime casts remain tied to the documented .NET semantics. |
+| Intrinsic flip | Conservation of crossing arcs on the shared edge makes the doubled flip count even. This supplies the parity step for realizable inputs satisfying that conservation law. The roundabout update and common subdivision extraction still need separate arguments. |
+| Limb negation | The two-word check covers the carry propagation step used repeatedly by the loop. The arena sizing proof still uses the reviewed width bounds for each arithmetic operation. |
+| Tetrahedron stitching | A strictly negative sum of the two affine fields at both ends is a premise for nonoverlap between them. The rounding and coincident-zero cases still need separate coverage. |
+| Coplanar propagation | The fold replay below disproves triangle-plane label completeness for the retained segment labels. Since `Partners` retains the noncoplanar incident triangle, a traversal can force a new winding seed where that partner contains the edge. The `Partners` guard and coplanar label preservation through splitting need verification in the propagation implementation. |
+| SecondPoint | The subnormal rounding case becomes a missed hit in `IntersectionUtil.Intersects`. A finite second point cannot represent a forward ray from `double.MaxValue` along +x. The candidate direction-based predicate below needs a separate exact-code review. |
+| Volume filters | The normal-rounding product induction for a general summation length is machine-checked. The normal-case final inflation also covers the evaluation once the accumulated component bounds satisfy the stated gamma premise. The per-determinant enclosure and the additive underflow budget still need to be linked end to end. |
+| Polyhedral envelope | The local delta and search box checks remain valid. The independent-rounding model is inconclusive for the current residual factor 5. The alternative factor 6 search exceeds the fast-gate budget. Actual facet displacement and direction-error constants remain open. |
+| Geodesic window | The midpoint disk proof now covers the differently rounded endpoint radii used by `TransformDisk`. The original subnormal length witness is rejected by the full guard. The final radius inflation covers its own normal rounding when the constituent bounds are valid. Certification of the rotation and center terms, and the global length-lower-bound, remain open. |
+| Double-word division | The divisor and error-inflation checks in #1658 use a certified residual as a premise. The operand-error propagation inequality is checked. The remaining bridge is the source-level error of the residual arithmetic across its supported ranges. |
+| Contouring bins | A checked bounded-search alternative halves the remaining integer interval and matches an inclusive scan on 315 plateau and boundary cases. It refuses an unbracketed flat grid and checks coarse-to-fine index products before querying the grid. The solver proves that every interior pair of fine indices fits Int32 once the two bracket endpoints fit. The existing adjustment loops still require an estimate and a target in range, and a bracketed monotone grid. There is no end-to-end proof of those premises through the contour builder. |
+
+### .NET 10 probes
+
+* Let `e = double.Epsilon`. `IntersectionUtil.Intersects` returns false for
+  origin `(e,0,0)`, direction `(e,4e,0)`, and triangle vertices
+  `(2e,8e,-2e)`, `(5e,8e,-2e)`, `(2e,8e,2e)`. The supplied ray crosses at
+  `(3e,8e,0)` (#1672), with barycentric coordinates `(1/6,1/3,1/2)`. The rounded
+  second-point ray has x coordinate `e`. The same replay with a normally
+  scaled unit direction returned true through both ray APIs. An exact hit
+  predicate can use three determinants with the supplied direction and the
+  triangle vertices relative to the origin. Polynomial expansion checks that their sum equals the signed direction dot normal. A closed-hit implementation
+  still needs exact dyadic fallback, compatible treatment of boundary hits,
+  and review of the separate symbolically perturbed winding path.
+* `ExactMeshArrangement` was run with a source triangle
+  `(0,0,0),(8,0,0),(0,8,0)` and a fin with vertices
+  `(3,1,0),(1,1,0),(1,1,2)` in another mesh. The source retained line
+  label 4 and partner 1. Adding coplanar triangle
+  `(1,1,0),(3,1,0),(1,3,0)` to the second mesh makes a fold. The retained
+  source line labels were 7, 5 and 6, all coplanar. Partner 2 was preserved.
+  Sorting coincident segment labels and keeping the first explains the loss. The label consumer is still a design.
+* `TransformDisk` returns false for point boxes at `(0,0)` and
+  `(2e,2e)`. The adjusted length is three subnormal steps, above the exact
+  length, and the endpoint error padding makes this particular guard fail.
+
+### Exact-direction hit predicate under review
+
+Keep the public ray signatures and the existing closed-hit semantics.
+For a finite origin and supplied nonzero direction, compute the three
+edge determinants of the direction and the triangle corners translated
+by the origin. Opposite nonzero signs reject the line. The determinant
+sum is the signed direction dot normal; a zero sum rejects the parallel
+or degenerate case. With an accepted line crossing, the signed
+origin-to-plane relation distinguishes a forward crossing from one
+behind the origin, with a separate exact zero check for an origin hit.
+
+Reuse the existing dyadic representation for the exact fallback. A fast
+path that continues using a constructed second point must certify that
+its displacement is a positive multiple of the supplied direction. Two exact cross-component equalities against a nonzero pivot and a positive pivot scale suffice, as the follow-up check establishes.
+If a hit parameter is needed on the exact route, round the dyadic
+plane-offset quotient once using the existing exact quotient conversion.
+The symbolic perturbation used by winding queries needs independent
+review before sharing the direction path.
+
+Acceptance should cover the strict-interior replay above, normalized and
+unnormalized directions, shared-edge hits, parallel and origin hits,
+power-of-two scale invariance, and agreement between the AABB-tree and
+linear query routes. Compare ordinary-case ray batches against the
+existing path before choosing a fast-path certification strategy. The exact determinant prototype agrees with an independent rational plane-hit and Gram-coordinate oracle on 4096 seeded cases and hits the subnormal replay triangle. Explicit edge, vertex, origin, coplanar and behind-origin cases also agree at three exact dyadic scales.
+
+## The rounding oracle (`rounding_oracle.py`, #1465, 2026-11-25)
+
+A research spike, not a gate: can the degenerate triangles that `MeshRoundingRepair` leaves be removed by moving up to k
+vertices within their drift bounds, or is that provably impossible? Note: `docs/research/ROUNDING_Z3_ORACLE_2026-11.md`.
+
+```sh
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- oracle dump --case <spec> --out state.json [--nojoint]
+python tools/Z3Pilot/rounding_oracle.py state.json [...] --timeout 120 --out report.json
+dotnet run --project benchmarks/BooleanInputOrder -c Release -- oracle verify --case <spec> --witness w.json
+python -m unittest discover -s tools/Z3Pilot -p 'test_rounding_oracle.py'
+```
+
+The model is a relaxation of the repair's own acceptance (drift balls of every triangle and ghost at a moved vertex, the
+area test of `is_bad`, `IntersectsBeyondShared` as weak separation along the nonzero separating axes), so UNSAT is a proof
+and SAT a candidate that the library checks. Z3's nonlinear arithmetic did not decide the state's polynomials with their long
+dyadic coefficients (even the drift and one area in 30 s), so the decision procedure is a branch and bound over boxes of the
+moves whose per-box linear relaxations (rigorously padded floats, exact Dyadic on small boxes) z3 decides as linear real
+arithmetic with booleans. The test checks the encoding on a sliver in a square tube: one move repairs it (SAT, clean exactly
+and after the rounding to doubles), a narrow tube makes it impossible (UNSAT by the wall constraints, SAT without them), a
+small bound makes it impossible (UNSAT by the area); and the pair encoding on crossing, apart and touching triangles.
+
+## Local arithmetic and topology obligations
+
+* `limb_negation.py` checks the 64-bit complement-and-add step of `ExactLimbSigns.load`
+  against a 65-bit reference and proves composition for two limbs. Ignoring the
+  incoming carry or dropping its propagation to the upper limb admits a witness.
+  The scratch allocation formulas have separate reviewed width arguments in
+  the library comments.
+* `tetrahedra_shared_faces.py` reads the even and odd tetrahedron tables from
+  `TwoLevelMarchingTetrahedra.cs`. It checks sign patterns on adjacent cubes
+  and the three-node part of the face key. Reusing one parity on both sides
+  can produce a mismatch. The checks assume shared corner classifications.
+  The two-level clipping loop and label completeness are open geometric
+  premises.
+* `ray_second_point.py` checks the exponent range and encoding for `ExactRayTriangle.SecondPoint`.
+  It also replays the two scaling branches at binary64 boundaries against `ldexp`.
+  For origin `(eps,0,0)` and direction `(eps,4*eps,0)`, where `eps = 2^-1074`,
+  the chosen shift is −1. Separate rounding gives an x coordinate of `eps`;
+  retaining the product through the sum gives `2*eps`. This reproduces a local ray
+  direction difference in the rounding model. It is not an end-to-end hit or runtime test.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```

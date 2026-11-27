@@ -78,7 +78,7 @@ namespace geometry3Sharp.Tests
         {
             // each configuration is valid without the option and rejected, by the option's own check, with it
             Action<Action<TpmsLattice>> expect = set => {
-                var t = new TpmsLattice { Type = TpmsType.Gyroid, Style = TpmsStyle.Sheet, CellSize = L, Divisions = 16, VolumeFraction = 0.3,
+                var t = new TpmsLattice { AllowUnresolved = true, Type = TpmsType.Gyroid, Style = TpmsStyle.Sheet, CellSize = L, Divisions = 16, VolumeFraction = 0.3,
                     Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)), VerifySelfIntersections = false };
                 set(t);
                 t.Compute();

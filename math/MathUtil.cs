@@ -7,6 +7,39 @@ namespace g3
 
     public static class MathUtil
     {
+        /// <summary> floor(log2 x), exactly, for a finite x &gt; 0 (also subnormal): the unbiased exponent of the double. Math.Log(x, 2) is off by one at exact
+        /// powers of two (#1612) and Math.ILogB does not exist on netstandard2.0. Throws ArgumentOutOfRangeException for zero, negative, NaN and infinity. </summary>
+        internal static int FloorLog2(double x)
+        {
+            if (!(x > 0) || double.IsInfinity(x)) throw new ArgumentOutOfRangeException(nameof(x), "FloorLog2 needs a finite x > 0");
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int be = (int)((bits >> 52) & 0x7FF);
+            if (be != 0) return be - 1023;
+            // subnormal: x = m 2^-1074 with 0 < m < 2^52, floor(log2 x) = bitlength(m) - 1 - 1074
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            int len = 0;
+            while (m != 0) { ++len; m >>= 1; }
+            return len - 1075;
+        }
+
+        /// <summary> ceil(log2 x), exactly, for a finite x &gt; 0: FloorLog2(x), plus one unless x is an exact power of two. Throws as FloorLog2. </summary>
+        internal static int CeilLog2(double x)
+        {
+            int e = FloorLog2(x);
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            long mant = bits & 0xFFFFFFFFFFFFFL;
+            bool pow2 = ((bits >> 52) & 0x7FF) != 0 ? mant == 0 : (mant & (mant - 1)) == 0;
+            return pow2 ? e : e + 1;
+        }
+
+        /// <summary> CeilLog2 with the saturating conversion of the old Math.Ceiling(Math.Log(x, 2)) at the edges: NaN gives 0, +infinity gives int.MaxValue, and zero, a negative x and -infinity give int.MinValue. </summary>
+        internal static int CeilLog2Saturating(double x)
+        {
+            if (double.IsNaN(x)) return 0;
+            if (double.IsPositiveInfinity(x)) return int.MaxValue;
+            if (!(x > 0)) return int.MinValue;
+            return CeilLog2(x);
+        }
 
         public const double Deg2Rad = (Math.PI / 180.0);
         public const double Rad2Deg = (180.0 / Math.PI);
@@ -716,7 +749,7 @@ namespace g3
             double la = a.Length, lb = b.Length, lc = c.Length;
             double bottom = (la * lb * lc) + a.Dot(ref b) * lc + b.Dot(ref c) * la + c.Dot(ref a) * lb;
             double top = a.x * (b.y * c.z - c.y * b.z) - a.y * (b.x * c.z - c.x * b.z) + a.z * (b.x * c.y - c.x * b.y);
-            return 2.0 * Math.Atan2(top, bottom);
+            return 2.0 * g3.CoreMathPort.CoreMath.Atan2(top, bottom);   // (correctly rounded: the same bits on every runtime, WebAssembly included, #1577)
         }
 
 

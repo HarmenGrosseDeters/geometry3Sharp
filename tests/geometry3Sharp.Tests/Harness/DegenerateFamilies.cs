@@ -24,8 +24,9 @@ namespace geometry3Sharp.Tests
             if (r != MeshResult.Ok) throw new InvalidOperationException(r.ToString());
         }
 
-        // every count-th triangle (from seed on) gets the defect of the family; k is the exponent of the size 2^-k
-        public static DMesh3 Make(Family f, int k, int seed, int count = 9)
+        // every count-th triangle (from seed on) gets the defect of the family; k is the exponent of the size 2^-k; sphere is the
+        // EdgeVertices of the base sphere of the Cluster families (more of them: more clusters, more triangles the repair cannot repair)
+        public static DMesh3 Make(Family f, int k, int seed, int count = 9, int sphere = 6)
         {
             double h = Math.Pow(2, -k);
             switch (f) {
@@ -95,7 +96,7 @@ namespace geometry3Sharp.Tests
                     // triangle it pokes, so fans of slivers and zero-area triangles touch each other. Cluster: 2^-k of
                     // the way from the edge to the opposite corner (inside, the surface does not fold); FoldedCluster:
                     // 2^-k from the edge (outside slivers thinner than that: the surface folds over itself)
-                    DMesh3 m = Sphere(6);
+                    DMesh3 m = Sphere(sphere);
                     var rnd = new Random(seed);
                     foreach (int t0 in m.TriangleIndices().Where(t => (t + seed) % 17 == 0).ToArray()) {
                         int tid = t0;

@@ -84,6 +84,19 @@ namespace g3
     /// accepts nothing (PositionSearchMoves; docs/design/SAFE_ROUNDING.md section 9). Not with MaxPasses 0. Its
     /// candidates are evaluated within the effort limits like the edits of the passes, so on a result with many defects
     /// that no position repairs the search can be what reaches the limit (EvaluationLimitReached).
+    /// The last resort, after everything else (the removal of tiny components included) and only for a degenerate triangle that is
+    /// still left (JointSearch, JointMoves; docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md): two of its free corners move together,
+    /// each by its room over 2^j (the same j, the smallest first) along one of the 26 directions, in the order of their positions. A
+    /// triangle with an edge of 1e-10 cannot be lifted above the degenerate area by one corner within the bound, by two it can. The pair
+    /// is one edit for improves (the triangles of both are removed and added again; no defect more, fewer in all, the orientation rule
+    /// of every edit with the displacement of each triangle's own moved corners) and for the drift (the bound of the triangles and ghosts at both, at their new positions; each vertex moves by at most its
+    /// room, so the bound holds). A result that has no degenerate triangle without it is the same with it, bit for bit. The stage has its
+    /// own evaluation budget (JointStageEvaluationsPerDefect) and never sets EvaluationLimitReached; it skips a closed component that is
+    /// inside out. Where the rounds of the free pairs make no move and a degenerate triangle is left, the extension of the stage (JointExtension,
+    /// JointMovesWithFixedCorner; docs/design/SAFE_ROUNDING.md section 9.1.1) goes on: the pairs that include a corner that FixedVertexF marks
+    /// (a preference; never one that FixedHard keeps), then the free pairs with two levels j that differ (by at most 3), each round with
+    /// a budget of its own; a corner that FixedVertexF marks can be moved by it, within the bound like every other. The work of its searches
+    /// that make no move is capped for the stage (JointExtensionWastedProposals, JointExtensionWastedProbes: about 32 triangles it cannot repair).
     ///
     /// Usage: construct with the mesh (modified in place), optionally set FixedVertexF to the vertices whose
     /// position should be kept where possible (eg input vertices), call Apply(). Apply() returns IsClean:
@@ -302,8 +315,19 @@ namespace g3
         /// left, moved to one of a fixed set of positions within the drift that is left at it
         /// </summary>
         public int PositionSearchMoves;
+        /// <summary> the joint moves of two vertices (search_pairs, the last resort for a degenerate triangle that no other edit removes); also counted in Moves, not in PositionSearchMoves </summary>
+        public int JointMoves;
+        /// <summary>
+        /// of the JointMoves: those that moved a corner that the repair holds fixed (FixedVertexF, where it applies: not in a coarse component with
+        /// FixedWhereCoarse false; a preference, FixedHard false; never a hard-fixed one), after the free corners found no pair (the extension of the joint stage, see class comment). Reset by every Apply
+        /// </summary>
+        public int JointMovesWithFixedCorner;
         // for tests: the moves the position search proposed in the last Apply
         internal long PositionSearchProposals;
+        // for tests: the joint moves proposed (to improves) in the last Apply
+        internal long JointSearchProposals;
+        // for tests: the cheap probes (pair_removes_bad) of the joint stage in the last Apply
+        internal long JointProbes;
         // for tests: the passes are left out, so that the position search is the only repair
         internal bool SearchWithoutPasses;
         // for tests: the rounds of search and passes at most (to show what the later rounds repair)
@@ -568,6 +592,8 @@ namespace g3
         double editDrift;
         bool editMoves, editKeptMoved;
         int editKept, editGone;
+        // the second moved vertex of a joint move, or -1
+        int editKept2 = -1;
         readonly List<Ghost> editGhosts = new List<Ghost>();
         readonly List<Ghost> editLost = new List<Ghost>();
         // the ids of the triangles the applied edit added, in the order of added (set by the edit before commit_drift)
@@ -581,13 +607,13 @@ namespace g3
         internal int GhostsMade, GhostsLost;
         // for tests: edits that Apply makes in this order instead of the repair, each checked by the drift bound only
         // (not by the defects), then it returns; ScriptAccepted says which were applied. Kind: Collapse (A into B, B
-        // kept at P), Move (A to P), Flip (the edge A-B), RemoveVertex (A, of valence 3)
-        internal enum ScriptKind { Collapse, Move, Flip, RemoveVertex }
+        // kept at P), Move (A to P), MovePair (A to P and B to Q), Flip (the edge A-B), RemoveVertex (A, of valence 3)
+        internal enum ScriptKind { Collapse, Move, Flip, RemoveVertex, MovePair }
         internal struct ScriptEdit
         {
             public ScriptKind Kind;
             public int A, B;
-            public Vector3d P;
+            public Vector3d P, Q;
         }
         internal List<ScriptEdit> Script;
         internal readonly List<bool> ScriptAccepted = new List<bool>();
@@ -645,6 +671,11 @@ namespace g3
         // canonical ids against the dictionary (InvalidOperationException if they differ), and compares every
         // decision of the projection filter in intersects with the exact test
         [ThreadStatic] internal static bool CheckOnThisThread;
+        // for tests: no joint search on this thread (JointSearch of the instances made by the boolean, which a test cannot set)
+        [ThreadStatic] internal static bool NoJointSearchOnThisThread;
+        // for tests: the rounds of the joint stage that are left out on this thread, bit r for round r (search_pairs; 6: the extension, 2: the pairs with
+        // a fixed corner, 4: the free pairs with two levels)
+        [ThreadStatic] internal static int SkipJointRoundsOnThisThread;
         bool check;
         // the vertices at their exact position (ExactMeshBoolean: the input points of the result), or null: the full search
         // skips the pairs of two triangles that existed at the start with three such vertices and have not changed since
@@ -753,6 +784,54 @@ namespace g3
             });
         }
 
+        /// <summary> one component of the mesh as Apply found it, see RecordComponents </summary>
+        internal sealed class ComponentRecord
+        {
+            /// <summary> no boundary edge </summary>
+            public bool Closed;
+            /// <summary> its signed volume (about its first vertex), its area, the diagonal of its box and its largest absolute coordinate </summary>
+            public double Volume, Area, Diagonal, Largest;
+        }
+        /// <summary>
+        /// Off by default (nothing is recorded: Apply is as without it). On: Apply records, before the first edit, every component of the mesh
+        /// (ComponentsBefore, in the order of connected_components) and per vertex the index of the component it was in (ComponentOfVertexBefore: -1 none,
+        /// -2 more than one, where two components touch). The edits add no vertex and stay within a component, so a component after the repair is named
+        /// by its vertices; SolidBooleanPipeline RoundingVolume compares the volume of each part before and after
+        /// </summary>
+        internal bool RecordComponents = RecordComponentsOfNewRepairs;
+        // (set by SolidBooleanPipeline around the boolean that it runs on this thread, which creates its repair itself: the repairs created on this thread record)
+        [ThreadStatic] internal static bool RecordComponentsOfNewRepairs;
+        internal List<ComponentRecord> ComponentsBefore;
+        internal int[] ComponentOfVertexBefore;
+
+        void record_components()
+        {
+            ComponentOfVertexBefore = new int[Mesh.MaxVertexID];
+            for (int v = 0; v < ComponentOfVertexBefore.Length; ++v)
+                ComponentOfVertexBefore[v] = -1;
+            ComponentsBefore = new List<ComponentRecord>();
+            foreach (List<int> comp in connected_components(Mesh)) {
+                Vector3d o = Mesh.GetVertex(Mesh.GetTriangle(comp[0]).a);
+                var r = new ComponentRecord() { Closed = true };
+                var box = AxisAlignedBox3d.Empty;
+                double v6 = 0, a2 = 0;
+                int id = ComponentsBefore.Count;
+                foreach (int t in comp) {
+                    Index3i tv = Mesh.GetTriangle(t), te = Mesh.GetTriEdges(t);
+                    Vector3d pa = Mesh.GetVertex(tv.a), pb = Mesh.GetVertex(tv.b), pc = Mesh.GetVertex(tv.c);
+                    v6 += (pa - o).Dot((pb - o).Cross(pc - o));
+                    a2 += (pb - pa).Cross(pc - pa).Length;
+                    box.Contain(pa); box.Contain(pb); box.Contain(pc);
+                    r.Largest = Math.Max(r.Largest, Math.Max(pa.MaxAbs, Math.Max(pb.MaxAbs, pc.MaxAbs)));
+                    r.Closed &= Mesh.IsBoundaryEdge(te.a) == false && Mesh.IsBoundaryEdge(te.b) == false && Mesh.IsBoundaryEdge(te.c) == false;
+                    for (int k = 0; k < 3; ++k)
+                        ComponentOfVertexBefore[tv[k]] = (ComponentOfVertexBefore[tv[k]] == -1 || ComponentOfVertexBefore[tv[k]] == id) ? id : -2;
+                }
+                r.Volume = v6 / 6; r.Area = a2 / 2; r.Diagonal = box.DiagonalLength;
+                ComponentsBefore.Add(r);
+            }
+        }
+
         /// <summary> repair (see class comment); returns IsClean </summary>
         public bool Apply()
         {
@@ -761,6 +840,10 @@ namespace g3
             // volumes are not either. The volume after is that of the mesh as Apply leaves it, also where a check throws)
             Vector3d centre = gs.MeshRepairMetrics.TriangleBounds(Mesh).Center;
             VolumeBefore = signed_volume(centre);
+            ComponentsBefore = null;
+            ComponentOfVertexBefore = null;
+            if (RecordComponents)
+                record_components();
             try {
                 return apply();
             } finally {
@@ -789,6 +872,10 @@ namespace g3
             lastAcceptWasNeutral = false;
             RuleLocksReroutedThroughFixed = RuleLocksReroutedThroughOther = 0;
             PositionSearchMoves = 0;
+            JointMoves = 0;
+            JointMovesWithFixedCorner = 0;
+            JointSearchProposals = 0;
+            JointProbes = 0;
             PositionSearchProposals = 0;
             MaxDrift = 0;
             refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
@@ -954,6 +1041,12 @@ namespace g3
                 if (pairs.Count > 0)
                     pairs = intersecting_pairs();
             }
+            // the last resort: what is still degenerate, by a joint move of two corners
+            if (JointSearch && NoJointSearchOnThisThread == false && MaxPasses > 0 && bad.Count > 0 && stopped == false) {
+                // (no check_all_bounds here: the ghosts of the components removed above are not taken off their lists; every edit of the stage is
+                // checked in commit_drift)
+                joint_stage(ref pairs, ref bad);
+            }
             RemainingIntersections = pairs.Count;
             RemainingDegenerate = bad.Count;
             List<List<int>> contactsLeft = PointIdF != null && atPosition != null ? false_contacts() : null;
@@ -1010,12 +1103,15 @@ namespace g3
 
         int movedV = -1;
         Vector3d movedPos;
+        // a second vertex at another position, only for a joint move (try_move_pair): both are the vertices of one edit
+        int movedV2 = -1;
+        Vector3d movedPos2;
         // the vertex a proposed contraction removes, or -1
         int vanishing = -1;
 
         Vector3d pos(int v)
         {
-            return (v == movedV) ? movedPos : Mesh.GetVertex(v);
+            return (v == movedV) ? movedPos : (v == movedV2) ? movedPos2 : Mesh.GetVertex(v);
         }
 
         Triangle3d triangle(Index3i t)
@@ -1170,7 +1266,7 @@ namespace g3
             // (v is at its position in the mesh, with the smallest id there in canonId: that one, or the moved vertex
             // if it is proposed there with a smaller id; the dictionary only if the moved vertex is the smallest one
             // at v's position, which it leaves, or v is the moved vertex)
-            if (cached && v != movedV) {
+            if (cached && v != movedV && movedV2 < 0) {
                 int least = canonId[v];
                 if (least != movedV) {
                     if (movedV >= 0 && movedV < least && key(movedPos) == key(Mesh.GetVertex(v)))
@@ -1184,10 +1280,12 @@ namespace g3
             List<int> list;
             if (atPosition.TryGetValue(p, out list))
                 foreach (int u in list)
-                    if (u != movedV && u < best)
+                    if (u != movedV && u != movedV2 && u < best)
                         best = u;
             if (movedV >= 0 && movedV < best && key(movedPos) == p)
                 best = movedV;
+            if (movedV2 >= 0 && movedV2 < best && key(movedPos2) == p)
+                best = movedV2;
             return best;
         }
 
@@ -1288,8 +1386,8 @@ namespace g3
             }
             if (dirty.Count == 0)
                 return;
-            int save = movedV;
-            movedV = -1;
+            int save = movedV, save2 = movedV2;
+            movedV = movedV2 = -1;
             if (dirtyTree == null || pending.Count > 256) {
                 dirtyTids = new List<int>();
                 var boxes = new List<AxisAlignedBox3d>();
@@ -1334,6 +1432,7 @@ namespace g3
             if (check)
                 check_near(query, result);
             movedV = save;
+            movedV2 = save2;
         }
 
         // the boxes of the pending triangles from the current mesh (called in near with no proposed position: movedV -1)
@@ -1566,7 +1665,7 @@ namespace g3
         void begin_edit()
         {
             removed.Clear(); added.Clear(); addedFrom.Clear(); addedIds.Clear();
-            movedV = -1;
+            movedV = movedV2 = -1;
             vanishing = -1;
         }
 
@@ -1616,9 +1715,10 @@ namespace g3
         // the bound of a ghost with v (and gone, a vertex vanishing into v, or -1) at p
         double ghost_bound(Ghost g, int v, int gone, Vector3d p)
         {
-            Vector3d p0 = (g.at.a == v || g.at.a == gone) ? p : Mesh.GetVertex(g.at.a);
-            Vector3d p1 = (g.at.b == v || g.at.b == gone) ? p : Mesh.GetVertex(g.at.b);
-            Vector3d p2 = (g.at.c == v || g.at.c == gone) ? p : Mesh.GetVertex(g.at.c);
+            // (the second moved vertex of a joint move at its proposed position as well: movedV2 is -1 for every other edit)
+            Vector3d p0 = (g.at.a == v || g.at.a == gone) ? p : (g.at.a == movedV2) ? movedPos2 : Mesh.GetVertex(g.at.a);
+            Vector3d p1 = (g.at.b == v || g.at.b == gone) ? p : (g.at.b == movedV2) ? movedPos2 : Mesh.GetVertex(g.at.b);
+            Vector3d p2 = (g.at.c == v || g.at.c == gone) ? p : (g.at.c == movedV2) ? movedPos2 : Mesh.GetVertex(g.at.c);
             return g.carry + Math.Max(p0.Distance(g.a0), Math.Max(p1.Distance(g.a1), p2.Distance(g.a2)));
         }
 
@@ -1644,7 +1744,7 @@ namespace g3
         {
             editGhosts.Clear(); editLost.Clear();
             editMoves = movedV >= 0;
-            editKept = movedV; editGone = vanishing;
+            editKept = movedV; editGone = vanishing; editKept2 = movedV2;
             editKeptMoved = editMoves && movedPos != Mesh.GetVertex(movedV);
             double most = 0;
             if (editMoves) {
@@ -1668,6 +1768,9 @@ namespace g3
                     most = Math.Max(most, ghost_bound(g, movedV, -1, movedPos));
                 }
                 most = Math.Max(most, Math.Max(ghosts_bound(movedV, movedV, vanishing, movedPos), ghosts_bound(vanishing, movedV, vanishing, movedPos)));
+                // (a joint move: the ghosts at the second vertex as well)
+                if (movedV2 >= 0)
+                    most = Math.Max(most, ghosts_bound(movedV2, movedV, vanishing, movedPos));
                 // (a step that is not a number, eg from a position that is not finite, rejects the edit)
                 return (step >= 0) ? most : double.NaN;
             }
@@ -1746,16 +1849,23 @@ namespace g3
                 EvaluationLimitReached = true;
                 return false;
             }
-            int saveV = movedV;
-            Vector3d savePos = movedPos;
-            // (SharedPositionsTouch: a vertex moved onto other vertices would touch them uncounted)
+            int saveV = movedV, saveV2 = movedV2;
+            Vector3d savePos = movedPos, savePos2 = movedPos2;
+            // (SharedPositionsTouch: a vertex moved onto other vertices would touch them uncounted; the two vertices of a joint move
+            // onto one position would touch each other)
             List<int> there;
             if (atPosition != null && saveV >= 0 && savePos != Mesh.GetVertex(saveV) && atPosition.TryGetValue(key(savePos), out there))
                 foreach (int u in there)
-                    if (u != saveV && u != vanishing)
+                    if (u != saveV && u != saveV2 && u != vanishing)
                         return false;
+            if (atPosition != null && saveV2 >= 0 && savePos2 != Mesh.GetVertex(saveV2) && atPosition.TryGetValue(key(savePos2), out there))
+                foreach (int u in there)
+                    if (u != saveV && u != saveV2)
+                        return false;
+            if (saveV2 >= 0 && key(savePos) == key(savePos2))
+                return false;
             // the cheap tests first: degenerate triangles and orientation, then the intersections
-            movedV = -1;
+            movedV = movedV2 = -1;
             int oldI = 0, oldB = 0;
             var oldCross = new Vector3d[removed.Count];
             Vector3d crossSum = Vector3d.Zero;
@@ -1768,12 +1878,14 @@ namespace g3
                 // (slivers just above the degenerate area, and triangles not higher than twice the displacement
                 // of the edit, may turn over: tiny folds, intersections are checked)
                 double longest = Math.Max(T.V0.Distance(T.V1), Math.Max(T.V1.Distance(T.V2), T.V2.Distance(T.V0)));
-                if (oldCross[i].Length < 2 * OrientedArea * sizeArea_of(t.a) || oldCross[i].Length <= 2 * displacement * longest)
+                // (a joint move: the displacement of this triangle is that of its own moved corners, not the larger of the two moves)
+                double own = saveV2 < 0 ? displacement : own_displacement(t, saveV, savePos, saveV2, savePos2);
+                if (oldCross[i].Length < 2 * OrientedArea * sizeArea_of(t.a) || oldCross[i].Length <= 2 * own * longest)
                     oldCross[i] = Vector3d.Zero;
                 else
                     crossSum += oldCross[i];
             }
-            movedV = saveV; movedPos = savePos;
+            movedV = saveV; movedPos = savePos; movedV2 = saveV2; movedPos2 = savePos2;
             int newI = 0, newB = 0;
             var tris = new Triangle3d[added.Count];
             var degen = new bool[added.Count];
@@ -1792,7 +1904,7 @@ namespace g3
                     return false;
             }
 
-            movedV = -1;
+            movedV = movedV2 = -1;
             var removedSet = new HashSet<int>(removed);
             // (the same triangles were evaluated for the last proposal, eg a move by another distance: the same count)
             bool cached = version == cacheVersion && removed.Count == cacheRemoved.Count;
@@ -1819,7 +1931,7 @@ namespace g3
             }
             cacheVersion = version; cacheOldI = oldI;
             cacheRemoved.Clear(); cacheRemoved.AddRange(removed);
-            movedV = saveV; movedPos = savePos;
+            movedV = saveV; movedPos = savePos; movedV2 = saveV2; movedPos2 = savePos2;
             // (with as many degenerate triangles as before, it must remove an intersection)
             // (the final stage: a contraction that keeps the counts, AcceptNeutralContractionsInStage; the checks above and below already
             // reject every edit with more degenerate triangles or more intersections than before)
@@ -1851,6 +1963,18 @@ namespace g3
             return better || ((removesContact || neutral) && newI + newB <= oldI + oldB);
         }
 
+        // how far the corners of triangle t that are u (to pu) or w (to pw) move: a joint move turns a triangle over only as far as its own
+        // corners move
+        internal double own_displacement(Index3i t, int u, Vector3d pu, int w, Vector3d pw)
+        {
+            double d = 0;
+            for (int k = 0; k < 3; ++k) {
+                if (t[k] == u) d = Math.Max(d, pu.Distance(Mesh.GetVertex(u)));
+                if (t[k] == w) d = Math.Max(d, pw.Distance(Mesh.GetVertex(w)));
+            }
+            return d;
+        }
+
         // the edits of Script (for tests), then the check of every bound in check mode
         void run_script()
         {
@@ -1860,6 +1984,7 @@ namespace g3
                 switch (e.Kind) {
                     case ScriptKind.Collapse: ok = try_collapse(e.A, e.B, e.P); break;
                     case ScriptKind.Move: ok = try_move(e.A, e.P); break;
+                    case ScriptKind.MovePair: ok = try_move_pair(e.A, e.P, e.B, e.Q); break;
                     case ScriptKind.Flip: ok = try_flip(Mesh.FindEdge(e.A, e.B)); break;
                     default: ok = try_remove_vertex(e.A); break;
                 }
@@ -1973,6 +2098,8 @@ namespace g3
                 if (check) {
                     check_bounds(editKeptMoved);
                     check_ghosts(editKept);
+                    if (editKept2 >= 0)
+                        check_ghosts(editKept2);
                     if (editGone >= 0 && ghostsAt.ContainsKey(editGone))
                         throw new InvalidOperationException("MeshRoundingRepair check: ghosts left at the vanished vertex " + editGone);
                 }
@@ -2013,6 +2140,8 @@ namespace g3
                 tids.Add(removed[addedFrom[i]]);
             if (keptMoved)
                 tids.AddRange(Mesh.VtxTrianglesItr(editKept));
+            if (keptMoved && editKept2 >= 0)
+                tids.AddRange(Mesh.VtxTrianglesItr(editKept2));
             foreach (int t in tids) {
                 Index3i tv = Mesh.GetTriangle(t);
                 double b = triangle_bound(t, Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c));
@@ -2020,10 +2149,11 @@ namespace g3
                     throw new InvalidOperationException("MeshRoundingRepair check: the bound " + b + " of triangle " + t + " exceeds the edit's drift " + editDrift);
             }
             List<Ghost> list;
-            if (ghostsAt.TryGetValue(editKept, out list))
-                foreach (Ghost g in list)
-                    if (!(ghost_bound(g, -1, -1, Vector3d.Zero) <= editDrift))
-                        throw new InvalidOperationException("MeshRoundingRepair check: the bound of the ghost at " + g.at + " exceeds the edit's drift " + editDrift);
+            foreach (int kept in new[] { editKept, editKept2 })
+                if (kept >= 0 && ghostsAt.TryGetValue(kept, out list))
+                    foreach (Ghost g in list)
+                        if (!(ghost_bound(g, -1, -1, Vector3d.Zero) <= editDrift))
+                            throw new InvalidOperationException("MeshRoundingRepair check: the bound of the ghost at " + g.at + " exceeds the edit's drift " + editDrift);
         }
 
         // (check mode) every ghost at v lies on a vertex or an edge of the mesh, v among its vertices, and is not lost
@@ -2996,6 +3126,56 @@ namespace g3
             return true;
         }
 
+        // move u to pu and w to pw as one edit (a joint move): the triangles of both are removed and added again with their corners
+        // in the order they have, the edit is accepted by improves like every other (the counts of the two stars together: no
+        // defect more, fewer in all, the orientation rule with the displacement of each triangle's own corners), and its drift is the largest bound of those triangles and of the
+        // ghosts at u and w at the new positions. Neither is a boundary vertex or a bowtie, both are in one component (callers: search_pairs)
+        [MethodImpl(JitHints.Optimize)]
+        internal bool try_move_pair(int u, Vector3d pu, int w, Vector3d pw)
+        {
+            // (the bound of an edit is that of the component of its first removed triangle, see improves: both vertices must be in it. The
+            // callers pass two corners of one triangle; a pair of two components is refused)
+            if (u != w && componentOf != null && u < componentOf.Length && w < componentOf.Length && componentOf[u] != componentOf[w])
+                return false;
+            if (u == w || pu == Mesh.GetVertex(u) || pw == Mesh.GetVertex(w) || double.IsNaN(pu.x + pu.y + pu.z) || double.IsNaN(pw.x + pw.y + pw.z)
+                || hard_fixed(u) || hard_fixed(w))
+                return false;
+            if (stopped)
+                return false;
+            begin_edit();
+            foreach (int t in Mesh.VtxTrianglesItr(u)) {
+                removed.Add(t);
+                added.Add(Mesh.GetTriangle(t));
+                addedFrom.Add(removed.Count - 1);
+            }
+            int fromU = removed.Count;
+            foreach (int t in Mesh.VtxTrianglesItr(w)) {
+                // (a triangle at both: once)
+                if (removed.IndexOf(t, 0, fromU) >= 0)
+                    continue;
+                removed.Add(t);
+                added.Add(Mesh.GetTriangle(t));
+                addedFrom.Add(removed.Count - 1);
+            }
+            movedV = u; movedPos = pu; movedV2 = w; movedPos2 = pw;
+            bool ok = improves(Math.Max(pu.Distance(Mesh.GetVertex(u)), pw.Distance(Mesh.GetVertex(w))));
+            movedV = movedV2 = -1;
+            if (ok == false)
+                return false;
+            set_vertex(u, pu);
+            set_vertex(w, pw);
+            foreach (int t in removed)
+                mark_dirty(t);
+            touched.Add(u);
+            touched.Add(w);
+            commit_drift();
+            Moves++;
+            JointMoves++;
+            if (is_fixed(u) || is_fixed(w))
+                JointMovesWithFixedCorner++;
+            return true;
+        }
+
         void set_vertex(int v, Vector3d p)
         {
             if (atPosition != null) {
@@ -3194,6 +3374,327 @@ namespace g3
                     search_corners(p.a);
             }
             return PositionSearchMoves - before;
+        }
+
+        /// <summary>
+        /// the last resort for a degenerate triangle that is left after everything else, the removal of tiny components included: the
+        /// joint move of two of its corners (search_pairs); true by default. A result that is without a degenerate triangle without it is
+        /// the same with it, bit for bit
+        /// </summary>
+        public bool JointSearch = true;
+
+        /// <summary>
+        /// the evaluations the joint stage may use per degenerate triangle it starts with (the proposals that reach improves; the
+        /// evaluations that succeeded took at most 301 in the sample of docs/research/ROUNDING_DEGENERATE_LEFT_2026-11.md section 10, a
+        /// pair that failed took 1 872 in the samples: a measurement, not a bound). The stage has its own budget so that it does not use up the one of the repair: it
+        /// stops at it, or before the repair's effort limit, without setting EvaluationLimitReached
+        /// </summary>
+        internal int JointStageEvaluationsPerDefect = 1024;
+
+        // the same for the rounds after the first (JointExtension): a triangle that no round repairs takes about 4 000 to 5 000 proposals in
+        // them, the repairs of the sample took at most 3 100 (docs/design/SAFE_ROUNDING.md section 9.1.1)
+        internal int JointExtensionEvaluationsPerDefect = 4096;
+
+        // the work of the searches that make no move once the extension has been reached (its own rounds, and the rounds 0 after one of its moves,
+        // which have its budget) is capped for the whole stage, in proposals that reach improves and in cheap probes: when it is spent, the stage
+        // ends. The budget per triangle above is linear in the number of triangles, and so is the cost of the ones the stage cannot repair (about
+        // 4 100 proposals and 27 000 probes, 35 to 85 ms each), which a mesh with a few hundred of them would turn into many seconds; with the cap it
+        // is the work of about 32 of them. A search that makes a move does not count, so the repairs of any number of triangles go on
+        // (docs/design/SAFE_ROUNDING.md section 9.1.1)
+        internal const long JointExtensionWastedProposals = 32 * 4096;
+        internal const long JointExtensionWastedProbes = 1 << 20;
+        // for tests: the caps of this thread are the constants divided by these (0 or 1: the constants; at least 1 remains), so that a test with a
+        // divisor reaches the constants themselves (the repair of a Boolean is made inside the thread)
+        [ThreadStatic] internal static long WastedProposalsDivisorOnThisThread, WastedProbesDivisorOnThisThread;
+        long wastedProposals, wastedProbes;
+
+        bool extension_exhausted()
+        {
+            return wastedProposals >= Math.Max(1, JointExtensionWastedProposals / Math.Max(1, WastedProposalsDivisorOnThisThread))
+                || wastedProbes >= Math.Max(1, JointExtensionWastedProbes / Math.Max(1, WastedProbesDivisorOnThisThread));
+        }
+
+        // the largest difference of the two levels (j) of a pair of free corners in the last round of the joint stage (the difference of 3 is
+        // the largest an accepted move of the sample of the exact oracle needed); the pairs with a fixed corner have the same level for both
+        internal const int JointLevelSpread = 3;
+
+        // the evaluation count and the pair test count at which the joint stage ends (set by joint_stage)
+        long jointEvaluationsEnd, jointPairTestsEnd;
+
+        bool joint_stage_over()
+        {
+            return evaluations >= jointEvaluationsEnd || pairTests >= jointPairTestsEnd;
+        }
+
+        // the joint search at the degenerate triangles that are left: rounds of search_pairs at each, until a round makes no move (every
+        // move lowers the number of defects, as every edit: improves). The pairs that failed are not tried again unless a vertex of
+        // their stars changed (search_pairs); no component that is closed and inside out is searched (a move there makes it no better)
+        void joint_stage(ref List<Index2i> pairs, ref List<int> bad)
+        {
+            // (its own budget, and not past the repair's: no evaluation of the stage sets EvaluationLimitReached)
+            jointEvaluationsEnd = Math.Min(maxEvaluations, evaluations + (long)JointStageEvaluationsPerDefect * bad.Count);
+            jointPairTestsEnd = pairBudget - (pairBudget >> 4);
+            wastedProposals = wastedProbes = 0;
+            for (int i = 0; i < pairFailed.Length; ++i)
+                pairFailed[i].Clear();
+            var insideOut = new Dictionary<int, bool>();
+            // (the rounds: 0 the free pairs with one level for both, as before the extension; when a round of 0 makes no move, the rounds of the
+            // extension in their order, each only when the earlier ones made none, and after a move of one the stage starts at 0 again. So an input
+            // whose degenerate triangles all go in the rounds of 0 has its result as without the extension. The extension has a budget of its own,
+            // set where it is first reached, after the one of the rounds of 0 is spent)
+            int round = 0;
+            bool extended = false;
+            int rounds = JointExtension ? JointRounds : 1;
+            int skipped = SkipJointRoundsOnThisThread;
+            while (bad.Count > 0 && stopped == false) {
+                if (round > 0 && extended == false) {
+                    extended = true;
+                    // (per triangle the stage works on: not those of a closed component that is inside out)
+                    int working = 0;
+                    foreach (int t in bad)
+                        if (Mesh.IsTriangle(t) && in_inside_out_component(t, insideOut) == false)
+                            working++;
+                    jointEvaluationsEnd = Math.Min(maxEvaluations, evaluations + (long)JointExtensionEvaluationsPerDefect * working);
+                }
+                int before = JointMoves;
+                foreach (int t in bad) {
+                    if (stopped || joint_stage_over())
+                        break;
+                    if (extended && extension_exhausted())
+                        break;
+                    if (Mesh.IsTriangle(t) && is_bad(t) && in_inside_out_component(t, insideOut) == false) {
+                        long proposals = JointSearchProposals, probes = JointProbes;
+                        if (search_pairs(t, round) == false && extended) {
+                            // (the work of a search that made no move, once the extension has been reached; a round 0 after a move included)
+                            wastedProposals += JointSearchProposals - proposals;
+                            wastedProbes += JointProbes - probes;
+                        }
+                    }
+                }
+                if (JointMoves == before) {
+                    do
+                        ++round;
+                    while (round < rounds && (skipped >> round & 1) != 0);
+                    if (round >= rounds)
+                        break;
+                    continue;
+                }
+                // (back to round 0 after a move of any round: round 2 leaves out the pairs of one level, so a free pair of one level whose star a
+                // move of the extension changed would never be tried again without it. No test covers the restart: in the 29 states of the
+                // oracle sample and in 5 500 search cases (seeds 2 and 3) the result is the same without it)
+                round = 0;
+                // (also where the budget ended the round: the lists are those of the mesh as the moves left it)
+                bad = degenerate_triangles();
+                if (pairs.Count > 0)
+                    pairs = intersecting_pairs();
+                // (the budget of the rounds of 0 spent: the extension has one of its own)
+                if (joint_stage_over() && (extended || rounds == 1))
+                    break;
+            }
+        }
+
+        // is triangle t in a closed component of negative volume (the memo: one answer for every triangle of a component; a joint move
+        // does not change the connectivity, and the sign of an inside out component is not changed by the stage, which skips it)
+        bool in_inside_out_component(int t, Dictionary<int, bool> memo)
+        {
+            bool known;
+            if (memo.TryGetValue(t, out known))
+                return known;
+            var comp = new List<int> { t };
+            var seen = new HashSet<int> { t };
+            bool closed = true;
+            for (int i = 0; i < comp.Count; ++i) {
+                Index3i nb = Mesh.GetTriNeighbourTris(comp[i]);
+                for (int k = 0; k < 3; ++k) {
+                    if (nb[k] == DMesh3.InvalidID) { closed = false; continue; }
+                    if (seen.Add(nb[k]))
+                        comp.Add(nb[k]);
+                }
+            }
+            bool negative = false;
+            if (closed) {
+                Vector3d o = Mesh.GetVertex(Mesh.GetTriangle(t).a);
+                double volume = 0;
+                foreach (int x in comp) {
+                    Index3i tv = Mesh.GetTriangle(x);
+                    volume += (Mesh.GetVertex(tv.a) - o).Dot((Mesh.GetVertex(tv.b) - o).Cross(Mesh.GetVertex(tv.c) - o)) / 6;
+                }
+                negative = volume < 0;
+            }
+            foreach (int x in comp)
+                memo[x] = negative;
+            return negative;
+        }
+
+        // the pairs of vertices whose joint search found no move (as searchFailed): kept for the whole stage, and dropped where a move
+        // changes the stars of a vertex of the pair
+        // (one set per round of the joint stage: the pairs of a round are other proposals than those of another)
+        const int JointRounds = 3;
+        internal readonly HashSet<long>[] pairFailed = { new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>(), new HashSet<long>() };
+
+        /// <summary>
+        /// whether the joint stage goes on, where the free pairs with one level for both found no move, first with pairs that include a
+        /// corner that is_fixed marks (FixedVertexF, where it applies: JointMovesWithFixedCorner; never a hard-fixed one), then with pairs of free corners with two levels.
+        /// True by default; false is the stage of before: the result of an input that has no degenerate triangle left without the
+        /// extension is the same with it, bit for bit
+        /// </summary>
+        public bool JointExtension = true;
+
+        // after a joint move of u and w: the pairs that failed and have a vertex of the stars of u or w (whose triangles and positions the
+        // move changed) are searched again. A pair elsewhere whose proposals now meet the moved triangles is not (it only loses a repair)
+        internal void forget_failed_pairs(int u, int w)
+        {
+            bool any = false;
+            foreach (HashSet<long> failed in pairFailed)
+                any |= failed.Count > 0;
+            if (any == false)
+                return;
+            var changed = new HashSet<int> { u, w };
+            foreach (int v in new[] { u, w })
+                foreach (int t in Mesh.VtxTrianglesItr(v)) {
+                    Index3i tv = Mesh.GetTriangle(t);
+                    changed.Add(tv.a); changed.Add(tv.b); changed.Add(tv.c);
+                }
+            foreach (HashSet<long> failed in pairFailed)
+                failed.RemoveWhere(k => changed.Contains((int)(k >> 32)) || changed.Contains((int)(k & 0xFFFFFFFFL)));
+        }
+
+        // are there fewer bad triangles at the stars of u and w with u at pu and w at pw than oldBad: the cheap test that
+        // improves would apply first (it does not count as an evaluation); with atLeast, also not fewer than that many (the second tier of
+        // search_pairs leaves out the proposals that leave none: the first tier had them, and improves refused them)
+        internal bool pair_removes_bad(int u, Vector3d pu, int w, Vector3d pw, List<int> star, int oldBad, int atLeast = 0)
+        {
+            movedV = u; movedPos = pu; movedV2 = w; movedPos2 = pw;
+            int n = 0;
+            // (stops at the oldBad-th bad triangle: the answer is no)
+            foreach (int t in star)
+                if (is_bad(Mesh.GetTriangle(t)) && ++n >= oldBad)
+                    break;
+            movedV = movedV2 = -1;
+            return n < oldBad && n >= atLeast;
+        }
+
+        // the last resort for degenerate triangle t, where no single corner can move (search_corners found nothing): two of its
+        // corners (no boundary vertex, no bowtie) move together, each by its room over 2^j along one of the 26 directions each, the smallest
+        // size first. The pairs go in the order of their positions (x, then y, then z), not of their ids; of the proposals only those that
+        // leave fewer degenerate triangles at the two stars are given to improves (try_move_pair); the first that improves is made. The
+        // rounds of the joint stage (joint_stage) differ in the pairs and the levels j of the two corners:
+        //   round 0: the pairs of free corners (not fixed), the same j for both
+        //   round 1: the pairs with a fixed corner (FixedVertexF, a preference, never a hard-fixed one: a free corner with a fixed one, then
+        //            two fixed ones), the same j for both
+        //   round 2: the pairs of free corners with two levels that differ by at most JointLevelSpread (j in the order of their sum)
+        // The rounds 1 and 2 go twice over the pairs: first for the proposals that leave no degenerate triangle at the two stars where
+        // they have several, then for those that leave fewer but not none (a move that removes one of two triangles that share a corner can
+        // make the other one unrepairable; the proposals that leave none were evaluated in the first tier). Proposals probed per pair and tier
+        // (the cheap test, no evaluation: with pairFailed once per pair, round and tier until a move changes its stars): 26 * 26 * 8 = 5 408 in
+        // rounds 0 and 1, 26 * 26 * 36 = 24 336 in round 2 (the 36 pairs of levels that differ by 1 to 3: 14 + 12 + 10). Per triangle, at most
+        // 76 000 with one fixed corner (one free pair, two pairs of round 1, one of round 2, two tiers each in the rounds 1 and 2), 162 000 with three
+        // free corners (three pairs, round 2 twice each), against 16 000 for the free pairs alone; the proposals
+        // that reach improves are evaluations, bounded by the stage's own budget (JointStageEvaluationsPerDefect, in the rounds after the
+        // first JointExtensionEvaluationsPerDefect)
+        [MethodImpl(JitHints.Optimize)]
+        bool search_pairs(int t, int round = 0)
+        {
+            Index3i tv = Mesh.GetTriangle(t);
+            var free = new List<int>(3);
+            var soft = new List<int>(3);
+            for (int k = 0; k < 3; ++k) {
+                int v = tv[k];
+                if (Mesh.IsBoundaryVertex(v) || Mesh.IsBowtieVertex(v))
+                    continue;
+                // (a hard-fixed corner is in no pair: try_move_pair refuses it; with FixedWhereCoarse false it is not is_fixed in a coarse component)
+                if (hard_fixed(v))
+                    continue;
+                if (is_fixed(v) == false)
+                    free.Add(v);
+                else
+                    soft.Add(v);
+            }
+            Comparison<int> byPosition = (a, b) => {
+                Vector3d pa = Mesh.GetVertex(a), pb = Mesh.GetVertex(b);
+                int c = pa.x.CompareTo(pb.x);
+                if (c == 0) c = pa.y.CompareTo(pb.y);
+                if (c == 0) c = pa.z.CompareTo(pb.z);
+                return c != 0 ? c : a.CompareTo(b);
+            };
+            free.Sort(byPosition);
+            soft.Sort(byPosition);
+            var candidates = new List<Index2i>(3);
+            if (round != 1) {
+                for (int i = 0; i < free.Count; ++i)
+                    for (int j = i + 1; j < free.Count; ++j)
+                        candidates.Add(new Index2i(free[i], free[j]));
+            } else {
+                foreach (int f in free)
+                    foreach (int x in soft)
+                        candidates.Add(new Index2i(f, x));
+                for (int i = 0; i < soft.Count; ++i)
+                    for (int j = i + 1; j < soft.Count; ++j)
+                        candidates.Add(new Index2i(soft[i], soft[j]));
+            }
+            int spread = round == 2 ? JointLevelSpread : 0;
+            var star = new List<int>();
+            for (int tier = round == 0 ? 1 : 0; tier < 2; ++tier)
+                foreach (Index2i pair in candidates) {
+                    int u = pair.a, w = pair.b;
+                    long pairKey = LockedKey(u, w);
+                    if (pairFailed[2 * round + tier].Contains(pairKey))
+                        continue;
+                    double ru = room_at(u), rw = room_at(w);
+                    if (!(ru > 0) || !(rw > 0))
+                        continue;
+                    star.Clear();
+                    foreach (int x in Mesh.VtxTrianglesItr(u))
+                        star.Add(x);
+                    foreach (int x in Mesh.VtxTrianglesItr(w))
+                        if (star.Contains(x) == false)
+                            star.Add(x);
+                    int oldBad = 0;
+                    foreach (int x in star)
+                        if (is_bad(x))
+                            oldBad++;
+                    if (tier == 0 && oldBad < 2)
+                        continue;
+                    int need = tier == 0 ? 1 : oldBad;
+                    // (the first tier ran for this pair, where it had two or more bad triangles: a proposal that leaves none is the same edit,
+                    // which improves refused there)
+                    int atLeast = tier == 1 && round > 0 && oldBad >= 2 ? 1 : 0;
+                    Vector3d cu = Mesh.GetVertex(u), cw = Mesh.GetVertex(w);
+                    double rejected = SmallestRejectedDrift;
+                    // (the levels in the order of their sum: for the same level the smallest first, 2 * level; the size is the room over
+                    // 2^(SearchSizes - 1 - level), a power of two: the same values as the room over 128, doubled, in the order of before the rounds)
+                    for (int sum = 0; sum <= 2 * (SearchSizes - 1); ++sum)
+                        for (int lu = Math.Max(0, sum - (SearchSizes - 1)); lu <= Math.Min(SearchSizes - 1, sum); ++lu) {
+                            int lw = sum - lu;
+                            if (round == 2 ? lu == lw : lu != lw)
+                                continue;
+                            if (Math.Abs(lu - lw) > spread)
+                                continue;
+                            double su = ru / (1 << (SearchSizes - 1 - lu)), sw = rw / (1 << (SearchSizes - 1 - lw));
+                            foreach (Vector3d du in SearchDirections) {
+                                Vector3d pu = cu + su * du;
+                                foreach (Vector3d dw in SearchDirections) {
+                                    Vector3d pw = cw + sw * dw;
+                                    JointProbes++;
+                                    if (pair_removes_bad(u, pu, w, pw, star, need, atLeast) == false)
+                                        continue;
+                                    if (joint_stage_over())
+                                        return false;
+                                    JointSearchProposals++;
+                                    if (try_move_pair(u, pu, w, pw)) {
+                                        forget_failed_pairs(u, w);
+                                        return true;
+                                    }
+                                    // (as in search_corners: only the rounding of the positions can put a candidate beyond the bound)
+                                    SmallestRejectedDrift = rejected;
+                                    if (stopped)
+                                        return false;
+                                }
+                            }
+                        }
+                    pairFailed[2 * round + tier].Add(pairKey);
+                }
+            return false;
         }
 
         // move one corner of triangle t (the fixed ones last; no boundary vertex, which moves only along the boundary,

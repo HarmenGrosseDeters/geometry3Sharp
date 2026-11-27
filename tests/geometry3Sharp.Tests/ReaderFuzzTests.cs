@@ -76,8 +76,26 @@ namespace geometry3Sharp.Tests
             return ms.ToArray();
         }
 
+        // a font (PolygonFont2d.ReadFont, #1615): two characters, one with a hole
+        static byte[] WriteFont()
+        {
+            var font = new PolygonFont2d();
+            var square = new Polygon2d(new[] { new Vector2d(0, 0), new Vector2d(4, 0), new Vector2d(4, 4), new Vector2d(0, 4) });
+            var hole = new Polygon2d(new[] { new Vector2d(1, 1), new Vector2d(1, 3), new Vector2d(3, 3), new Vector2d(3, 1) });
+            var withHole = new GeneralPolygon2d(square); withHole.AddHole(hole, false, false);
+            font.AddCharacter("A", new[] { withHole });
+            font.AddCharacter("B", new[] { new GeneralPolygon2d(square), new GeneralPolygon2d(hole) });
+            var ms = new MemoryStream();
+            var w = new BinaryWriter(ms);
+            PolygonFont2d.Store(font, w);
+            w.Flush();
+            return ms.ToArray();
+        }
+
         static byte[] Write(string extension, bool binary)
         {
+            if (extension == "font")
+                return WriteFont();
             if (IsPoly(extension))
                 return WritePoly(extension, binary);
             DMesh3 mesh = MeshFormatTestUtil.AttributeSphere(new Vector3d(1, 2, 3));
@@ -219,7 +237,9 @@ namespace geometry3Sharp.Tests
                     // the format reader itself: StandardMeshReader turns every exception into GenericReaderError,
                     // which would hide crashes (with the invariant culture StandardMeshReader sets)
                     System.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
-                    if (extension == "poly-obj")
+                    if (extension == "font")
+                        PolygonFont2d.ReadFont(new MemoryStream(data, false));      // (no IOReadResult: it returns or throws)
+                    else if (extension == "poly-obj")
                         result = PolyMeshIO.ReadOBJ(new StreamReader(new MemoryStream(data, false), Encoding.UTF8), ReadOptions.Defaults, out poly);
                     else if (extension == "poly-ply")
                         result = PolyMeshIO.ReadPLY(new BinaryReader(new MemoryStream(data, false)), ReadOptions.Defaults, out poly);
@@ -337,6 +357,10 @@ namespace geometry3Sharp.Tests
         // .g3mesh (#130: the reader used to trust the stored buffers and sizes)
         [Fact]
         public void MutatedFiles_ReadSafely_G3Mesh() => AssertMutatedFilesReadSafely("g3mesh", true, false);
+
+        // .font (#1615: the reader allocated from the character name length and the polygon count of the file)
+        [Fact]
+        public void MutatedFiles_ReadSafely_Font() => AssertMutatedFilesReadSafely("font", true, false);
 
         // a result reported as Ok has finite coordinates (ReadOptions.AllowNonFiniteCoordinates is false by default)
         [Theory]

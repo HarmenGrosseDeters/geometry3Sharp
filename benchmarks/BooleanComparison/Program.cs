@@ -87,6 +87,7 @@ static class Program
             case "chain-ab": return ChainExact.Abc(args.Skip(1).ToArray(), "ab");
             case "chain-ab-proc": return ChainExact.Procedural(args.Skip(1).ToArray(), "ab");
             case "synth": return Synthetic.Write(args[1]);
+            case "nesting-cost": return NestingCost.Run(args.Skip(1).ToArray());
             case "knot": return Knot.Run(args.Skip(1).ToArray());
             case "run": return Run(args[1], args[2], args[3], args[4]);
             case "run-pipeline": return RunPipeline(args[1], args[2], args[3], args[4], args.Length > 5 ? args[5] : "default");

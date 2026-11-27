@@ -106,7 +106,7 @@ namespace gs
         /// for the volume IoU, eg a screw of an assembly) is treated like one whose volume differs ("parts of the input lost").
         /// Only with MinVolumeIoU &gt; 0 (0 turns off both). Off by default: on the 430 Thingi10K meshes of
         /// benchmarks/MeshRepairBenchmark it found no lost part, but rejected 3 repairs whose nested closed parts were
-        /// oriented differently from the reference (a part inside another taken for a cavity), and the fallbacks from
+        /// oriented differently from the reference (a part inside another taken for a cavity: the ambiguity that ComponentsFlippedByNesting and ResultReason NestingAmbiguous report, #1566), and the fallbacks from
         /// the open input were worse (one mesh fewer repaired). For inputs with separate small parts (assemblies). The fallbacks after such a rejection (solidify, wrap) are not
         /// checked for it: their ResultReason can be "" although they lost the same part (unless it is a separable part, which the final
         /// lost-part check of Apply() reports), see FallbackReason and UsedInput.
@@ -513,7 +513,7 @@ namespace gs
         /// false if cancelled, if the input is empty, if its diagonal is not finite (ResultReason ScaleNotFinite), or if
         /// both the solidify fallback (eg the grid would be too large) and the alpha wrap failed; Mesh is then not replaced. Also false with
         /// LostFarPart, LostSeparatePart (a closed part) or LostFarOpenPart (an open part), the result in Mesh, if a separable part of an input
-        /// of two or more parts is not in the result (MeshRobustRepairLostParts: judged against the part's own size). true otherwise, also for an unclean solidify result (when the wrap is off or failed): check ResultReason.
+        /// of two or more parts is not in the result (MeshRobustRepairLostParts: judged against the part's own size), or if the alpha wrap is a thin shell around an input that has a solid (ThinShellWrap, in Mesh). true otherwise, also for an unclean solidify result (when the wrap is off or failed): check ResultReason.
         /// </returns>
         public bool Apply()
         {
@@ -523,6 +523,7 @@ namespace gs
             frameScale = 1;
             LastFrameScale = 1;
             reset_outputs();
+            ComponentsFlippedByNesting = 0;
             ResultVolumeIoU = double.NaN;
             reset_lost_area();
             ResultPath = ResultPaths.None;
@@ -665,6 +666,15 @@ namespace gs
                 parts = MeshRobustRepairLostParts.Parts(Mesh, out skipped);
             bool far = parts != null && global_scale_share(Mesh) > 0;
             DMesh3 givenInput = MeasureResultVolumeIoU || MeasureLostArea ? new DMesh3(Mesh) : null;
+            // (the solid the volume checks used, for ResultVolumeIoU: see OrientedReference)
+            // the welded, oriented copy of the input, once for the whole Apply() (apply_core, the volume IoU and the nesting reading take it)
+            givenWelded = WeldedOriented(Mesh);
+            givenFor = Mesh;
+            givenStamp = Mesh.ShapeTimestamp;
+            DMesh3 givenSolid = MeasureResultVolumeIoU ? (givenWelded != null ? WindingContouring.OrientedCopy(givenWelded) : givenInput) : null;
+            DMesh3 nestedReading, nestedUnion;
+            int nested;
+            nesting_references(Mesh, givenWelded, out nestedReading, out nestedUnion, out nested);
             bool ok = apply_checked();
             if (ok == false && parts != null)
                 skipped = "not reached";
@@ -681,7 +691,27 @@ namespace gs
                     : ok && PassedThroughTriangles > 0 && wholePassedThrough ? ResultPaths.PassThrough : ResultPaths.Repair;
             }
             if (ok && givenInput != null && MeasureResultVolumeIoU)
-                ResultVolumeIoU = final_volume_iou(givenInput, Mesh);
+                ResultVolumeIoU = final_volume_iou(givenSolid, Mesh);
+            ComponentsFlippedByNesting = nested;
+            // (#1566) outward shells inside others, taken for cavities: the solid differs from the union of the shells, which no reference derived the
+            // same way can see
+            if (ok && nested > 0 && MinVolumeIoU > 0 && CancelF() == false) {
+                double nestingIoU;
+                var readingSolid = new MeshRepairMetrics.SolidReference(nestedReading);
+                var unionSolid = MeshRepairMetrics.SolidReference.Unoriented(nestedUnion);
+                if (MeshRepairMetrics.VolumeIoUAtLeast(readingSolid, unionSolid, MinVolumeIoU, out nestingIoU, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget) == false) {
+                    // only a result that follows the cavity reading is refused: a fallback can return the union (the alpha wrap of the input, a resolve of
+                    // it), which is the other reading, chosen and visible in ComponentsFlippedByNesting
+                    var resultSolid = MeshRepairMetrics.SolidReference.Unoriented(Mesh);
+                    double toReading, toUnion;
+                    MeshRepairMetrics.VolumeIoUAtLeast(readingSolid, resultSolid, 1.0, out toReading, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget);
+                    MeshRepairMetrics.VolumeIoUAtLeast(unionSolid, resultSolid, 1.0, out toUnion, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget);
+                    if (!(toUnion > toReading)) {
+                        ResultReason = ResultReason == "" ? NestingAmbiguous : NestingAmbiguous + "; " + ResultReason;
+                        ok = false;
+                    }
+                }
+            }
             // (a cancel during the report is a cancel: false, as in every stage; the result stays in Mesh)
             if (MeasureLostArea && givenInput != null && (ok || ResultPath != ResultPaths.None) && measure_lost_area(givenInput, Mesh) == false)
                 ok = false;
@@ -868,6 +898,7 @@ namespace gs
             ResultReason = "not repaired";
             UsedInput = false;
             UsedAlphaWrap = false;
+            WrapFilledLoops = WrapFillCandidateLoops = 0;
             AlphaWrapTriangles = 0;
             AlphaWrapCoarsening = 1;
             AlphaWrapSimplified = false;
@@ -922,6 +953,11 @@ namespace gs
         bool apply_core()
         {
             DMesh3 input = new DMesh3(Mesh);
+            // the input's solid for the volume checks and the fallbacks: an oriented, welded copy if the input is unwelded or its triangles
+            // disagree in orientation (#1548), else the input itself
+            // (the welded copy of apply_reported, if Mesh is still the mesh it took it from; a pass-through of parts repairs another mesh)
+            DMesh3 reference = (givenFor == Mesh && givenStamp == Mesh.ShapeTimestamp)
+                ? (givenWelded != null ? WindingContouring.OrientedCopy(givenWelded) : input) : OrientedReference(input) ?? input;
             bool disparity = global_scale_share(input) > 0;
             // far parts for the repair stage and the first resolve: few closed components (a cracked or unwelded surface, a soup, has many
             // open pieces that are no separate parts: its tolerances stay relative to the whole)
@@ -967,28 +1003,28 @@ namespace gs
             bool uncleanVolumePending = false;
             if (FallbackReason == "") {
                 // (NaN: the input has no solid to compare with, accepted)
-                string differs = volume_check(input, result, out RepairVolumeIoU);
+                string differs = volume_check(reference, result, out RepairVolumeIoU);
                 // components far apart: the repair stage's cleanups (relative to all triangles) may have collapsed a part, which the
                 // volume check does not see; the input is resolved instead
-                if (differs == "" && lostPartInput != null && BypassEarlyLostPartChecks == false && lost_part(input, result))
+                if (differs == "" && lostPartInput != null && BypassEarlyLostPartChecks == false && lost_part(reference, result))
                     differs = PartsLostFarReason;
                 if (differs != "") {
                     FallbackReason = differs;
-                    solidifyFrom = input;
+                    solidifyFrom = reference;
                 }
                 end_phase("volume");
             } else if (result.TriangleCount == 0) {
-                solidifyFrom = input;
+                solidifyFrom = reference;
             } else if (ExactResolve == false || input.TriangleCount == 0) {
                 // (an empty input: the check sends the fallbacks to it, and Apply() stops below, as before)
-                unclean_result_volume(input, result, ref solidifyFrom);
+                unclean_result_volume(reference, result, ref solidifyFrom);
             } else {
                 // with ExactResolve, the volume of an unclean result is checked only if its exact resolve fails: a
                 // successful one replaces UsedInput and RepairVolumeIoU, and solidifyFrom is not used. The check, and
                 // so its outputs, are the same as if it had run here
                 uncleanVolumePending = true;
             }
-            UsedInput = solidifyFrom == input;
+            UsedInput = solidifyFrom == reference;
             if (FallbackReason == "") {
                 Mesh = result;
                 ResultReason = "";
@@ -1004,23 +1040,23 @@ namespace gs
                     // a clean result whose volume differs resolves to its own solid again: skip to the next try
                     bool cleanButDiffers = FallbackReason == VolumeDiffers || FallbackReason == PartsLost || FallbackReason == PartsLostFarReason;
                     if (cleanButDiffers == false)
-                        exact = resolve_exactly(result, input, false);
+                        exact = resolve_exactly(result, reference, false);
                     // its volume may differ (or a part be lost) only because components are oriented differently from
                     // the input (eg a nested part taken for a cavity): then resolve it again, oriented by the input's
                     // solid, if that orientation differs at all
                     if (exact == null && (cleanButDiffers || ExactResolveReason == VolumeDiffers || ExactResolveReason == PartsLost || ExactResolveReason == PartsLostFarReason) && CancelF() == false)
-                        exact = resolve_exactly(result, input, true);
+                        exact = resolve_exactly(result, reference, true);
                 }
                 bool fromResult = exact != null;
                 if (exact == null && uncleanVolumePending) {
                     end_phase("exact");
-                    unclean_result_volume(input, result, ref solidifyFrom);
-                    UsedInput = solidifyFrom == input;
+                    unclean_result_volume(reference, result, ref solidifyFrom);
+                    UsedInput = solidifyFrom == reference;
                 }
                 // then the input itself (a clean result whose volume differs, or an unclean one that lost volume)
                 if (exact == null && solidifyFrom != result && CancelF() == false) {
                     string reason = ExactResolveReason;
-                    exact = resolve_exactly(solidifyFrom, input, false);
+                    exact = resolve_exactly(solidifyFrom, reference, false);
                     if (exact == null && reason != "")
                         ExactResolveReason = reason + "; input: " + ExactResolveReason;
                 }
@@ -1031,12 +1067,12 @@ namespace gs
                 if (exact == null && CancelF() == false) {
                     DMesh3 from = solidifyFrom != result || result.TriangleCount == 0 ? solidifyFrom : result;
                     if (lostFarRejected)
-                        from = input;
+                        from = reference;
                     MaxScaleErosionShare = global_scale_share(from);
                     if (MaxScaleErosionShare > 0 && from != notClosedFrom) {
                         ScaleRetry = true;
                         string reason = ExactResolveReason;
-                        exact = resolve_exactly(from, input, false, true);
+                        exact = resolve_exactly(from, reference, false, true);
                         if (exact == null)
                             ExactResolveReason = reason + "; relative to the largest component: " + ExactResolveReason;
                         else
@@ -1073,7 +1109,8 @@ namespace gs
             // post-processing (which rarely removes them), finish it only if the wrap fails
             bool wrapOnSelfIntersections = CheckSelfIntersections && AlphaWrapFallback;
             Solidify = new MeshWindingNumberSolidify(solidifyFrom) {
-                GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF, StopIfSelfIntersecting = wrapOnSelfIntersections
+                GridResolution = SolidifyResolution, Adaptive = true, CancelF = CancelF, StopIfSelfIntersecting = wrapOnSelfIntersections,
+                NestingCheck = false        // (the repair judges the nesting itself, ComponentsFlippedByNesting)
             };
             bool solidified = Solidify.Compute() && Solidify.Result != null && Solidify.Result.TriangleCount > 0;
             end_phase("solidify");
@@ -1091,7 +1128,20 @@ namespace gs
                 double smallAlpha = 0, smallOffset = 0;
                 if (SmallInputWrapTriangles > 0 && input.TriangleCount < SmallInputWrapTriangles && solidifyFrom.TriangleCount < SmallInputWrapTriangles && lostPartInput == null)
                     small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
-                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
+                // the short boundary loops of the welded input are holes of a surface meant to be closed: filled, so that the alpha ball does not
+                // pass them and wrap both sides of the sheet (#1542, #1575). Not copied if there is none
+                DMesh3 wrapFrom = solidifyFrom;
+                WrapFilledLoops = WrapFillCandidateLoops = 0;
+                if (WrapFillLoopAlphas > 0) {
+                    double nominalAlpha = smallAlpha > 0 ? smallAlpha : WrapRelativeAlpha > 0 ? MeshRepairMetrics.TriangleBounds(solidifyFrom).DiagonalLength / WrapRelativeAlpha : 0;
+                    DMesh3 filledCopy = RobustRepairWrapHoleFill.Fill(solidifyFrom, nominalAlpha, WrapFillLoopAlphas, CancelF, out WrapFilledLoops, out WrapFillCandidateLoops);
+                    end_phase("wrap.fill");
+                    if (CancelF())
+                        return false;
+                    if (filledCopy != null)
+                        wrapFrom = filledCopy;
+                }
+                AlphaWrap = new MeshAlphaWrap(wrapFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
                     MaxEstimatedTriangles = WrapMaxEstimatedTriangles, MaxAlphaCoarsening = WrapMaxAlphaCoarsening, MaxThreads = WrapMaxThreads };
                 AlphaWrap.Compute();
                 AlphaWrapCoarsening = AlphaWrap.AlphaCoarsening;
@@ -1108,7 +1158,7 @@ namespace gs
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
                     DMesh3 raw = AlphaWrap.Result;
                     if (AlphaWrapSharpFeatures) {
-                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), solidifyFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) {
+                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), wrapFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) {
                             CancelF = CancelF, VarifoldCreases = AlphaWrapSharpFeaturesOnSoups };
                         ConfigureWrapFeatures?.Invoke(features);
                         bool computed = features.Compute();
@@ -1124,7 +1174,7 @@ namespace gs
                     int target = WrapTargetTriangles > 0 ? WrapTargetTriangles
                         : WrapTargetFactor > 0 ? (int)Math.Min(int.MaxValue, Math.Max(1.0, Math.Ceiling(WrapTargetFactor * input.TriangleCount))) : 0;
                     if (SimplifyAlphaWrap) {
-                        wrapped = simplify_wrap(raw, AlphaWrap.UsedOffset, solidifyFrom) ?? raw;
+                        wrapped = simplify_wrap(raw, AlphaWrap.UsedOffset, wrapFrom) ?? raw;
                         end_phase("wrap.simplify");
                         if (CancelF())
                             return false;
@@ -1137,7 +1187,7 @@ namespace gs
                                 targetLimit = TargetLimitNotSimplified;
                         }
                         else if (wrapped.TriangleCount > target) {
-                            DMesh3 reduced = ReduceToTarget(wrapped, raw, target, (WrapTargetMaxDistance >= 0.5 ? WrapTargetMaxDistance : 0.5) * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, solidifyFrom);
+                            DMesh3 reduced = ReduceToTarget(wrapped, raw, target, (WrapTargetMaxDistance >= 0.5 ? WrapTargetMaxDistance : 0.5) * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF, wrapFrom);
                             end_phase("wrap.target");
                             if (CancelF())
                                 return false;
@@ -1152,7 +1202,7 @@ namespace gs
                     }
                     if (AlphaWrapQualityPass && wrapped != raw) {
                         DMesh3 improved = ImproveWrapQuality(wrapped, raw, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
-                            (p) => { DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(solidifyFrom, true); ConfigureWrapQuality?.Invoke(p); });
+                            (p) => { DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(wrapFrom, true); ConfigureWrapQuality?.Invoke(p); });
                         end_phase("wrap.quality");
                         if (CancelF())
                             return false;
@@ -1169,6 +1219,12 @@ namespace gs
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
                     angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
+                    // a wrap of both sides of a surface that is no solid (an open sheet, holes the fill did not close) is a thin shell around it: a
+                    // clean mesh, but no repair of the input (#1575). Detected, not repaired: the shell stays in Mesh
+                    if (is_thin_shell(wrapped, AlphaWrap.UsedOffset, wrapFrom, reference)) {
+                        ResultReason = ThinShellWrap;
+                        return false;
+                    }
                     ResultReason = "";
                     return true;
                     }
@@ -1274,6 +1330,155 @@ namespace gs
         // the exact resolve that is clean but for that (null: none), and whether it came from the input
         DMesh3 scaleOnly;
         bool scaleOnlyFromInput;
+
+        /// <summary>
+        /// the input's solid, for an input that is unwelded or whose triangles disagree in orientation (#1548), else null (the input itself is the
+        /// reference). The winding number of such an input cancels at the flipped faces, so a volume reference taken from it is too small, a
+        /// correct repair result fails the volume check, and the fallbacks would start from the raw soup. Here: the vertices on boundary edges
+        /// welded within a hundredth of the median of the shortest edges (and of the shortest edge at either vertex), the welded mesh oriented consistently per connected component
+        /// (MeshRepairOrientation.OrientComponents, the step of MeshAutoRepair), then the whole (WindingContouring.OrientedCopy). A
+        /// welded, consistently oriented input gets null, and so the unchanged behaviour
+        /// </summary>
+        DMesh3 givenWelded, givenFor;
+        int givenStamp;
+
+        internal static DMesh3 OrientedReference(DMesh3 input)
+        {
+            DMesh3 welded = WeldedOriented(input);
+            return welded == null ? null : WindingContouring.OrientedCopy(welded);
+        }
+
+        // the welded, per component consistently oriented mesh of OrientedReference (before the nesting and the global orientation), null for a welded,
+        // consistently oriented input
+        static DMesh3 WeldedOriented(DMesh3 input)
+        {
+            if (input.TriangleCount == 0)
+                return null;
+            int maxV = input.MaxVertexID;
+            var onBoundary = new bool[maxV];
+            bool conflict = false;
+            foreach (int eid in input.EdgeIndices()) {
+                Index2i et = input.GetEdgeT(eid);
+                Index2i ev = input.GetEdgeV(eid);
+                if (et.b == DMesh3.InvalidID) {
+                    onBoundary[ev.a] = onBoundary[ev.b] = true;
+                } else if (conflict == false) {
+                    Index3i ta = input.GetTriangle(et.a), tb = input.GetTriangle(et.b);
+                    conflict = (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref ta) != DMesh3.InvalidID)
+                        == (IndexUtil.find_tri_ordered_edge(ev.a, ev.b, ref tb) != DMesh3.InvalidID);
+                }
+            }
+            // (a closed mesh has nothing to weld: the scan above is its gate)
+            bool anyBoundary = false;
+            foreach (bool b in onBoundary)
+                anyBoundary |= b;
+            if (anyBoundary == false && conflict == false)
+                return null;
+            // the shortest edge at each vertex: a vertex is welded to another only within a hundredth of it, and of the median of those (the weld
+            // distance of MeshAutoRepair is 1e-8 of the diagonal, capped by a hundredth of the median edge; here the hundredth only, so that a soup with
+            // noise on its corners is welded too, and local, so that a small part far from the others keeps its vertices)
+            var shortest = new double[maxV];
+            for (int i = 0; i < maxV; ++i)
+                shortest[i] = double.PositiveInfinity;
+            foreach (int eid in input.EdgeIndices()) {
+                Index2i ev = input.GetEdgeV(eid);
+                double len = input.GetVertex(ev.a).Distance(input.GetVertex(ev.b));
+                if (len < shortest[ev.a]) shortest[ev.a] = len;
+                if (len < shortest[ev.b]) shortest[ev.b] = len;
+            }
+            var finite = new List<double>();
+            for (int i = 0; i < maxV; ++i)
+                if (shortest[i] < double.PositiveInfinity)
+                    finite.Add(shortest[i]);
+            finite.Sort();
+            double tol = finite.Count > 0 ? 0.01 * finite[finite.Count / 2] : 0;
+            if (!(tol > 0 && tol < double.PositiveInfinity))
+                return null;
+            // the vertices on boundary edges, welded by the cells of the tolerance (the first one of a cell is the representative)
+            var rep = new int[maxV];
+            var cells = new Dictionary<Tuple<long, long, long>, List<int>>();
+            bool welded = false;
+            foreach (int vid in input.VertexIndices()) {
+                rep[vid] = vid;
+                if (onBoundary[vid] == false)
+                    continue;
+                Vector3d p = input.GetVertex(vid);
+                if (!(Math.Abs(p.x) < double.PositiveInfinity && Math.Abs(p.y) < double.PositiveInfinity && Math.Abs(p.z) < double.PositiveInfinity))
+                    return null;
+                if (Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))) / tol > 1e18)
+                    return null;      // (cells that a long cannot index: no weld)
+                long cx = (long)Math.Floor(p.x / tol), cy = (long)Math.Floor(p.y / tol), cz = (long)Math.Floor(p.z / tol);
+                int found = -1;
+                for (long dx = -1; dx <= 1 && found < 0; ++dx)
+                    for (long dy = -1; dy <= 1 && found < 0; ++dy)
+                        for (long dz = -1; dz <= 1 && found < 0; ++dz) {
+                            List<int> list;
+                            if (cells.TryGetValue(Tuple.Create(cx + dx, cy + dy, cz + dz), out list))
+                                foreach (int r in list) {
+                                    double d = input.GetVertex(r).Distance(p);
+                                    if (d <= tol && d <= 0.01 * Math.Min(shortest[r], shortest[vid])) {
+                                        found = r;
+                                        break;
+                                    }
+                                }
+                        }
+                if (found >= 0) {
+                    rep[vid] = found;
+                    welded = true;
+                } else {
+                    List<int> list;
+                    var key = Tuple.Create(cx, cy, cz);
+                    if (cells.TryGetValue(key, out list) == false)
+                        cells[key] = list = new List<int>();
+                    list.Add(vid);
+                }
+            }
+            if (welded == false && conflict == false)
+                return null;
+            var m = new DMesh3(false, false, false);
+            var newId = new int[maxV];
+            foreach (int vid in input.VertexIndices())
+                if (rep[vid] == vid)
+                    newId[vid] = m.AppendVertex(input.GetVertex(vid));
+            foreach (int vid in input.VertexIndices())
+                newId[vid] = newId[rep[vid]];
+            foreach (int tid in input.TriangleIndices()) {
+                Index3i t = input.GetTriangle(tid);
+                int a = newId[t.a], b = newId[t.b], c = newId[t.c];
+                if (a != b && b != c && a != c)
+                    m.AppendTriangle(a, b, c);      // (a triangle that would make an edge of three triangles is left out)
+            }
+            if (m.TriangleCount == 0)
+                return null;
+            new MeshRepairOrientation(m).OrientComponents();
+            return m;
+        }
+
+        /// <summary>
+        /// the number of closed components of the last Apply()'s input that the repair's reading of nesting flips although they are outward by
+        /// their own volume (#1566): a closed shell inside an odd number of others counts as a cavity (MeshPostRepairCleanup.FindInvertedComponents,
+        /// by parity), so a shell that is oriented outward inside another (an insert in a housing, a part modelled twice) is reversed and the
+        /// result is hollow where the plain union of the input's shells (the nonzero winding number, the reading of ExactMeshBoolean.Resolve) is
+        /// solid. 0 for an input without such a shell, and so for a real cavity (inward inside outward). The input as given to Apply(), counted
+        /// on its welded, oriented copy if it is unwelded (#1548). If MinVolumeIoU is above 0 and the two readings differ in volume by more than
+        /// 1 - MinVolumeIoU, Apply() is false with ResultReason NestingAmbiguous; below that difference it only reports the count
+        /// </summary>
+        public int ComponentsFlippedByNesting { get; private set; }
+
+        /// <summary>
+        /// ResultReason of an Apply() that is false because the input has outward shells inside others (ComponentsFlippedByNesting above 0) that the
+        /// repair took for cavities, and the solid with them taken for cavities differs from the plain union of the input's shells by more than
+        /// 1 - MinVolumeIoU: the input is ambiguous (an insert inside a housing, or a cavity modelled with the wrong orientation), and the repair
+        /// does not decide it silently. Only a result that follows the cavity reading is refused (a fallback can return the union); it stays in Mesh. Any earlier ResultReason follows after "; "
+        /// </summary>
+        public const string NestingAmbiguous = "nesting ambiguous: inner shells taken as cavities";
+
+        // the solid of the input as the repair reads its nesting (reference) and as the plain union of its shells (a component outward by its own
+        // volume is not reversed for lying inside another); count: the components that differ, 0 if the two are the same solid
+        internal static void nesting_references(DMesh3 given, DMesh3 welded, out DMesh3 reading, out DMesh3 union, out int count)
+        {
+            MeshPostRepairCleanup.NestingReadings(welded ?? given, out reading, out union, out count);
+        }
 
         // an unclean repair result can have lost parts of the input as well (eg erosion of an open region, which the
         // volume check of the exact stage rejects, but the solidify and the wrap do not check): then the fallbacks start
@@ -1514,6 +1719,70 @@ namespace gs
         }
 
         // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees
+        /// <summary> the boundary loops filled before the alpha wrap (RobustRepairWrapHoleFill) in the last Apply() that wrapped </summary>
+        internal int WrapFilledLoops;
+        /// <summary> the boundary loops short enough to be filled (some may be skipped: invalid, or a fill larger than half its component) </summary>
+        internal int WrapFillCandidateLoops;
+        /// <summary> (tests) the longest boundary loop that the wrap's hole fill closes, in alphas of the wrap (RobustRepairWrapHoleFill.MaxLoopAlphas); 0 = no fill </summary>
+        internal double WrapFillLoopAlphas = RobustRepairWrapHoleFill.MaxLoopAlphas;
+        /// <summary> (tests) the thin-shell check of the wrap is off </summary>
+        internal bool NoThinShellCheck;
+
+        /// <summary> ResultReason when the alpha wrap is a thin shell around the input's surface, which has a solid (volume of the reference more than twice the wrap's): holes wider than alpha that the fill did not close let the ball pass, and the wrap covers both sides of the surface. Apply() is false, the shell is in Mesh </summary>
+        public const string ThinShellWrap = "the wrap is a thin shell around the surface (holes wider than alpha: both sides of the surface are wrapped, a thin shell, not the solid)";
+        /// <summary> the shell test: the volume of the wrap is at most this many times area * offset (a wrap of both sides of a sheet has volume = area * offset: 2 * offset thick, the area counted on both sides; a solid has the volume of its size) </summary>
+        internal const double ThinShellVolumeFactor = 2;
+
+        /// <summary> the solid of the reference for the shell test: the points where the magnitude of its generalized winding number exceeds this. Above 0.5 (the
+        /// solid of MeshRepairMetrics) because an open sheet with a slight curvature has a winding number just above 0.5 in the thin lens between it and the plane
+        /// of its rim: measured 0.508 for a 10 x 10 plate with a sag of 0.01, 0.66 at a sag of 0.2; a closed surface with holes is near 1 inside, a shallow cap
+        /// (the bowl of the tests) 0.76 </summary>
+        internal const double ThinShellWinding = 0.6;
+        /// <summary> the cells per axis of the grid on which the solid of the reference is sampled (at the cell centers, in its bounding box) </summary>
+        internal const int ThinShellGrid = 32;
+
+        // The wrap is a thin shell around an input that has a solid (#1575): its volume is at most ThinShellVolumeFactor * area * offset (both sides of a sheet
+        // are wrapped), the wrapped surface still has a boundary (a closed one is a solid, a flattened one a solid of no thickness, whose wrap is its wrap), and
+        // the solid of the reference (|winding number| > ThinShellWinding, sampled on a grid in its bounding box) has more than twice the volume of the wrap.
+        // A wrap encloses its input: it has the volume of the solid and more, so that this cannot hold for a repair, and a small solid (a few offsets across,
+        // thin by the first test) or a sheet, flat or curved (no point enclosed enough), is not taken for a shell. The magnitude, because an open reference
+        // has no orientation of its own. Cells are counted per slab in parallel and summed in order: deterministic
+        internal bool is_thin_shell(DMesh3 wrapped, double offset, DMesh3 wrapFrom, DMesh3 reference)
+        {
+            if (NoThinShellCheck || !(offset > 0) || wrapFrom.IsClosed() || reference.TriangleCount == 0)
+                return false;
+            Vector2d va = MeshMeasurements.VolumeArea(wrapped, wrapped.TriangleIndices(), wrapped.GetVertex);
+            if (!(va.y > 0) || !(Math.Abs(va.x) <= ThinShellVolumeFactor * va.y * offset))
+                return false;
+            return enclosed_volume(reference, ThinShellWinding, ThinShellGrid) > 2 * Math.Abs(va.x);
+        }
+
+        // the volume of the points of the bounding box of mesh where |winding number| > tau, sampled at the centers of n^3 cells
+        internal static double enclosed_volume(DMesh3 mesh, double tau, int n)
+        {
+            AxisAlignedBox3d box = MeshRepairMetrics.TriangleBounds(mesh);
+            if (!(box.Volume > 0))
+                return 0;
+            var tree = new DMeshAABBTree3(mesh, true);
+            tree.FastWindingNumber(box.Center);   // builds the cache before the parallel queries
+            Vector3d d = new Vector3d(box.Width / n, box.Height / n, box.Depth / n);
+            var count = new int[n];
+            gParallel.ForEach(Interval1i.Range(n), (i) => {
+                int c = 0;
+                for (int j = 0; j < n; ++j)
+                    for (int k = 0; k < n; ++k) {
+                        Vector3d q = new Vector3d(box.Min.x + (i + 0.5) * d.x, box.Min.y + (j + 0.5) * d.y, box.Min.z + (k + 0.5) * d.z);
+                        if (Math.Abs(tree.FastWindingNumber(q)) > tau)
+                            c++;
+                    }
+                count[i] = c;
+            });
+            long total = 0;
+            for (int i = 0; i < n; ++i)
+                total += count[i];
+            return total * (d.x * d.y * d.z);
+        }
+
         internal static void angle_stats(DMesh3 m, out double minAngle, out double maxAngle, out double shareAbove170)
         {
             minAngle = double.MaxValue; maxAngle = 0;

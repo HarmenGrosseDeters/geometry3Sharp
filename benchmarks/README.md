@@ -20,6 +20,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [BooleanInputOrder](BooleanInputOrder/README.md) | `ExactMeshBoolean` and `SolidBooleanPipeline` under reorderings of the input triangles and vertex ids, stage by stage, on procedural near-coincident plates |
 | [BooleanVolumeGradient](BooleanVolumeGradient/README.md) | `BooleanVolumeGradient`: its cost against the boolean, `RetainClassification`, and the default path before / after the change |
 | [Boolean30Prestudy](Boolean30Prestudy/README.md) | Stage profiling and measurement probes for Exact Boolean 3.0 |
+| [ExactHotspotsStudy](ExactHotspotsStudy/README.md) | Research probes of docs/research/EXACT_HOTSPOTS_STUDY_2026-11.md: the exact `orient3d` stage histogram, the repetition of the rounding repair's tri-tri tests, and a pair-cache spike (temporary library patch, not committed) |
 | [ExactImprint](ExactImprint/README.md) | Cost of `ExactMeshImprint` compared to `ExactMeshBoolean` on procedural pairs |
 | [ImprintSliverSweep](ImprintSliverSweep/README.md) | Unclean runs of `ExactMeshImprint` on ulp-shifted near-duplicates, per shape, axis and frame (far from the origin) (#1489) |
 | [ExtremeBooleans](ExtremeBooleans/README.md) | Reproduction scripts and profiling for extreme-runtime boolean pairs |
@@ -43,6 +44,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MeshRepairBenchmark](MeshRepairBenchmark/README.md) | `MeshAutoRepair` and `MeshRobustRepair` evaluation on Thingi10K and procedural failure cases |
 | [NotCleanBenchmark](NotCleanBenchmark/README.md) | Runtime of the checks behind `MeshRobustRepair.NotCleanReason` on large procedural meshes |
 | [OpenSoupWrapBenchmark](OpenSoupWrapBenchmark/README.md) | Alpha-wrap size estimation on open inputs and `WrapMaxEstimatedTriangles` budget |
+| [AlphaWrapFixStarBenchmark](AlphaWrapFixStarBenchmark/README.md) | Alpha-wrap manifold step (`fix_star`) at large box-corner stars, `MaxSteinerPoints` sweep (issue #1607) |
 | [SmallInputWrapBenchmark](SmallInputWrapBenchmark/README.md) | Alpha-wrap fallback sizing on very small inputs (`SmallInputWrapTriangles`) |
 | [LostAreaBenchmark](LostAreaBenchmark/README.md) | Cost of the `MeshRobustRepair.MeasureLostArea` report against the repair on procedural inputs |
 | [CertifiedMedialAxisProbe](CertifiedMedialAxisProbe/README.md) | Why a certified lower bound on local feature size cannot replace SafeRounding's thin-solid criteria (crease witnesses, thin slabs) |
@@ -129,6 +131,7 @@ For cross-cutting performance analyses and profiling write-ups, see [docs/perf/R
 | [MultiscaleCholeskyProbe](MultiscaleCholeskyProbe/README.md) | Research spike: multiscale incomplete Cholesky, FSAI and approximate elimination as PCG preconditioners against the direct `SparseCholesky` |
 | [PddProbe](PddProbe/README.md) | Research probe: Pointwise Distance Distributions (kNN rows, AMD, column W1, exact EMD) against D2 and PCA baselines for near-duplicates, retrieval and lattice periods (verdict: stop) |
 | [CoreMathBenchmark](CoreMathBenchmark/README.md) | Cost of correctly rounded `g3.CoreMathPort.CoreMath` elementary functions |
+| [FastWindingAtan2Benchmark](FastWindingAtan2Benchmark/README.md) | End-to-end cost of the correctly rounded `CoreMath.Atan2` in `TriSolidAngle` (repair, solidify, winding-number boolean) |
 | [BoxContainBenchmark](BoxContainBenchmark/README.md) | Throughput micro-benchmark for `AxisAlignedBox3d.Contain` |
 | [GridIndexerBenchmark](GridIndexerBenchmark/README.md) | Throughput probe for `ShiftGridIndexer3.ToGrid` |
 | [LongHashAudit](LongHashAudit/README.md) | Hash collision and distribution audit for `long`-keyed tables outside booleans |

@@ -377,3 +377,28 @@ with radius-edge > 2 in the result. 4-core cloud container, one process at a tim
 Totals: diag / 40 1358 -> 122 (91 % removed), diag / 60 13193 -> 113 (99 %); time 1.1-2.2x, tets 1.03-1.14x; the smallest dihedral angle stays
 >= 10 degrees on all. The rest (about 30-60 per shape) is the level without size control (24-65 at the defaults): tets at curved and sharp
 parts of the fixed surface, which only boundary splits would remove (option C of the note).
+
+## Stall stop and the scan cache (#1154, 2026-11-26)
+
+`tieorder <mesh> 40 600 <floor> 0` (order 0 = the library's result) with `G3_TIE_STALL=<N>` (the opt-in `StallStopPasses`, 0 = off) and `G3_TIE_REFERENCE=1` (the loop without the scan cache,
+`TetMeshImprover.ReferenceHillClimb`). Meshes fetched at run time from `https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/<id>.stl` and not kept. Cloud container, 4 cores,
+net10.0, Release, one run at a time (timings vary by about 5 %; the digests of "reference loop" and "scan cache" are equal):
+
+| mesh (floor) | setting | improver s | passes (of them rescue) | tets below the floor | worst dihedral |
+|---|---|---|---|---|---|
+| 40011 (20) | off, reference loop | 44.2 | 200 (150) | 504 | 16.019 |
+| | off, scan cache (the default) | 43.8 | 200 (150) | 504 | 16.019 |
+| | `StallStopPasses` 10 | 28.4 | 80 (40) | 511 | 16.019 |
+| | `StallStopPasses` 5 | 24.5 | 58 (23) | 539 | 16.019 |
+| 38781 (20) | off, reference loop | 48.1 | 200 (150) | 628 | 12.859 |
+| | off, scan cache (the default) | 47.2 | 200 (150) | 628 | 12.859 |
+| | `StallStopPasses` 10 | 21.0 | 67 (32) | 648 | 12.859 |
+| | `StallStopPasses` 5 | 17.8 | 55 (31) | 649 | 12.859 |
+| 51809 (30) | off, reference loop | 58.4 | 200 (150) | 502 | 22.046 |
+| | off, scan cache (the default) | 56.5 | 200 (150) | 502 | 22.046 |
+| | `StallStopPasses` 10 | 30.1 | 63 (29) | 684 | 22.046 |
+| | `StallStopPasses` 5 | 21.5 | 41 (19) | 591 | 22.046 |
+
+The default stays above 20 s on all three (diagnosis in docs/design/TET_MESHING.md 17.17: no stall, real work with diminishing returns). With N = 10 the runs take 44 to 64 % of the time and
+leave 1 to 36 % more tets below the floor at the same worst angle (N = 5: 37 to 55 % of the time, 3 to 18 % more). The procedural box (floor 30, alpha / 40): 4.6 s to 3.9 s from the scan cache alone.
+Open lever (not built): the 82k real split attempts at 0.24 ms each are 47 % of the 40011 run; a cheaper rejection before the exact checks of a split would lower the cost per attempt.

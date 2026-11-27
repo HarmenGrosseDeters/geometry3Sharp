@@ -15,6 +15,7 @@ taken over (Kirsanov's `geodesic`, geometry-central, CGAL were not read).
 | The practical form: windows on an edge cut against each other, a priority queue by window distance, which vertices a shortest path can pass through (boundary, saddle, parabolic) | V. Surazhsky, T. Surazhsky, D. Kirsanov, S. J. Gortler, H. Hoppe, *Fast exact and approximate geodesics on meshes*, ACM TOG 24(3), 553-560, 2005 (read 2026-11-13) |
 | Certified enclosure: outer and inner intervals, one-sided pruning certified over whole pieces, terminal windows, disks under rigid frame changes, subsumption, merging, re-emission with a margin | own (GEODESICS.md Appendix A, claims A1-A6, reviewed 2026-11-13) |
 | Interval arithmetic with one-spacing widening (division and square root added) | R. E. Moore, *Interval Analysis*, Prentice-Hall 1966; IEEE 754 correct rounding of +, -, *, / and sqrt |
+| Window domination pruning (`Dominated`): derivative monotonicity test with 1D bisection and Mean-Value Form on the distance difference | E. R. Hansen, G. W. Walster, *Global Optimization Using Interval Analysis*, 2nd ed., Marcel Dekker, 2004 (Ch. 2–3: Mean-Value Form and Monotonicity Test), evaluated in `ExactInterval` |
 | Corner angles by the correctly rounded atan2 | CORE-MATH (CoreMathSharp port), see "Correctly rounded sin, cos, tan, atan2, acos, exp, log" below |
 
 ## Polyhedral geodesic distance in plain doubles (`PolyhedralGeodesicDistance`, public, uncertified)
@@ -149,3 +150,15 @@ Research probe of the spike [MULTISCALE_SPARSE_CHOLESKY_2026-11.md](../research/
 | Multiscale incomplete Cholesky: coarse-to-fine ordering, pattern by distance against the smaller length scale, zero fill-in factorization with a diagonal shift | J. Chen, F. Schäfer, J. Huang, M. Desbrun, *Multiscale Cholesky Preconditioning for Ill-Conditioned Problems*, ACM Trans. Graph. 40(4), 2021; ordering and pattern theory: F. Schäfer, T. J. Sullivan, H. Owhadi, *Compression, Inversion, and Approximate PCA of Dense Kernel Matrices at Near-Linear Computational Complexity*, Multiscale Model. Simul. 19(2), 2021 |
 | Factorized sparse approximate inverse by one dense solve per row (the closed form of the KL minimisation, applied to the entries of A) | F. Schäfer, M. Katzfuss, H. Owhadi, *Sparse Cholesky Factorization by Kullback-Leibler Minimization*, SIAM J. Sci. Comput. 43(3), 2021; L. Yu. Kolotilina, A. Yu. Yeremin, *Factorized Sparse Approximate Inverse Preconditionings I. Theory*, SIAM J. Matrix Anal. Appl. 14(1), 1993 |
 | Seeded approximate elimination (one sampled edge per neighbour of the eliminated vertex, elimination by current degree, neighbours sorted by weight) | R. Kyng, S. Sachdeva, *Approximate Gaussian Elimination for Laplacians: Fast, Sparse, and Simple*, FOCS 2016; Y. Gao, R. Kyng, D. Spielman, *Robust and Practical Solution of Laplacian Equations by Approximate Elimination*, arXiv:2303.00709, 2023 |
+
+
+## Discrete conformal annulus study
+
+The [annulus study](../research/DISCRETE_CONFORMAL_EQUIVALENCE_STUDY.md) uses the following papers. Its inputs are procedural meshes; the solver is implemented from the papers alone, and no external code was read or used.
+
+| Source | Use |
+|---|---|
+| B. Springborn, P. Schröder and U. Pinkall, [*Conformal Equivalence of Triangle Meshes*](https://doi.org/10.1145/1360612.1360676), ACM TOG (SIGGRAPH) 2008 | Convex discrete conformal energy (with the Lobachevsky function), angle gradient and cotangent Hessian |
+| A. I. Bobenko, U. Pinkall and B. A. Springborn, [*Discrete Conformal Maps and Ideal Hyperbolic Polyhedra*](https://doi.org/10.2140/gt.2015.19.2155), Geometry & Topology 19, 2015 | Hyperbolic Delaunay criterion, Ptolemy flip invariance and $C^2$ convexity |
+| M. Gillespie, B. Springborn and K. Crane, [*Discrete Conformal Equivalence of Polyhedral Surfaces*](https://doi.org/10.1145/3450626.3459763), ACM TOG 40(4), 2021 | Vertex scaling, Ptolemy flips and boundary conditions (its normal-coordinate correspondence is cited, not implemented in the probe) |
+| M. Campen, R. Capouellez, H. Shen, L. Zhu, D. Panozzo and D. Zorin, [*Efficient and Robust Discrete Conformal Equivalence with Boundary*](https://arxiv.org/abs/2104.04614), 2021 | Prescribed boundary curvature (the probe's `turn` and `turn-len` modes); its stable flips in the symmetric double cover are not implemented |

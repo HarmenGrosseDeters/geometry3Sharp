@@ -36,6 +36,15 @@ referenced by `tests/geometry3Sharp.Tests` on net10.0 only with `PrivateAssets="
 in `ExactBooleanPropertyTests.CsCheck.cs`. No code is copied from it and it is not a dependency of the library
 package. 4.9.1 (2026-09-17, targets net8.0) rather than 5.0.0, which was a week old when it was added (2026-10-24).
 
+## Browser demos (`demos/G3Demos`)
+
+Not part of the library or its package; no code taken over.
+
+| Component | Licence and use |
+|---|---|
+| three.js 0.170.0 (https://github.com/mrdoob/three.js) | MIT; loaded at runtime from a pinned jsDelivr URL (import map in `wwwroot/index.html`), not in the repository; `OrbitControls` from its `examples/jsm` |
+| Blazor WebAssembly (`Microsoft.AspNetCore.Components.WebAssembly` 10.0.15, https://github.com/dotnet/aspnetcore) | MIT; NuGet package reference of the demo project |
+
 ## Build-time analyzers (`BannedSymbols.txt`, `tools/analyzers/G3ExactCodeAnalyzers`)
 
 Build-time only, not shipped in the package. `Microsoft.CodeAnalysis.BannedApiAnalyzers` (MIT, NuGet) enforces the
