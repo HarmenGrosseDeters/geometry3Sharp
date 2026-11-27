@@ -312,8 +312,10 @@ namespace geometry3Sharp.Tests
                 }
             }
             Assert.True(ties > 1000);
-            // coplanar quadruples on the sphere zero the leading coefficients: the cascade goes deeper than its first step
-            Assert.True(depth[0] > 0 && depth[1] > 0 && depth[2] > 0 && depth[5] == 0, "InSphere depths " + string.Join(" ", depth));
+            // a coplanar quadruple on the sphere zeroes the leading coefficient, so the cascade takes its second step; two zero
+            // coefficients would need two coplanar quadruples of five cospherical points, which share three points and so one
+            // plane: the cell would be flat (never in a Delaunay3 cell), so the cascade never goes deeper
+            Assert.True(depth[0] > 0 && depth[1] > 0 && depth.Skip(2).All(n => n == 0), "InSphere depths " + string.Join(" ", depth));
         }
 
         /// <summary>
