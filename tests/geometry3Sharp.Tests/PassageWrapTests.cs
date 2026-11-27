@@ -196,8 +196,11 @@ namespace geometry3Sharp.Tests
             int cancelChecks = 0;
             PassageWrap.PolylineClearance(tree, axis, 1e-6, double.MaxValue, out double lo, out double hi, () => ++cancelChecks > 20);
             Assert.Equal(0, cancelChecks);
+            double margin = 64 * MathUtil.Epsilon * Math.Max(Math.Abs(x0 + 0.5), Math.Abs(x1));
             Assert.True(lo <= 10.0 && hi >= 10.0, $"[{lo}, {hi}]");
             Assert.True(lo > 8.0 && hi < 12.0, $"[{lo}, {hi}]");
+            // stalledLow must be retained (strictly below best - margin by ~half a step = 0.0078125).
+            Assert.True(lo < 10.0 - margin - 1e-3, $"stalledLow lost: lo={lo}, 10-margin={10.0 - margin}");
         }
 
         [Fact]
@@ -217,6 +220,14 @@ namespace geometry3Sharp.Tests
             Assert.True(hi - lo >= 1.9 * expectedMinHalfWidth, $"width {hi - lo} < {1.9 * expectedMinHalfWidth}");
         }
 
+        static double InvokePolylineDistance(IList<Vector3d> axis, Vector3d q)
+        {
+            var mi = typeof(PassageWrap).GetMethod("PolylineDistance",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(mi);
+            return (double)mi.Invoke(null, new object[] { axis, q });
+        }
+
         [Theory]
         [InlineData(600)]
         [InlineData(-600)]
@@ -224,12 +235,36 @@ namespace geometry3Sharp.Tests
         {
             double s = ExactPoint3.ScaleB(1.0, exp);
             var seg = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(s, 0, 0) };
-            double d = PassageWrap.PolylineDistance(seg, new Vector3d(0.5 * s, 0.5 * s, 0));
+            double d = InvokePolylineDistance(seg, new Vector3d(0.5 * s, 0.5 * s, 0));
             Assert.Equal(0.5 * s, d);
-            // Mixed extreme ratio (tiny segment, huge query point): finite, no 0*Inf NaN
-            var tiny = new List<Vector3d> { Vector3d.Zero, new Vector3d(ExactPoint3.ScaleB(1.0, -600), 0, 0) };
+
+            // Mixed extreme ratio (tiny segment, huge query point): finite, no 0*Inf NaN or mq/m overflow.
+            double tiny = ExactPoint3.ScaleB(1.0, -600);
             double huge = ExactPoint3.ScaleB(1.0, 600);
-            Assert.Equal(huge, PassageWrap.PolylineDistance(tiny, new Vector3d(huge, 0, 0)));
+            Assert.Equal(huge, InvokePolylineDistance(new List<Vector3d> { Vector3d.Zero, new Vector3d(tiny, 0, 0) }, new Vector3d(huge, 0, 0)));
+            double dRatio = InvokePolylineDistance(
+                new List<Vector3d> { Vector3d.Zero, new Vector3d(tiny, 0, 0) },
+                new Vector3d(0.25 * tiny, ExactPoint3.ScaleB(1.0, 450), 0));
+            Assert.Equal(ExactPoint3.ScaleB(1.0, 450), dRatio);
+
+            // Reverse extreme ratio (huge segment, tiny point on/near segment): avoids mq/m underflow.
+            double dOnSeg = InvokePolylineDistance(
+                new List<Vector3d> { Vector3d.Zero, new Vector3d(huge, 0, 0) },
+                new Vector3d(tiny, ExactPoint3.ScaleB(1.0, -650), 0));
+            Assert.Equal(ExactPoint3.ScaleB(1.0, -650), dOnSeg);
+
+            // Dot-product underflow when len2 >= MinNormal (reachable on validate()-passing isolated vertex at origin).
+            double dUnder = InvokePolylineDistance(
+                new List<Vector3d> { new Vector3d(-ExactPoint3.ScaleB(1.0, -565), ExactPoint3.ScaleB(1.0, -600), 0),
+                                     new Vector3d(ExactPoint3.ScaleB(1.0, -510), ExactPoint3.ScaleB(1.0, -600), 0) },
+                Vector3d.Zero);
+            Assert.Equal(ExactPoint3.ScaleB(1.0, -600), dUnder);
+
+            // Overflowing b - a does not produce 0 * Inf = NaN.
+            double dWide = InvokePolylineDistance(
+                new List<Vector3d> { new Vector3d(-1e308, 0, 0), new Vector3d(1e308, 0, 0) },
+                Vector3d.Zero);
+            Assert.Equal(0.0, dWide);
         }
 
         // ---- the helper on the procedural parts ----

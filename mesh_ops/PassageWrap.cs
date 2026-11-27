@@ -184,7 +184,7 @@ namespace gs
         static double SafeLength(Vector3d d)
         {
             double d2 = d.LengthSquared;
-            if (d2 >= MinNormal && !double.IsInfinity(d2))
+            if (d2 >= 4 * MinNormal && !double.IsInfinity(d2))
                 return Math.Sqrt(d2);
             double m = Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z)));
             if (double.IsNaN(m))
@@ -290,7 +290,7 @@ namespace gs
             if (blocked >= 0) { Status = PassageStatus.PinBlockedByInput; return false; }
             bound *= BoundSafety;
             // (a wrap coarser than the input's size is the hull of it: no use)
-            bound = Math.Min(bound, Mesh.CachedBounds.DiagonalLength);
+            bound = Math.Min(bound, SafeLength(Mesh.CachedBounds.Max - Mesh.CachedBounds.Min));
             if (MaxAlphaLimit > 0)
                 bound = Math.Min(bound, MaxAlphaLimit);
             BoundAlpha = bound;
@@ -412,41 +412,54 @@ namespace gs
         }
 
         // the distance of a point to a polyline (a single point: to that point)
-        internal static double PolylineDistance(IList<Vector3d> axis, Vector3d q)
+        static double PolylineDistance(IList<Vector3d> axis, Vector3d q)
         {
             if (axis.Count == 1) return SafeLength(q - axis[0]);
             double best = double.MaxValue;
-            for (int i = 0; i + 1 < axis.Count; ++i) {
-                Vector3d a = axis[i], ab = axis[i + 1] - a, qa = q - a;
-                double len2 = ab.LengthSquared;
-                double t;
-                if (len2 >= MinNormal && !double.IsInfinity(len2)) {
-                    double dot = qa.Dot(ab);
-                    if (!double.IsInfinity(dot) && !double.IsNaN(dot)) {
-                        t = Math.Max(0, Math.Min(1, dot / len2));
-                    } else {
-                        t = ScaledSegmentParam(qa, ab);
-                    }
-                } else {
-                    t = ScaledSegmentParam(qa, ab);
-                }
-                best = Math.Min(best, SafeLength(q - (a + t * ab)));
-            }
+            for (int i = 0; i + 1 < axis.Count; ++i)
+                best = Math.Min(best, SegmentDistance(axis[i], axis[i + 1], q));
             return best;
         }
 
-        static double ScaledSegmentParam(Vector3d qa, Vector3d ab)
+        static double SegmentDistance(Vector3d a, Vector3d b, Vector3d q)
         {
+            if (!a.IsFinite || !b.IsFinite || !q.IsFinite)
+                return double.NaN;
+            Vector3d ab = b - a, qa = q - a, qb = q - b;
+            if (double.IsInfinity(ab.x) || double.IsInfinity(ab.y) || double.IsInfinity(ab.z)
+                || double.IsInfinity(qa.x) || double.IsInfinity(qa.y) || double.IsInfinity(qa.z)
+                || double.IsInfinity(qb.x) || double.IsInfinity(qb.y) || double.IsInfinity(qb.z))
+                return 2.0 * SegmentDistance(0.5 * a, 0.5 * b, 0.5 * q);
+            double len2 = ab.LengthSquared;
+            double qa2 = qa.LengthSquared;
+            if (len2 >= 4 * MinNormal && !double.IsInfinity(len2) && qa2 >= 4 * MinNormal && !double.IsInfinity(qa2)) {
+                double dot = qa.Dot(ab);
+                if (Math.Abs(dot) >= 4 * MinNormal && !double.IsInfinity(dot)) {
+                    double t = Math.Max(0, Math.Min(1, dot / len2));
+                    return SafeLength(qa - t * ab);
+                }
+            }
             double m = Math.Max(Math.Abs(ab.x), Math.Max(Math.Abs(ab.y), Math.Abs(ab.z)));
             double mq = Math.Max(Math.Abs(qa.x), Math.Max(Math.Abs(qa.y), Math.Abs(qa.z)));
-            if (!(m > 0) || double.IsInfinity(m) || !(mq > 0) || double.IsInfinity(mq))
+            if (!(m > 0))
+                return SafeLength(qa);
+            if (!(mq > 0))
                 return 0;
             Vector3d sab = ab / m;
             double proj = (qa / mq).Dot(sab) / sab.LengthSquared;
             if (!(proj > 0))
-                return 0;
-            double p = proj * (mq / m);
-            return p >= 1 ? 1 : p;
+                return SafeLength(qa);
+            if (mq >= m) {
+                double s = m / mq;
+                if (proj >= s)
+                    return SafeLength(qb);
+                double t = proj / s;
+                return SafeLength(qa - t * ab);
+            }
+            double ratio = mq / m;
+            if (proj * ratio >= 1.0)
+                return SafeLength(qb);
+            return SafeLength(qa - (proj * mq) * sab);
         }
 
         PassagePinResult[] measure(DMesh3 wrap, PassagePinResult[] inputResults)

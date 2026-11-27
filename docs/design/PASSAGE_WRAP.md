@@ -60,7 +60,7 @@ So **dist(A, carved wrap) >= sqrt((r - d)^2 - a^2)**. A pin of radius p passes i
     a^2 + p^2 <= (r - d)^2.                                           (4)
 
 With d = a k (k = 1 / OffsetRatio; 2 / OffsetRatio with pulled points) (4) is a quadratic in a with the positive root
-`PassageWrap.MaxAlpha` = (-r k + sqrt(r^2 k^2 + (1 - k^2)(r^2 - p^2))) / (1 - k^2) (zero if r <= p). The open passage is p -> 0: a (1 + k) < r.
+`PassageWrap.MaxAlpha` = r (1 - u^2) / (k + sqrt(k^2 + (1 - k^2)(1 - u^2))) with u = p / r and 1 - u = (r - p) / r (algebraically equal to (-r k + sqrt(r^2 k^2 + (1 - k^2)(r^2 - p^2))) / (1 - k^2), zero if r <= p, without r^2/p^2 overflow/underflow or cancellation near p = r). The open passage is p -> 0: a (1 + k) < r.
 Nothing in the proof uses the sampling density, the refinement rounds, rule 1 or 2, or the shape of the axis.
 
 ## 4. What the proof does not cover (the preconditions, and what the helper does about each)
@@ -78,9 +78,9 @@ Nothing in the proof uses the sampling density, the refinement rounds, rule 1 or
 ## 5. The a posteriori check
 
 `PassageWrap.PolylineClearance`: the distance of a polyline to a mesh, [lo, hi]. The distance to a mesh is 1-Lipschitz along the axis, so an
-interval of length L with end values fa, fb has min >= (fa + fb - L) / 2 (the two cones meet), and intervals are split best-first until the
-smallest lower bound is within the tolerance of the smallest value found (hi). Tolerance: 1e-3 of the pin radius, at least 1e-4 of the
-size of mesh and axis. lo is certified up to the double rounding of each nearest-triangle query, covered by a margin of 1e-12 of the size.
+interval of length L with end values fa, fb has min >= (fa + fb - L) / 2 (the two cones meet, outward-rounded downward), and intervals are split best-first until the
+smallest lower bound is within the tolerance of the smallest value found (hi) or an interval reaches adjacent representable doubles (stalled intervals keep their lower bound). Tolerance: 1e-3 of the pin radius, at least 1e-4 of the
+size of mesh and axis. lo is certified up to the double rounding of each nearest-triangle query, covered by a margin of max(1e-12 * diag, 64 * MathUtil.Epsilon * coordMax).
 A pin passes if lo >= radius and every vertex of the axis has |winding number| < 0.5 in the wrap (`DMeshAABBTree3.WindingNumber`, exact
 solid angle sum); with lo > 0 the axis does not cross the surface, so one point decides, all vertices are tested. The winding test is not
 redundant: a pin inside the material is far from the wrap's triangles too (`PinInsideTheMaterial_IsNeverPassed`). A connectivity
