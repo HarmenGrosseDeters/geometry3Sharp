@@ -244,3 +244,15 @@ papers and documentation only; no external implementation code was read or run.
 | Fork | Taken over |
 |---|---|
 | [Digital-Production-Aachen/DAPComputationalGeometry](https://github.com/Digital-Production-Aachen/DAPComputationalGeometry) (Boost-1.0), delta `8f185f1`..`158507b` | Nothing: audited 2026-11-01, no bug fix applies to this code ([audit result](../design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)). A later port of one of its features is listed here with the DAP commit and file |
+
+## Targeted Mesh Regression Benchmark
+
+[`benchmarks/TargetedMeshRegression`](../../benchmarks/TargetedMeshRegression/README.md) constructs procedural meshes and runs runtime-only corpus inputs through the production CLI. It uses the published solid-angle formula for occupancy probes and independently computes axis-aligned Boolean references.
+
+| Source | Use and attribution |
+|---|---|
+| [Van Oosterom and Strackee, 1983](https://doi.org/10.1109/TBME.1983.325207) | Solid angle of a plane triangle for occupancy samples. |
+| [ABC, Koch et al., CVPR 2019](https://doi.org/10.1109/CVPR.2019.00983), [per-file STEP mirror](https://concept-collection.github.io/abc-step-1000/) | Six STEP solids fetched on GitHub-hosted runners. The model copyright remains with the original creators. Only scalar/result rows leave the job. CadQuery and Open Cascade are external numerical references. |
+| [Objaverse 1.0](https://objaverse.allenai.org/docs/objaverse-1.0/) and the [Khronos glTF specification](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html) | ODC-By collection; selected assets are CC0 or CC-BY. The pinned manifest and result rows preserve IDs and download locations; the benchmark output records per-asset attribution. |
+| [EMBER, Trettner et al., 2022](https://doi.org/10.1145/3528223.3530181) and [published transform data](https://github.com/elalish/manifold/tree/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests) | Five published placements, with individual licenses for the underlying Thingi10K models. Manifold is used as an external reference. |
+| [Thingi10K](https://arxiv.org/abs/1605.04797) and [ThingiCSG, Lévy](https://arxiv.org/abs/2405.12949) | Published stress inputs and arrangements, pinned at runtime. OpenSCAD and CGAL are optional external reference executables. No third-party implementation code is ported. |

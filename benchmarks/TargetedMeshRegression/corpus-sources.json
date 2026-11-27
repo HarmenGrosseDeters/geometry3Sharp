@@ -1,0 +1,360 @@
+{
+  "assets": [
+    {
+      "path": "abc/00000177.step",
+      "url": "https://concept-collection.github.io/abc-step-1000/step/00000177_b21aa794b6b64d87a57c245e_step_007.step.gz",
+      "sha256": "0dc116b2bd8068655385189de798b599d5e75dd7d73e9a388d473f3a37a4cbe1",
+      "gzip": true
+    },
+    {
+      "path": "abc/00000325.step",
+      "url": "https://concept-collection.github.io/abc-step-1000/step/00000325_3062bccff48e47a2b9de05e3_step_020.step.gz",
+      "sha256": "297dee9cc0ba04c877f8772c03a5569af4ca9ea1649d42581154a6cbbc509c5f",
+      "gzip": true
+    },
+    {
+      "path": "abc/00000342.step",
+      "url": "https://concept-collection.github.io/abc-step-1000/step/00000342_fe70be720f7e49fa90ded969_step_001.step.gz",
+      "sha256": "7dcac6265230b2471ab5d8d82a49f119160b27e847c276218becae5c4c942ed8",
+      "gzip": true
+    },
+    {
+      "path": "abc/00000382.step",
+      "url": "https://concept-collection.github.io/abc-step-1000/step/00000382_239bbf0e92974a32bd214366_step_003.step.gz",
+      "sha256": "45643be6b15941374c91288bf316d3e2101f277767ed55821c62ff242088c148",
+      "gzip": true
+    },
+    {
+      "path": "abc/00000684.step",
+      "url": "https://concept-collection.github.io/abc-step-1000/step/00000684_24615f5ff44d4cd5809e77a5_step_000.step.gz",
+      "sha256": "6d5e377b238798b2faceae03927d2a09154fc4ed8413dbdaa605a1c6bf555e7f",
+      "gzip": true
+    },
+    {
+      "path": "abc/00000960.step",
+      "url": "https://concept-collection.github.io/abc-step-1000/step/00000960_56fafb97eff7460ba8c04210_step_000.step.gz",
+      "sha256": "e58f56d12e3e3ac7fe422814268b0185d68ac3a92536c4441b35d98bd4f75f7f",
+      "gzip": true
+    },
+    {
+      "path": "objaverse/metadata.json.gz",
+      "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/556637099bf4fa79ea7b239d0d9c328b8a2e9ac8/metadata/000-000.json.gz",
+      "sha256": "299a60db6dad62e8aba63abb41c8ed41da10bbd77618632b1b5962e77f0a5318"
+    },
+    {
+      "path": "objaverse/263c5c3fd3ba4770bf580bc1a89c4cc3.glb",
+      "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/556637099bf4fa79ea7b239d0d9c328b8a2e9ac8/glbs/000-000/263c5c3fd3ba4770bf580bc1a89c4cc3.glb",
+      "sha256": "cbccbdd9ef621d493c09dbc817fe7bbeb2b8a342cbd3a018abde5bc68f854b06"
+    },
+    {
+      "path": "objaverse/02543290444e41a3babfbb894e7d0909.glb",
+      "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/556637099bf4fa79ea7b239d0d9c328b8a2e9ac8/glbs/000-000/02543290444e41a3babfbb894e7d0909.glb",
+      "sha256": "cee1230c96d7c13bd4b8f8eb3f8721ebff2b45aea149e24c7ff823baf7170afa"
+    },
+    {
+      "path": "objaverse/b3f6c576821c48f18aa292b16d7df01b.glb",
+      "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/556637099bf4fa79ea7b239d0d9c328b8a2e9ac8/glbs/000-000/b3f6c576821c48f18aa292b16d7df01b.glb",
+      "sha256": "11b167a78c94e81412ceadebd38ec3d8ceec2eebe9d7c209ec8eab6f2ad99258"
+    },
+    {
+      "path": "objaverse/37176fdd7c924e56b04c319e1f251cbd.glb",
+      "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/556637099bf4fa79ea7b239d0d9c328b8a2e9ac8/glbs/000-000/37176fdd7c924e56b04c319e1f251cbd.glb",
+      "sha256": "4c6ec4d785c07078cc6ce881d108b5ee673346e57d1f586601ba91c5923108ee"
+    },
+    {
+      "path": "objaverse/04d9983ba04242fe99182d4506ea0714.glb",
+      "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/556637099bf4fa79ea7b239d0d9c328b8a2e9ac8/glbs/000-000/04d9983ba04242fe99182d4506ea0714.glb",
+      "sha256": "afa6a6e977be89ca32581b6f03e9f8d9ed569ae77bb0c058ea3f338c753396d1"
+    },
+    {
+      "path": "ember/cases.json",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/ember-benchmark-cases.json",
+      "sha256": "73e67fa510187fbaebc15936825cb79e8b09459b6edfcd1cd216dc841408cfb2"
+    },
+    {
+      "path": "ember/58011.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/58011.stl",
+      "sha256": "2e44def7c7ab8824cbf22008cc36d6c69efd764aa494ebe05c0996ea5738a241"
+    },
+    {
+      "path": "ember/72214.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/72214.stl",
+      "sha256": "573ba7cf5189a48251fadfc715d2859abaf71cad3c88ed6771adb74bd12a91b7"
+    },
+    {
+      "path": "ember/73416.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/73416.stl",
+      "sha256": "073dbc676297906ade9430fc2736e58d3448740eabc049dbb123bab1731bb55a"
+    },
+    {
+      "path": "ember/88566.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/88566.stl",
+      "sha256": "863131355d9ad36ea34064551669252f30ae1b00513f986286edd4ab4c8e7a40"
+    },
+    {
+      "path": "ember/99865.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/99865.stl",
+      "sha256": "fa24baca9b6a68597ff6262fd6b36059edbddd531f55247267dd53f7773bbcea"
+    },
+    {
+      "path": "ember/472042.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/472042.stl",
+      "sha256": "a75ab6a7833e678032b92995263df6ad1048d98e0bccb7e6d3796602ef72e6fb"
+    },
+    {
+      "path": "ember/908460.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/908460.stl",
+      "sha256": "3ecbd6b31e01feb9c3bf05aa343d1c4f27fc02250964096346ae9aa3619b2f21"
+    },
+    {
+      "path": "ember/1063852.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/1063852.stl",
+      "sha256": "6ad85f0971289f8d07f106c93c821e4075583871290f12bb9396929a5ad3fc07"
+    },
+    {
+      "path": "ember/1514499.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/1514499.stl",
+      "sha256": "b1ec4a8cd1516b8d4a44002f7e9c0604a3f8fadf1614318c8da06ed807ea8683"
+    },
+    {
+      "path": "ember/1706459.stl",
+      "url": "https://raw.githubusercontent.com/elalish/manifold/57cf361680412e4a663fd06f99902bfd86487245/extras/ember_tests/testfiles/raw_meshes/1706459.stl",
+      "sha256": "186b27f8a476cc605c8c6cd4e5e7c669a9b9f88c64601d8efed394dddb2137cd"
+    },
+    {
+      "path": "thingi10k/356074.stl",
+      "url": "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/1e52df6/raw_meshes/356074.stl",
+      "sha256": "63f6c49139d57af93d0ff37df28f60233cbe95ff09546e15288110d6d4aebd4e"
+    },
+    {
+      "path": "thingi10k/996816.stl",
+      "url": "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/1e52df6/raw_meshes/996816.stl",
+      "sha256": "9e0ae4ce2e0339a5091dc3409ae8d4d470c3001f110e40f168f40811d44a12b9"
+    },
+    {
+      "path": "thingi10k/101633.stl",
+      "url": "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/1e52df6/raw_meshes/101633.stl",
+      "sha256": "9fe7d1eddcd5f638a93a5b6724b41d3a22d98a2056378788049025495f15dc12"
+    }
+  ],
+  "abc_index": [
+    {
+      "id": "00000177",
+      "name": "00000177_b21aa794b6b64d87a57c245e_step_007.step",
+      "path": "step/00000177_b21aa794b6b64d87a57c245e_step_007.step.gz",
+      "stepBytes": 18129,
+      "gzBytes": 3170
+    },
+    {
+      "id": "00000325",
+      "name": "00000325_3062bccff48e47a2b9de05e3_step_020.step",
+      "path": "step/00000325_3062bccff48e47a2b9de05e3_step_020.step.gz",
+      "stepBytes": 20315,
+      "gzBytes": 3465
+    },
+    {
+      "id": "00000342",
+      "name": "00000342_fe70be720f7e49fa90ded969_step_001.step",
+      "path": "step/00000342_fe70be720f7e49fa90ded969_step_001.step.gz",
+      "stepBytes": 18200,
+      "gzBytes": 3248
+    },
+    {
+      "id": "00000382",
+      "name": "00000382_239bbf0e92974a32bd214366_step_003.step",
+      "path": "step/00000382_239bbf0e92974a32bd214366_step_003.step.gz",
+      "stepBytes": 18379,
+      "gzBytes": 3272
+    },
+    {
+      "id": "00000684",
+      "name": "00000684_24615f5ff44d4cd5809e77a5_step_000.step",
+      "path": "step/00000684_24615f5ff44d4cd5809e77a5_step_000.step.gz",
+      "stepBytes": 28434,
+      "gzBytes": 4608
+    },
+    {
+      "id": "00000960",
+      "name": "00000960_56fafb97eff7460ba8c04210_step_000.step",
+      "path": "step/00000960_56fafb97eff7460ba8c04210_step_000.step.gz",
+      "stepBytes": 22551,
+      "gzBytes": 3896
+    }
+  ],
+  "screens": {
+    "abc": [
+      {
+        "id": "00000177",
+        "faces": 8,
+        "surfaces": {
+          "CYLINDER": 6,
+          "PLANE": 2
+        },
+        "diag": 566.0060978714098,
+        "thin": 0.03365688156301092,
+        "volume": 2329602.5969857126,
+        "area": 275039.99655684194,
+        "cylinder_radius_ratios": [
+          0.010600592506978843,
+          0.053886345243809114,
+          0.010600592506978843,
+          0.010600592506978843,
+          0.010600592506978843
+        ],
+        "min_face_area": 0.0022417329668041113,
+        "bbox": [
+          400.0000002,
+          400.0000002,
+          19.050000200000007
+        ]
+      },
+      {
+        "id": "00000325",
+        "faces": 9,
+        "surfaces": {
+          "PLANE": 9
+        },
+        "diag": 173.20508075688772,
+        "thin": 0.5773502691896257,
+        "volume": 271000.00000000006,
+        "area": 60000.0,
+        "cylinder_radius_ratios": [],
+        "min_face_area": 0.06333333333333334,
+        "bbox": [
+          100.0,
+          100.0,
+          100.0
+        ]
+      },
+      {
+        "id": "00000342",
+        "faces": 5,
+        "surfaces": {
+          "REVOLUTION": 3,
+          "BSPLINE": 2
+        },
+        "diag": 13.421878600881508,
+        "thin": 0.29569260146186577,
+        "volume": 148.9916521286288,
+        "area": 170.54654780048412,
+        "cylinder_radius_ratios": [],
+        "min_face_area": 0.03496135469729345,
+        "bbox": [
+          12.192000200000034,
+          3.9687502,
+          3.9687502
+        ]
+      },
+      {
+        "id": "00000382",
+        "faces": 10,
+        "surfaces": {
+          "CYLINDER": 4,
+          "CONE": 2,
+          "TORUS": 2,
+          "PLANE": 2
+        },
+        "diag": 21.997045602534907,
+        "thin": 0.5773502691896256,
+        "volume": 1230.139059384806,
+        "area": 919.0019818313033,
+        "cylinder_radius_ratios": [
+          0.11365162600344401
+        ],
+        "min_face_area": 0.08229346121703271,
+        "bbox": [
+          12.700000200000002,
+          12.7000002,
+          12.700000200000003
+        ]
+      },
+      {
+        "id": "00000684",
+        "faces": 17,
+        "surfaces": {
+          "CYLINDER": 5,
+          "PLANE": 6,
+          "CONE": 5,
+          "TORUS": 1
+        },
+        "diag": 219.35367087882577,
+        "thin": 0.26632788941230934,
+        "volume": 137358.2297482188,
+        "area": 23118.885918670992,
+        "cylinder_radius_ratios": [
+          0.011203140527142268
+        ],
+        "min_face_area": 0.000394302417608319,
+        "bbox": [
+          203.20000019999998,
+          58.420000200000004,
+          58.42000020000195
+        ]
+      },
+      {
+        "id": "00000960",
+        "faces": 10,
+        "surfaces": {
+          "PLANE": 10
+        },
+        "diag": 5172.636295509767,
+        "thin": 0.0018414207873591285,
+        "volume": 104565855.38399999,
+        "area": 22095439.679999996,
+        "cylinder_radius_ratios": [],
+        "min_face_area": 0.00010850657651578607,
+        "bbox": [
+          3657.6,
+          3657.6000000000004,
+          9.525
+        ]
+      }
+    ],
+    "objaverse": [
+      {
+        "uid": "02543290444e41a3babfbb894e7d0909",
+        "primitives": 1,
+        "uses_multiple_materials": false,
+        "instances": 1,
+        "transformed": 0,
+        "reflected": 0
+      },
+      {
+        "uid": "04d9983ba04242fe99182d4506ea0714",
+        "primitives": 1,
+        "uses_multiple_materials": false,
+        "instances": 1,
+        "transformed": 0,
+        "reflected": 0
+      },
+      {
+        "uid": "263c5c3fd3ba4770bf580bc1a89c4cc3",
+        "primitives": 75,
+        "uses_multiple_materials": true,
+        "instances": 1,
+        "transformed": 0,
+        "reflected": 0
+      },
+      {
+        "uid": "37176fdd7c924e56b04c319e1f251cbd",
+        "primitives": 1,
+        "uses_multiple_materials": false,
+        "instances": 1,
+        "transformed": 0,
+        "reflected": 0
+      },
+      {
+        "uid": "b3f6c576821c48f18aa292b16d7df01b",
+        "primitives": 2,
+        "uses_multiple_materials": true,
+        "instances": 1,
+        "transformed": 0,
+        "reflected": 0
+      }
+    ]
+  },
+  "thingicsg": {
+    "url": "https://github.com/BrunoLevy/thingiCSG.git",
+    "commit": "f362674851a06f783070ab8c09d7257c0d59e8f4"
+  }
+}
