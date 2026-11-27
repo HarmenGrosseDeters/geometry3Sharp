@@ -41,8 +41,9 @@ dotnet_diagnostic.G3E0003.severity = error
 # extended only where the determinism harness shows a difference that the result depends on: the terrain slope design
 # (issue 802: the fan directions differed between the Windows CRT of .NET and the others), and the winding-number terms
 # (issue 1577: the platform Math.Atan2 gave other repair meshes in WebAssembly; MathUtil.TriSolidAngle itself is not listed, it is a
-# file of many other uses, its one atan2 is pinned by SolidAnglePlatformIndependenceTests), and the TPMS field (#1682: its pinned hashes).
-[{mesh_ops/TerrainSlope*.cs,mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,mesh_ops/ExactMeshGeodesicDistance.cs,mesh_ops/PolyhedralGeodesicDistance.cs,mesh_ops/PolyhedralGeodesicPath.cs,solvers/SparseCholesky.cs,solvers/CholeskyNestedDissection.cs,spatial/FastWindingLeafKernel.cs,spatial/ExactWindingCache.cs,mesh_generators/TpmsLatticeField.cs,math/CoreMath/*.cs}]
+# file of many other uses, its one atan2 is pinned by SolidAnglePlatformIndependenceTests), the TPMS field (#1682: its pinned hashes), and the quad remesher pipeline (#1713: a test whose extraction a 1-ulp change decides,
+# QuadRemesherCrossingTests gear/18, failed on Windows).
+[{mesh_ops/TerrainSlope*.cs,mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,mesh_ops/ExactMeshGeodesicDistance.cs,mesh_ops/PolyhedralGeodesicDistance.cs,mesh_ops/PolyhedralGeodesicPath.cs,solvers/SparseCholesky.cs,solvers/CholeskyNestedDissection.cs,spatial/FastWindingLeafKernel.cs,spatial/ExactWindingCache.cs,mesh_generators/TpmsLatticeField.cs,mesh_ops/CrossField.cs,mesh_ops/PositionField.cs,mesh_ops/QuadRemesher.cs,mesh_ops/IntegrableFrames.cs,mesh_ops/MeshPrincipalCurvature.cs,math/CoreMath/*.cs}]
 dotnet_diagnostic.G3E0004.severity = error
 
 # The determinism proof, stages 0 and 1 (docs/design/DETERMINISM_PROOF.md section 6.1): the exact kernel and the exact building blocks

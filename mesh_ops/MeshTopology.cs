@@ -26,6 +26,11 @@ namespace gs
             set { crease_angle = value; invalidate_topology(); }
         }
 
+        // The quad pipeline (CrossField, PositionField, QuadRemesher; #1713) sets this: the crease threshold cos(CreaseAngle) is then the correctly
+        // rounded CoreMath one, so a dihedral within an ulp of the angle gets the same label on every platform. The public path keeps Math.Cos
+        // (the behaviour of 1.0.324).
+        internal bool CorrectlyRoundedThreshold;
+
         public MeshTopology(DMesh3 mesh)
         {
             Mesh = mesh;
@@ -116,7 +121,7 @@ namespace gs
             CreaseEdges = new HashSet<int>();
             BoundaryEdges = new HashSet<int>();
 
-            double dot_tol = Math.Cos(angle_tol * MathUtil.Deg2Rad);
+            double dot_tol = CorrectlyRoundedThreshold ? g3.CoreMathPort.CoreMath.Cos(angle_tol * MathUtil.Deg2Rad) : Math.Cos(angle_tol * MathUtil.Deg2Rad);
 
             foreach ( int eid in Mesh.EdgeIndices() ) {
                 Index2i et = Mesh.GetEdgeT(eid);

@@ -136,10 +136,11 @@ namespace geometry3Sharp.Tests
         // a PreserveCreases output that drops no face is what it was before the repair of the crossing edges, bit for bit (gear/50: the graph has
         // a crossing that the repair would remove, and nothing is dropped; the others have none)
         [Theory]
-        [InlineData("sharp-box", 20, 8977766501779236071UL)]
-        [InlineData("sharp-cylinder", 20, 16018759166025473961UL)]
-        [InlineData("gear", 20, 15266646667066191006UL)]
-        [InlineData("gear", 50, 11341578008197146238UL)]
+        // (re-pinned for #1713: CoreMath instead of the platform libm in the quad pipeline; the same faces, other last bits)
+        [InlineData("sharp-box", 20, 5522783214237982557UL)]
+        [InlineData("sharp-cylinder", 20, 1770890003005275603UL)]
+        [InlineData("gear", 20, 17808043629989676669UL)]
+        [InlineData("gear", 50, 17068200941762232352UL)]
         public void PreserveCreasesOutputWithoutADroppedFace_IsPinnedBitForBit(string name, int passes, ulong expected)
         {
             QuadRemesher qr = Run(Shape(name, passes), TargetOf(name));
