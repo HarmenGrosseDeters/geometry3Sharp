@@ -177,6 +177,66 @@ way (a flipped one) or that folds over (same side) is not flat, a cylinder has t
 power-of-two scale and when computed twice. (A non-manifold edge cannot occur: `DMesh3` does not hold one.) The file is in the determinism proof
 scope and in the shard `stryker-mesh-arrangement-4`.
 
+### Stage 2 built (2026-11-27): the rule behind `RegionClipping`
+
+Internal switch `ExactMeshBoolean.RegionClipping` (off by default; `ExactMeshArrangement.RegionClipping` below it). With it on:
+
+1. **Clips.** `intersect_coplanar` clips every edge of each triangle into the other as before and adds every clip as a segment. In `prepare_touched`, the segments
+   that are clips of a flat edge of an *embedded* region become **ghosts**: not constraints (that is the whole saving), but their vertices are kept so that the
+   triangles stay conforming: (a) a ghost's **crossings with the constraints** of the triangle (a proper crossing of the ghost and a constraint segment) are points of
+   the triangle; (b) a ghost's **end on the interior of a constraint segment** is a point; (c) a ghost's end on a **side of the triangle that is not a flat edge of
+   its own region** is a point (exact `Orient`). All three are decided by the constraint segment or the side, not by the triangle: every triangle that carries the same
+   constraint segment (a boundary edge of a region of another layer, or the contact segment of a non-coplanar triangle) or the same side gets the same points from its
+   own pair with the triangle that carries the flat edge. A first version (points only for (c), at clip time) was not conforming with three or more coplanar layers: a flat
+   edge of C crossed a boundary edge f of B, B's triangle got the point on its side f, but the triangle of A that carries f as a constraint did not (review of #1725, 6
+   inputs reproduced, now tests). Points on a flat side of the region are not added (both triangles of the region skip them alike; adding every end gave back the old
+   29,808 pieces at ring 121). Crossings of two ghosts are not needed (neither is a constraint).
+   **Embedded regions only.** A region is embedded, and its flat edges are ghosts, unless (a) two triangles of one mesh in one plane meet and are not neighbours: the pair
+   loop marks both regions (`any` is true), and the pairs that share three corners; such a region overlaps itself or another region of its mesh (a self-overlapping prism:
+   winding number 2 in the overlap). "Not neighbours" is the pair that `meets_only_at_shared` does not pre-decide, so it assumes `PreDecideCoplanar` (the default): with it
+   off every pair of triangles that meet is clipped, and every region is marked not embedded (the old rule, as it should be). (b) The region contains a **culled**
+   triangle (`CullOutsideA`, the default of Difference and Intersection): the boundary edges on a culled triangle are never paired, so a piece of another triangle could
+   cross the region's real boundary and P1 would fail (found by the second review: certificate C2 on a Difference of three fine boxes). A region that is not embedded
+   is clipped as before (no ghosts), counted per triangle in the stacks (`RegionKey` is the triangle), and its triangles keep points on every side (rule (c) above takes
+   all sides of such a triangle, since its flat neighbour may be culled or marked alike). P1 and P2 below are for embedded regions; the others keep the old rule, so
+   a `WindingPredicate` that reads exact winding numbers gives the same result as before (test).
+2. **Stacks.** `coplanar_stack` is unchanged: it lists every triangle of another mesh that contains the piece's centroid, ascending, and the piece is output from
+   the first. The members are triangles of other meshes, and all triangles of a mesh come before those of the next, so the region of the lowest rank is the
+   lowest mesh's: the old rule and the rank by region are the same (a region is inside one mesh), and the code keeps the old one.
+3. **One crossing per region.** A centroid on a flat edge of a region is in two triangles of it. The windings behind the piece add one crossing per region
+   (`region_listed_before`); the ray of `front_crossings` skips every triangle in the list, as before.
+4. The stack walk is not used (`RecordEdgeLines` and `walked_sources` are off with the switch): the pieces are linear, the scan is not cubic any more.
+
+Proofs (P1 to P5 of section 6; "region" is as in section 4):
+
+- **P1, membership.** (Embedded regions, none of whose triangles is culled; others are clipped as before.) Let R be a region of mesh B and p a piece of a triangle T of mesh A (coplanar). Every boundary edge of R meeting T is clipped into T (the
+  pair of T with the triangle that carries the edge is a candidate pair, `any` is true when the clip is not empty, and the segment is added since the edge is
+  not flat). So the interior of p, which is a face of the arrangement of T, meets no boundary edge of R; as it is connected, it is inside R or disjoint from the
+  interior of R. The centroid is interior to p, hence in the closed R iff p is, and then it is in at least one triangle of R, which `coplanar_stack` finds
+  (`inside_coplanar` is the closed containment, exact). A piece that is inside R but whose centroid is on a flat edge of R is in two triangles of R: P2.
+- **P2, one entry per region.** The triangles of R are in one plane with consistent orientation and are joined through edges whose third corners are on opposite
+  sides, so their interiors are disjoint; a point of the plane is in at most two triangles of R, both only on a flat edge. `region_listed_before` counts the first
+  triangle of each region in the list only, so a stack contributes one crossing per region, the sign from the normal of the first triangle, which is the
+  region's normal (same plane, same orientation).
+- **P3, the partition of an overlap.** Two regions RA, RB of different meshes overlap in a set that both partition into pieces (the pieces of the triangles of RA
+  cover RA, and likewise RB). By P1 each piece of RA inside RB has the stack [source, a triangle of RB]; the piece is output iff its source is lower than the
+  member, i.e. iff mesh A is below mesh B. So the overlap is covered by the pieces of exactly one region (the lower mesh's), and the pieces of the other region
+  inside it are copies that are not output; the pieces of either outside the overlap have no such member and are output. With several meshes the first triangle
+  of the stack is the lowest mesh's, as before.
+- **P4, equal surface.** The old rule outputs, for each point of the plane, the pieces of the lowest mesh covering it, with the crossings of every triangle that
+  contains the piece's centroid (one per mesh and orientation at a point not on an edge); the new rule outputs the same sets (P3) and the same crossings (P1, P2).
+  Both therefore classify every point of the plane alike; only the cut of the pieces differs. The test is exact: the difference of the two results is empty both
+  ways (`ExactMeshBooleanRegionClippingTests`).
+- **P5, no new predicate or bound.** The flat test (`flat_edge`) is exact `Orient` of input points (as `meets_only_at_shared`), plus the exact plane test
+  `same_plane`; `on_boundary` is `Orient` of an arrangement point against input corners (the existing predicate, the same call as `clip_into` makes). No filter and no
+  error bound is added.
+
+Mutant of the one-crossing rule in `label_sheets` (the second dedupe site): equivalent because the site cannot be reached with two triangles of one region in a stack: a representative's source is the lowest stack entry and the stack holds no other triangle of its region (same-mesh coplanar entries exist only for regions that are not embedded, which are keyed per triangle). The first site is killed by a test with a predicate that reads the exact winding. Another equivalent mutant: dropping the sort of the ghosts in `prepare_touched`: `ghost_points` only adds points to a set that `touched_points` sorts, so the order of the ghosts (the pair loop's) changes nothing; the sort is defensive.
+
+Checker: the certifying checker (`BooleanCertificate`) is extended for `RegionClipping`: its own regions (not embedded ones as singletons, found by an exact overlap test of the triangles of one mesh in a plane) (flat edge = two triangles of one mesh in one exact plane
+with their third corners on opposite sides), the stack by region (a centroid on flat edges only is inside, on a boundary edge of a region is an error as before), and
+C2's straddle test against the boundary edges of the regions only (an exact segment against the open piece, by the signs of the forms). It does not use the arrangement.
+
 ## 9. Prior art (papers only; no code read)
 
 - G. Bernstein, D. Fussell, *Fast, Exact, Linear Booleans*, Computer Graphics Forum 28(5), 1269-1278, 2009 (Eurographics SGP): exact BSP
