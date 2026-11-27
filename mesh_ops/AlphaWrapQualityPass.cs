@@ -207,13 +207,13 @@ namespace gs
             return g;
         }
 
-        static AxisAlignedBox3d box(Vector3d a, Vector3d b, Vector3d c)
+        internal static AxisAlignedBox3d box(Vector3d a, Vector3d b, Vector3d c)
         {
             var bx = new AxisAlignedBox3d(a); bx.Contain(b); bx.Contain(c);
             return bx;
         }
 
-        static double min_angle(Vector3d a, Vector3d b, Vector3d c)
+        internal static double min_angle(Vector3d a, Vector3d b, Vector3d c)
         {
             double A = angle(b - a, c - a), B = angle(a - b, c - b), C = angle(a - c, b - c);
             return Math.Min(A, Math.Min(B, C));
@@ -234,7 +234,7 @@ namespace gs
         }
 
         // the unit normal of the triangle, or false if it is degenerate (relative to its size)
-        static bool unit_normal(Vector3d a, Vector3d b, Vector3d c, out Vector3d n)
+        internal static bool unit_normal(Vector3d a, Vector3d b, Vector3d c, out Vector3d n)
         {
             n = (b - a).Cross(c - a);
             double l = Math.Max((b - a).LengthSquared, Math.Max((c - b).LengthSquared, (a - c).LengthSquared));
@@ -548,7 +548,7 @@ namespace gs
             return false;
         }
 
-        static double max_angle(Vector3d a, Vector3d b, Vector3d c)
+        internal static double max_angle(Vector3d a, Vector3d b, Vector3d c)
         {
             return Math.Max(angle(b - a, c - a), Math.Max(angle(a - b, c - b), angle(a - c, b - c)));
         }
