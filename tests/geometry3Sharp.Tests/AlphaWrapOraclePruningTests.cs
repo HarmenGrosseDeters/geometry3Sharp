@@ -273,5 +273,142 @@ namespace geometry3Sharp.Tests
                 }
             }
         }
+
+        // margin^2 underflows while l2 is large (2^126 scale, margin 2^-600): margin^2 * l2 underflowed to 0 and
+        // falsely separated a point at half the margin; gap_exceeds falls back to the unsquared comparison
+        [Fact]
+        public void TetrahedronTouches_TinyMarginAtLargeScale_DoesNotFalseSeparate()
+        {
+            double s = ExactPoint3.ScaleB(1.0, 126);
+            double margin = ExactPoint3.ScaleB(1.0, -600);
+            Assert.Equal(0.0, margin * margin);
+            // Put the face on z = 0 and the point at z = -0.5 * margin (exact: no cancellation with s).
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(s, 0, 0), c = new Vector3d(0, s, 0), d = new Vector3d(0, 0, s);
+            var inside = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0, 0, -0.5 * margin) });
+            var outside = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0, 0, -2.0 * margin) });
+            foreach (bool pruning in new[] { false, true }) {
+                inside.FacePruning = pruning;
+                outside.FacePruning = pruning;
+                Assert.True(inside.TetrahedronTouches(a, b, c, d, margin));
+                Assert.False(outside.TetrahedronTouches(a, b, c, d, margin));
+            }
+        }
+
+        // margin^2 is subnormal while l2 is large (2^125 scale, margin ~ 2^-537): margin^2 rounds down by 33%,
+        // so (margin^2) * l2 became normal positive and falsely separated a point at 0.85 * margin
+        [Fact]
+        public void TetrahedronTouches_SubnormalMarginSquared_DoesNotFalseSeparate()
+        {
+            double s = ExactPoint3.ScaleB(1.0, 125);
+            double margin = Math.Sqrt(1.499) * ExactPoint3.ScaleB(1.0, -537);
+            Assert.True(margin * margin > 0 && margin * margin < ExactPoint3.ScaleB(1.0, -1022));
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(s, 0, 0), c = new Vector3d(0, s, 0), d = new Vector3d(0, 0, s);
+            var inside = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0, 0, -0.85 * margin) });
+            var outside = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0, 0, -1.15 * margin) });
+            foreach (bool pruning in new[] { false, true }) {
+                inside.FacePruning = pruning;
+                outside.FacePruning = pruning;
+                Assert.True(inside.TetrahedronTouches(a, b, c, d, margin));
+                Assert.False(outside.TetrahedronTouches(a, b, c, d, margin));
+            }
+        }
+
+        // box_box_apart when margin^2 is subnormal: dx = dy = 0.6 * margin rounds up per axis while margin^2 rounds down
+        [Fact]
+        public void TetrahedronTouches_SubnormalMarginSquared_BoxCheckDoesNotFalsePrune()
+        {
+            double margin = Math.Sqrt(1.499) * ExactPoint3.ScaleB(1.0, -537);
+            Vector3d a = Vector3d.Zero, b = -Vector3d.AxisX, c = -Vector3d.AxisY, d = -Vector3d.AxisZ;
+            var inside = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0.6 * margin, 0.6 * margin, 0) });
+            var outside = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0.8 * margin, 0.8 * margin, 0) });
+            foreach (bool pruning in new[] { false, true }) {
+                inside.FacePruning = pruning;
+                outside.FacePruning = pruning;
+                Assert.True(inside.TetrahedronTouches(a, b, c, d, margin));
+                Assert.False(outside.TetrahedronTouches(a, b, c, d, margin));
+            }
+        }
+
+        // margin^2 overflows while l2 is small (2^-126 scale, margin 2^600): place far inside the per-axis margin box
+        // so AABB/slab guards pass and slanted face N0 = (s^2, s^2, s^2) decides separation (fails on base)
+        [Fact]
+        public void TetrahedronTouches_HugeMarginAtSmallScale_PreservesSeparation()
+        {
+            double s = ExactPoint3.ScaleB(1.0, -126);
+            double margin = ExactPoint3.ScaleB(1.0, 600);
+            Assert.True(double.IsPositiveInfinity(margin * margin));
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(s, 0, 0), c = new Vector3d(0, s, 0), d = new Vector3d(0, 0, s);
+            var near = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0.4 * margin, 0.4 * margin, 0.4 * margin) });
+            var far = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0.8 * margin, 0.8 * margin, 0.8 * margin) });
+            foreach (bool pruning in new[] { false, true }) {
+                near.FacePruning = pruning;
+                far.FacePruning = pruning;
+                Assert.True(near.TetrahedronTouches(a, b, c, d, margin));
+                Assert.False(far.TetrahedronTouches(a, b, c, d, margin));
+            }
+        }
+
+        // subnormal segment direction: 1 / dir overflows to +Infinity; clip must divide by dir instead of multiplying
+        // by +Infinity (which turned t0 into +Infinity and missed the point at t = 0.5)
+        [Fact]
+        public void FirstEntry_SubnormalDirection_DoesNotMissOnReciprocalOverflow()
+        {
+            double h = ExactPoint3.ScaleB(1.0, -1026);
+            Assert.True(double.IsPositiveInfinity(1.0 / (2 * h)));
+            var o = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { Vector3d.Zero });
+            Vector3d a = new Vector3d(-1, -h, 0), b = new Vector3d(1, h, 0);
+            Assert.Equal(0.5, o.FirstEntryBruteForce(a, b, 0));
+            Assert.Equal(0.5, o.FirstEntry(a, b, 0));
+        }
+
+        // UTM coordinate with a radius near 1 ulp: mn - r rounded upward (inward), shrinking the expanded box and
+        // causing box_entry to reject a segment that enters the ball at t ~ 0.75
+        [Fact]
+        public void FirstEntry_UtmSmallRadius_DoesNotMissOnInwardBoxRounding()
+        {
+            double y0 = 5712043.5;
+            double ulp = ExactPoint3.ScaleB(1.0, -30);
+            double r = 1.4 * ulp;
+            Assert.Equal(y0 - ulp, y0 - r);
+            var o = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(0.5, y0, 0) });
+            Vector3d a = new Vector3d(-1, y0 - 2 * ulp, 0), b = new Vector3d(1, y0 - ulp, 0);
+            double brute = o.FirstEntryBruteForce(a, b, r);
+            Assert.InRange(brute, 0.74, 0.76);
+            Assert.Equal(brute, o.FirstEntry(a, b, r));
+        }
+
+        // 3 combined roundings in (mn - o) * (1 / dir) can exceed 1 ulp on opposite sides across x and y;
+        // enclosing every rounding step outward keeps FirstEntry equal to FirstEntryBruteForce
+        [Fact]
+        public void FirstEntry_OppositeRoundingInClip_MatchesBruteForce()
+        {
+            Vector3d p = new Vector3d(2.9800848651405232e-12, 3.265311463278164e-12, 0.0);
+            double r = 6.881275750678796e-29;
+            Vector3d a = new Vector3d(-752.9165473261443, -833.5095509181443, 0.0);
+            Vector3d b = new Vector3d(902.686155529702, 999.3106603747793, 0.0);
+            var o = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { p });
+            double brute = o.FirstEntryBruteForce(a, b, r);
+            Assert.InRange(brute, 0.45, 0.46);
+            Assert.Equal(brute, o.FirstEntry(a, b, r));
+        }
+
+        // UTM slab dot-product cancellation near 0: dot-product error is O(M * eps), not 1 ulp of DMax;
+        // magnitude-proportional slabSlack prevents false pruning in both FirstEntry and TetrahedronTouches
+        [Fact]
+        public void SlabPruning_UtmDotCancellation_DoesNotMissExactHit()
+        {
+            Vector3d p0 = new Vector3d(11424086, -5712043, 0);
+            var tris = new List<Vector3d> { p0, p0 + new Vector3d(2, -1, 0), p0 + new Vector3d(3, 0, -1) };
+            var o = new AlphaWrapOracle(tris, new List<Vector3d>());
+            Vector3d a = new Vector3d(11683131, -5729655, -74607);
+            Vector3d b = new Vector3d(11165041, -5694431, 74607);
+            foreach (double r in new[] { 0.0, 1e-12 }) {
+                double brute = o.FirstEntryBruteForce(a, b, r);
+                Assert.InRange(brute, 0.49, 0.51);
+                Assert.Equal(brute, o.FirstEntry(a, b, r));
+            }
+            // A tetrahedron containing p0 as a vertex must touch even with margin 0.
+            Assert.True(o.TetrahedronTouches(p0, p0 + Vector3d.AxisX, p0 + Vector3d.AxisY, p0 + Vector3d.AxisZ, 0));
+        }
     }
 }
