@@ -2215,6 +2215,7 @@ namespace g3
                     reps.Add(ti);
             }
             planeRep = rep;
+            if (SpikeFlatSkip) build_flat_mask();
             clock.Lap("intersections.planes");
             // (cancelled: the pairs left are skipped; Compute stops after this phase)
             gParallel.ForRange(pairs.Count, (k) => {
@@ -2227,6 +2228,52 @@ namespace g3
                 CandidatePairList = new List<long>(pairs);
         }
         public int CandidatePairs;
+
+        // SPIKE (stage 0): bit k of flatMask[ti] set when edge k (corner k to k+1) of triangle ti is a flat edge of its region
+        internal bool SpikeFlatSkip;
+        internal int SpikeSkipped;
+        byte[] flatMask;
+        void build_flat_mask()
+        {
+            flatMask = new byte[Triangles.Count];
+            for (int mi = 0; mi < Meshes.Count; ++mi) {
+                var edges = new Dictionary<long, (int, int)>(EdgeKeyComparer.Instance);
+                var bad = new HashSet<long>(EdgeKeyComparer.Instance);
+                foreach (int ti in MeshTriangles[mi]) {
+                    if (triDegenerate[ti]) continue;
+                    for (int k = 0; k < 3; ++k) {
+                        long e = EdgeKey(triCorners[ti][k], triCorners[ti][(k + 1) % 3]);
+                        (int, int) cur;
+                        if (edges.TryGetValue(e, out cur)) {
+                            if (cur.Item2 >= 0) bad.Add(e);
+                            else edges[e] = (cur.Item1, ti);
+                        } else edges[e] = (ti, -1);
+                    }
+                }
+                foreach (int ti in MeshTriangles[mi]) {
+                    if (triDegenerate[ti]) continue;
+                    InputTriangle T = Triangles[ti];
+                    for (int k = 0; k < 3; ++k) {
+                        int a = T.Corners[k], b = T.Corners[(k + 1) % 3], c = T.Corners[(k + 2) % 3];
+                        long e = EdgeKey(a, b);
+                        (int, int) pr;
+                        if (bad.Contains(e) || edges.TryGetValue(e, out pr) == false || pr.Item2 < 0) continue;
+                        int oi = pr.Item1 == ti ? pr.Item2 : pr.Item1;
+                        if (triDegenerate[oi]) continue;
+                        InputTriangle O = Triangles[oi];
+                        if (same_plane(T.P, O.P) == false) continue;
+                        int d = -1;
+                        for (int j = 0; j < 3; ++j) { int x = O.Corners[j]; if (x != a && x != b) d = x; }
+                        // consistent orientation: O has the edge as b->a
+                        bool opposite = false;
+                        for (int j = 0; j < 3; ++j) if (O.Corners[j] == b && O.Corners[(j + 1) % 3] == a) opposite = true;
+                        if (opposite == false) continue;
+                        if (Orient(T, a, b, c) * Orient(T, a, b, d) < 0)
+                            flatMask[ti] |= (byte)(1 << k);
+                    }
+                }
+            }
+        }
 
         // per triangle: a triangle in the same plane that stands for its plane (after find_intersections; null before:
         // each its own)
@@ -2695,8 +2742,11 @@ namespace g3
             bool any = false;
             // the edges of each triangle, clipped to the other, become constraints of the other
             for (int k = 0; k < 3; ++k) {
-                any |= clip_into(T, U.Corners[k], U.Corners[(k + 1) % 3], 4 * ui + 1 + k);
-                any |= clip_into(U, T.Corners[k], T.Corners[(k + 1) % 3], 4 * ti + 1 + k);
+                bool fu = flatMask != null && (flatMask[ui] & (1 << k)) != 0, ft = flatMask != null && (flatMask[ti] & (1 << k)) != 0;
+                if (fu) System.Threading.Interlocked.Increment(ref SpikeSkipped);
+                if (ft) System.Threading.Interlocked.Increment(ref SpikeSkipped);
+                any |= clip_into(T, U.Corners[k], U.Corners[(k + 1) % 3], 4 * ui + 1 + k, !fu);
+                any |= clip_into(U, T.Corners[k], T.Corners[(k + 1) % 3], 4 * ti + 1 + k, !ft);
             }
             if (any) {
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
@@ -2752,7 +2802,7 @@ namespace g3
         // clip segment p-q (an edge of a triangle in the plane of t, on the line t.P ∩ line) to the closed triangle t,
         // add the result to t
         [MethodImpl(JitHints.Optimize)]
-        bool clip_into(InputTriangle t, int p, int q, int line)
+        bool clip_into(InputTriangle t, int p, int q, int line, bool add = true)
         {
             var cands = new List<int>();
             if (inside(t, p)) cands.Add(p);
@@ -2773,6 +2823,7 @@ namespace g3
                 return false;
             int lo, hi;
             min_max(cands, d, out lo, out hi);
+            if (add == false) return true;
             lock (t.Lock) {
                 if (compare_along(d, lo, hi) == 0)
                     t.AddPoint(lo);

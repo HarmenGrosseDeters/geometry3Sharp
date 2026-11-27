@@ -1,6 +1,6 @@
 # Coplanar region clipping (option E'): O(n) pieces for overlaid coplanar fans, #1630
 
-Status: design for the owner's decision, nothing built (2026-11-27). Refs #1630. Needs a decision first: it changes the output
+Status: approved by the owner on 2026-11-27; stage 0 (spike behind the internal switch `SpikeFlatSkip`) is under way, measured (section 9). Refs #1630. It changes the output
 triangulation of every boolean whose inputs have coplanar clusters (section 5). The stack walk of
 [COPLANAR_PROPAGATION.md](COPLANAR_PROPAGATION.md) (option A) is built and is the base of this design.
 [COPLANAR_FAN_DIAGNOSIS.md](COPLANAR_FAN_DIAGNOSIS.md) has the earlier measurements.
@@ -164,3 +164,23 @@ allow-list.
 The statement that polygon- or plane-based pipelines keep coplanar faces together while triangle-based arrangements (this library,
 and the arrangement papers above) split triangle by triangle is the author's reading of the designs, not a claim of these papers
 about coplanar fans; the numbers of sections 1 to 3 are this library's.
+
+## 9. Stage 0 measured (2026-11-27)
+
+The spike skips the constraint of every clip of a flat edge (two triangles of one mesh, same exact plane, consistent orientation, third corners
+strictly on opposite sides by the exact in-plane `Orient`); the pair is still clipped, so the coplanar relation is recorded. Stacks are not region aware
+yet, so only pieces and time are meaningful. Union of a capped cylinder and a copy shifted by dx:
+
+| case | ring | pieces before | pieces with the switch | Compute ms before / with |
+| --- | --- | --- | --- | --- |
+| S (2 ulps) | 121 | 29,808 | 2,184 | 930 / 771 |
+| S | 241 | 117,168 | 4,344 (x1.99) | 6,185 / 555 |
+| S | 481 | (27.5 s run) | 8,664 (x1.99) | 27,529 / 2,614 |
+| R (0.25) | 61 | 6,064 | 1,128 | 204 / 165 |
+| R | 121 | 22,480 | 2,232 (x1.98) | 948 / 319 |
+| R | 241 | | 4,448 (x1.99) | / 847 |
+| R | 481 | | 8,880 (x2.0) | / 2,236 |
+| plate and 9 boxes | | 1,092 | 852 | 18 / 7 |
+
+Gate (pieces at most x2.3 per doubling, ring 481 at most 3 s): met. The flat-edge test adds no predicate (exact `Orient` of input points as in
+`meets_only_at_shared`). `SpikeFlatSkip` is internal, off by default, and the output of every operation is unchanged with it off.
