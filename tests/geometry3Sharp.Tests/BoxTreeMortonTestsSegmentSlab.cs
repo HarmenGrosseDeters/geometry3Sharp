@@ -123,6 +123,9 @@ namespace geometry3Sharp.Tests
             return true;
         }
 
+        // v with its x moved to axis ax (a cyclic permutation)
+        static Vector3d Axis(Vector3d v, int ax) => ax == 0 ? v : ax == 1 ? new Vector3d(v.z, v.x, v.y) : new Vector3d(v.y, v.z, v.x);
+
         static bool ReportedPadded(Vector3d lo, Vector3d hi, Vector3d p, Vector3d q, double pad)
         {
             var tree = new TriangleBoxTree(new List<AxisAlignedBox3d> { new AxisAlignedBox3d(lo, hi) });
@@ -149,9 +152,11 @@ namespace geometry3Sharp.Tests
                 // the segment's x: from outside the pad (a few ulps) to inside it, or to the face itself
                 double sgn = low ? -1 : 1;
                 double px = face + sgn * ulp * r.Next(1, 4), qx = face + sgn * pad * r.NextDouble() * (r.Next(4) == 0 ? 0 : 1);
-                var lo = new Vector3d(b0, 0, 0); var hi = new Vector3d(b1, 1, 1);
-                var p = new Vector3d(px, r.NextDouble() * 3 - 1, r.NextDouble() * 3 - 1);
-                var q = new Vector3d(qx, r.NextDouble() * 3 - 1, r.NextDouble() * 3 - 1);
+                // (the face's axis cycles through x, y, z)
+                int ax = it % 3;
+                var lo = Axis(new Vector3d(b0, 0, 0), ax); var hi = Axis(new Vector3d(b1, 1, 1), ax);
+                var p = Axis(new Vector3d(px, r.NextDouble() * 3 - 1, r.NextDouble() * 3 - 1), ax);
+                var q = Axis(new Vector3d(qx, r.NextDouble() * 3 - 1, r.NextDouble() * 3 - 1), ax);
                 if (!(lo.IsFinite && hi.IsFinite && p.IsFinite && q.IsFinite)) continue;
                 n++;
                 if (MeetsPadded(p, q, lo, hi, pad)) {
@@ -292,6 +297,46 @@ namespace geometry3Sharp.Tests
                     }
             }
             Assert.True(hits > 50, $"{hits}");
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void QuerySegment_Padded_AllSimilarities_TheExactHitsStayReported(string name)
+        {
+            // #1691 under Similarity.All(): a pad of a fraction of an ulp to a few ulps of the box's size, the oracle on
+            // the exact padded box; under 2^k the scaled input (pad scaled too) has the same exact verdict and is
+            // reported, under the others the transformed doubles (box of the corners, pad as a length) are checked
+            Similarity sim = Similarity.ByName(name);
+            var r = new Random(41);
+            int compared = 0;
+            foreach (var (lo, hi, p, q) in Cases(43, 1500)) {
+                double m = Math.Max(lo.MaxAbs, hi.MaxAbs);
+                if (!(m > 0)) continue;
+                double ulp = ExactInterval.Up(m) - m;
+                double pad = ulp * (r.Next(2) == 0 ? 0.4 * r.NextDouble() : 1 + 4 * r.NextDouble());
+                bool meets = MeetsPadded(p, q, lo, hi, pad);
+                if (sim.IsExact) {
+                    int k = (int)Math.Round(Math.Log(sim.Scale, 2));
+                    foreach (int kk in new[] { k, 50 * k, -50 * k }) {
+                        Vector3d sl = Scaled(lo, kk), sh = Scaled(hi, kk), sp = Scaled(p, kk), sq = Scaled(q, kk);
+                        double spad = ExactPoint3.ScaleB(pad, kk);
+                        if (Scaled(sl, -kk) != lo || Scaled(sh, -kk) != hi || Scaled(sp, -kk) != p || Scaled(sq, -kk) != q || ExactPoint3.ScaleB(spad, -kk) != pad)
+                            continue;
+                        Assert.Equal(meets, MeetsPadded(sp, sq, sl, sh, spad));
+                        if (meets) Assert.True(ReportedPadded(sl, sh, sp, sq, spad), $"{name} 2^{kk}: box {lo:R} - {hi:R}, pad {pad:R}, segment {p:R} - {q:R}");
+                        compared++;
+                    }
+                    continue;
+                }
+                if (lo.MaxAbs > 1e100 || hi.MaxAbs > 1e100 || p.MaxAbs > 1e100 || q.MaxAbs > 1e100 || m < 1e-100) continue;
+                var box = new AxisAlignedBox3d(sim.Apply(lo));
+                for (int c = 0; c < 8; ++c) box.Contain(sim.Apply(new Vector3d((c & 1) != 0 ? hi.x : lo.x, (c & 2) != 0 ? hi.y : lo.y, (c & 4) != 0 ? hi.z : lo.z)));
+                Vector3d tp = sim.Apply(p), tq = sim.Apply(q);
+                double tpad = sim.ApplyLength(pad);
+                if (MeetsPadded(tp, tq, box.Min, box.Max, tpad)) Assert.True(ReportedPadded(box.Min, box.Max, tp, tq, tpad), $"{name}: {p:R} - {q:R}, pad {pad:R}");
+                compared++;
+            }
+            Assert.True(compared > 500, $"{name}: {compared}");
         }
 
         [Theory]
