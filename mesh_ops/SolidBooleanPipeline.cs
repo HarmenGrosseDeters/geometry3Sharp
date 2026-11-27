@@ -395,7 +395,10 @@ namespace gs
             AutoRepair = 1,
             /// <summary>
             /// MeshAutoRepair, and if the copy is still not closed, MeshRobustRepair of the input (it may solidify or wrap: the geometry
-            /// can change). A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
+            /// can change). A MeshRobustRepair result is used only if its Apply() is true: a refused one (false, eg ThinShellWrap, a lost part,
+            /// NestingAmbiguous, ScaleDisparity (a clean mesh flagged only by the degenerate-area diagnostic, components far apart compared with their size); the mesh may be closed but is not a repair of the input) is not used and the run fails with Status OpenInput,
+            /// Error naming the ResultReason.
+            /// MeshRobustRepair returns Apply() true also for an unclean solidify result (ResultReason = SolidifyReason, eg self-intersections), and the pipeline still uses such a winding-closed result: a known gap, a candidate follow-up. A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
             /// (Status OpenInput), without falling back to MeshRobustRepair
             /// </summary>
             AutoRepairThenRobust = 2
@@ -1292,9 +1295,11 @@ namespace gs
                         continue;
                     DMesh3 repaired;
                     SolidBooleanInputRepair r = repair(i, given[i], out repaired);
+                    if (r == null && Cancellation.IsCancellationRequested)
+                        return fail(PipelineStatus.Cancelled, "cancelled", total);
                     if (r == null) {
-                        step("Refused", i, "input " + i + " is not closed and no allowed repair closed it (InputRepair = " + InputRepair + ")", "no result (Status OpenInput)");
-                        return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it", total);
+                        step("Refused", i, "input " + i + " is not closed and no allowed repair closed it (InputRepair = " + InputRepair + ")" + refusalSuffix(), "no result (Status OpenInput)");
+                        return fail(PipelineStatus.OpenInput, "input " + i + " is not closed and no allowed repair closed it" + refusalSuffix(), total);
                     }
                     Report.RepairedInputs.Add(r);
                     step("InputRepair", i, "input " + i + " is not closed and the boolean refuses it as open (InputRepair = " + InputRepair + ")",
@@ -2596,22 +2601,44 @@ namespace gs
         SolidBooleanInputRepair repair(int i, DMesh3 input, out DMesh3 repaired)
         {
             repaired = null;
+            robustRefusal = null;
             var clock = Stopwatch.StartNew();
             var auto = new MeshAutoRepair(new DMesh3(input));
-            auto.Apply();
-            if (ExactMeshBoolean.IsWindingClosed(auto.Mesh) && auto.Mesh.TriangleCount > 0) {
+            if (SkipAutoRepairForTests == false)
+                auto.Apply();
+            if (SkipAutoRepairForTests == false && ExactMeshBoolean.IsWindingClosed(auto.Mesh) && auto.Mesh.TriangleCount > 0) {
                 repaired = auto.Mesh;
                 return new SolidBooleanInputRepair { Index = i, Method = "MeshAutoRepair", TrianglesBefore = input.TriangleCount, TrianglesAfter = repaired.TriangleCount, Milliseconds = clock.ElapsedMilliseconds };
             }
             if (InputRepair != InputRepairModes.AutoRepairThenRobust)
                 return null;
             var robust = new MeshRobustRepair(new DMesh3(input));
-            robust.Apply();
+            robust.CancelF = () => Cancellation.IsCancellationRequested;
+            RobustRepairSetupForTests?.Invoke(robust);
+            // Apply() false: the mesh in robust.Mesh is not a repair of the input (a thin shell around a solid, a part lost, ambiguous nesting, a
+            // scale it does not handle, cancelled: see MeshRobustRepair.Apply), even where it is closed. It is not used; the run is refused and
+            // names the reason
+            if (robust.Apply() == false) {
+                robustRefusal = robust.ResultReason != "" ? robust.ResultReason : "Apply() returned false";
+                return null;
+            }
             if (ExactMeshBoolean.IsWindingClosed(robust.Mesh) && robust.Mesh.TriangleCount > 0) {
                 repaired = robust.Mesh;
                 return new SolidBooleanInputRepair { Index = i, Method = "MeshRobustRepair", TrianglesBefore = input.TriangleCount, TrianglesAfter = repaired.TriangleCount, Milliseconds = clock.ElapsedMilliseconds };
             }
             return null;
+        }
+
+        // why MeshRobustRepair was refused by the last repair() (its Apply() was false: the ResultReason), else null
+        string robustRefusal;
+        // tests: skip MeshAutoRepair so that an input reaches MeshRobustRepair (MeshAutoRepair closes nearly every open surface)
+        internal bool SkipAutoRepairForTests;
+        // tests: settings of the MeshRobustRepair of the repair (a cheaper grid and wrap than the defaults)
+        internal Action<MeshRobustRepair> RobustRepairSetupForTests;
+
+        string refusalSuffix()
+        {
+            return robustRefusal == null ? "" : ": MeshRobustRepair did not repair it (Apply() was false, ResultReason: " + robustRefusal + ")";
         }
 
         // Reducer that keeps the last refusal of each edge (ProcessResult is the Reducer's protected enum): the edges left at the
