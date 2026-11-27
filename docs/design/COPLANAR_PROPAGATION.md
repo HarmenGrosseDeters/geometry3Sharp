@@ -1,6 +1,6 @@
 # Coplanar propagation: stacks and winding numbers in one pass over the coplanar cells
 
-Status: design, nothing built (2026-11-25). Refs #1630. Measurements: the issue and its upper-bound comment.
+Status: design, nothing built (2026-11-25). Refs #1630. Measurements: the issue and its upper-bound comment; re-measurement, per-stage counts, upper bound and the choice of options: [COPLANAR_FAN_DIAGNOSIS.md](COPLANAR_FAN_DIAGNOSIS.md) (2026-11-27).
 
 ## 1. Problem
 
