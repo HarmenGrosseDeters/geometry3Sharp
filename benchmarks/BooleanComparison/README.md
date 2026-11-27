@@ -1265,7 +1265,7 @@ operations each (`perf/near_pending_boxes_report.py`, rows in `perf/near_pending
 `MeshRoundingRepair.intersecting_pairs_all` tests every box neighbour of a rounded triangle with the pair test. On
 results with long thin triangles on tilted faces a query has hundreds of box neighbours and none intersects. Now the
 four axes of every triangle (normal and in-plane edge normals) and its interval on each are computed once per search
-(`intersection/TriangleSeparatingAxes.cs`, 160 bytes per triangle for the time of the search), and a pair that is
+(`intersection/TriangleSeparatingAxes.cs`, 160 bytes per triangle for the time of the search; none above 6 710 886 triangles, a 1 GiB array, so below the object limit of every runtime), and a pair that is
 strictly apart along one of the eight axes of its two triangles skips the pair test. The margin of the comparison is
 derived in the class comment and in `docs/design/SNAP_ROUNDING_3D.md` section 5.3; the pairs found, and so the result,
 are the same. Lever 1 of the rounding cost study (`docs/research/ROUNDING_COST_2026-11.md` section 5, owner go

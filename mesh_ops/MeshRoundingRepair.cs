@@ -662,9 +662,10 @@ namespace g3
         [ThreadStatic] internal static bool NoSeparatingAxesOnThisThread;
         bool useAxes = true;
         // a full pair search over more triangles than this takes no separating axes (20 doubles per triangle in one
-        // array: its length and the offsets into it are ints; the search then tests every box pair, as before). For
-        // tests: set lower
-        internal const int DefaultMaxAxesTriangles = int.MaxValue / TriangleSeparatingAxes.Stride;
+        // array; the search then tests every box pair, as before). The limit keeps the array at 1 GiB (int.MaxValue / 16
+        // doubles), below every runtime's limit for one object (2 GB on .NET Framework, Array.MaxLength on .NET Core) and
+        // below int offsets, so that above it the search is the same on all runtimes. For tests: set lower
+        internal const int DefaultMaxAxesTriangles = (int.MaxValue / 16) / TriangleSeparatingAxes.Stride;
         internal static volatile int MaxAxesTriangles = DefaultMaxAxesTriangles;
         // for tests: the queries of near compared with a scan (CheckOnThisThread)
         internal long NearChecks;

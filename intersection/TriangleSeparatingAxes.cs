@@ -40,8 +40,16 @@ namespace g3
     ///   6. the interval ends are one rounding each, and rounding is monotonic: fl(y) &gt; fl(z) implies y &gt; z. So
     ///      lo~(U) &gt; hi~(T) implies min_k p~(U_k) - m~(U) &gt; max_k p~(T_k) + m~(T) in exact arithmetic, and with 5
     ///      min_k a.U_k &gt; max_k a.T_k: the triangles are strictly apart along a.
-    /// Gamma = 8u is twice what 3 and 4 need (4u (1 - u)^-3 would do); it is the value of the lemma checked with Z3
-    /// (tools/Z3Pilot/separating_axis.py: the obligations R1 to R3 and G1, and six mutants, among them Gamma = 2u).
+    /// Gamma = 8u is twice what 3 and 4 need (4u (1 - u)^-3 would do). The relative part of the bound (steps 1 to 6 without
+    /// underflow) corresponds to the lemma of the Z3 pilot (tools/Z3Pilot/separating_axis.py) for its prototype
+    /// (benchmarks/SnapRoundingExperiment/CandidateCulling.cs); this file has no source contract with the pilot, and the pilot
+    /// has no Tiny term and assumes no underflow. The full bound (with Tiny and the underflow case split below) is derived
+    /// here and in docs/design/SNAP_ROUNDING_3D.md section 5.3, and checked by the value tests of TriangleSeparatingAxesTests
+    /// and by review.
+    ///
+    /// Size. MeshRoundingRepair keeps the axes (Stride doubles per triangle) in one array and uses none above
+    /// (int.MaxValue / 16) / Stride = 6 710 886 triangles (a 1 GiB array: below the limit of one object on every runtime,
+    /// 2 GB on .NET Framework); the search then tests every box pair, as without the axes.
     ///
     /// Underflow. The relative model of a rounding fails for a product that is subnormal or underflows to zero: its
     /// error is then at most 2^-1075 in absolute terms (sums and differences of doubles are exact when their result is

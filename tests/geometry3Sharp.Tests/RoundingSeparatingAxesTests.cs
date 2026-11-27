@@ -178,7 +178,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void AboveTheSizeLimit_NoAxes_SameResult()
         {
-            Assert.Equal(int.MaxValue / TriangleSeparatingAxes.Stride, MeshRoundingRepair.DefaultMaxAxesTriangles);
+            Assert.Equal(6710886, MeshRoundingRepair.DefaultMaxAxesTriangles);
+            // (an array of at most 1 GiB: below the 2 GB of one object on .NET Framework and Array.MaxLength on .NET Core)
+            Assert.True((long)MeshRoundingRepair.DefaultMaxAxesTriangles * TriangleSeparatingAxes.Stride * sizeof(double) <= 1L << 30);
             Assert.Equal(MeshRoundingRepair.DefaultMaxAxesTriangles, MeshRoundingRepair.MaxAxesTriangles);
             Func<Ops, DMesh3> rounded = (op) => {
                 var (a, b) = Gears(20);

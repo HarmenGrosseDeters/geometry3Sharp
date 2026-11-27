@@ -257,10 +257,10 @@ block.
 Built (owner go 2026-11-22; [ROUNDING_COST_2026-11.md](../research/ROUNDING_COST_2026-11.md) option 1; redone on master
 2026-11-27 after the joint stage, the first branch being 1 100 commits behind) in the form that pays:
 `intersection/TriangleSeparatingAxes.cs`, the axes computed once per triangle and used in the full pair searches only
-(not in the check's reference search, not in the incremental searches; none above `int.MaxValue / 20` triangles). The
+(not in the check's reference search, not in the incremental searches; none above 6 710 886 = `(int.MaxValue / 16) / 20` triangles: the axes are one 1 GiB array, below the limit of one object on every runtime, 2 GB on .NET Framework; above it the search tests every box pair, as before). The
 margin is the lemma's 8u of the magnitude plus an absolute 2^-1072 for products that are subnormal (instead of scaling
 the axes or refusing small products: a triangle in a plane through the origin projects to exactly zero on its normal
-and must stay usable). The absolute term is not part of the Z3 obligations.
+and must stay usable). The Z3 pilot (`separating_axis.py`) checks the relative part for its prototype, with no `Tiny` term and no underflow, and holds no source contract on this file; the full bound, with `Tiny` and the underflow case split, is derived in the class comment and checked by the value tests and the review.
 
 The bound, with u = 2^-53, S = |a_x x_x| + |a_y x_y| + |a_z x_z| (the class comment has it step by step, with the
 underflow case split and the model):
