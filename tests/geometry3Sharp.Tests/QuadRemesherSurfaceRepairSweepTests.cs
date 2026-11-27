@@ -35,10 +35,10 @@ namespace geometry3Sharp.Tests
         [InlineData("sharp-cylinder", 7, "")]
         [InlineData("sharp-cylinder", 8, "")]
         [InlineData("gear", 0, "")]
-        [InlineData("gear", 1, "14:1 16:1")]
+        [InlineData("gear", 1, "")]
         [InlineData("gear", 2, "")]
-        [InlineData("gear", 3, "22:1")]
-        [InlineData("gear", 4, "27:1")]
+        [InlineData("gear", 3, "")]
+        [InlineData("gear", 4, "")]
         [InlineData("gear", 5, "")]
         [InlineData("gear", 6, "")]
         [InlineData("gear", 7, "")]
@@ -50,8 +50,8 @@ namespace geometry3Sharp.Tests
         [InlineData("l-profile", 4, "")]
         [InlineData("l-profile", 5, "")]
         [InlineData("l-profile", 6, "")]
-        [InlineData("l-profile", 7, "35:1")]
-        [InlineData("l-profile", 8, "60:1")]
+        [InlineData("l-profile", 7, "")]
+        [InlineData("l-profile", 8, "")]
         public void DefaultPath_NeverWorse_UnchangedWhenNothingDrops_AndTheRemainingDropsArePinned(string name, int part, string remaining)
         {
             var worse = new List<string>(); var still = new List<string>();

@@ -440,7 +440,7 @@ namespace gs
         // SurfaceMaxTriangles triangles per neighbour, a Dijkstra that expands at most SurfaceMaxExpanded triangles; only loops of up to SurfaceMaxLoop
         // vertices are repaired (the figure-8 loops measured are 7 to 12 long; the outer loop of an open input is long and always dropped) and at most
         // SurfaceMaxVertices vertices on them (an input with many folds: the repair is skipped, the cost stays bounded)
-        const int SurfaceMaxTriangles = 24, SurfaceMaxExpanded = 400, SurfaceMaxLoop = 32, SurfaceMaxVertices = 256;
+        const int SurfaceMaxTriangles = 24, SurfaceMaxExpanded = 400, SurfaceMaxLoop = 32, SurfaceMaxVertices = 256, SurfaceMaxCrossingVertices = 32;
 
         // The angle at p of the direction towards q along the surface of mesh: the triangles of a shortest triangle path (by centroid
         // distances) from the triangle nearest p to the one nearest q are unfolded into the plane of the first, counter-clockwise about its
@@ -449,8 +449,17 @@ namespace gs
 
         internal static double SurfaceAngle(DMesh3 mesh, DMeshAABBTree3 tree, int tp, Vector3d p, Vector3d q, int maxTris = SurfaceMaxTriangles)
         {
+            Vector2d dv = SurfaceVector(mesh, tree, tp, p, q, maxTris);
+            if (double.IsNaN(dv.x) || dv.LengthSquared == 0) return double.NaN;
+            return Math.Atan2(dv.y, dv.x);
+        }
+
+        /// <summary> the vector from p to q in the chart of the unfolded strip (see SurfaceAngle); NaN components if there is none </summary>
+        internal static Vector2d SurfaceVector(DMesh3 mesh, DMeshAABBTree3 tree, int tp, Vector3d p, Vector3d q, int maxTris = SurfaceMaxTriangles)
+        {
+            Vector2d none = new Vector2d(double.NaN, double.NaN);
             int tq = tree.FindNearestTriangle(q);
-            if (tp < 0 || tq < 0) return double.NaN;
+            if (tp < 0 || tq < 0) return none;
             var prev = new Dictionary<int, int>(); var dist = new Dictionary<int, double>(); var done = new HashSet<int>();
             var open = new SortedSet<(double, int)>(); dist[tp] = 0; open.Add((0, tp)); prev[tp] = -1;
             int expanded = 0;
@@ -458,7 +467,7 @@ namespace gs
                 var (d, t) = open.Min; open.Remove(open.Min);
                 if (!done.Add(t)) continue;
                 if (t == tq) break;
-                if (++expanded > SurfaceMaxExpanded) return double.NaN;
+                if (++expanded > SurfaceMaxExpanded) return none;
                 Vector3d ct = mesh.GetTriCentroid(t);
                 Index3i nbs = mesh.GetTriNeighbourTris(t);
                 for (int i = 0; i < 3; ++i) {
@@ -469,9 +478,9 @@ namespace gs
                     if (!dist.TryGetValue(nb, out od) || nd < od) { dist[nb] = nd; prev[nb] = t; open.Add((nd, nb)); }
                 }
             }
-            if (!done.Contains(tq)) return double.NaN;
+            if (!done.Contains(tq)) return none;
             var path = new List<int>(); for (int t = tq; t >= 0; t = prev[t]) path.Add(t); path.Reverse();
-            if (path.Count > maxTris) return double.NaN;
+            if (path.Count > maxTris) return none;
             var pos2 = new Dictionary<int, Vector2d>();
             Index3i t0 = mesh.GetTriangle(path[0]);
             Vector3d a3 = mesh.GetVertex(t0.a), b3 = mesh.GetVertex(t0.b), c3 = mesh.GetVertex(t0.c);
@@ -483,14 +492,14 @@ namespace gs
                 int pv = -1, qv = -1, rv = -1, sv = -1;
                 for (int i = 0; i < 3; ++i) { if (tcur[i] == tprev.a || tcur[i] == tprev.b || tcur[i] == tprev.c) { if (pv < 0) pv = tcur[i]; else qv = tcur[i]; } else rv = tcur[i]; }
                 for (int i = 0; i < 3; ++i) if (tprev[i] != pv && tprev[i] != qv) sv = tprev[i];
-                if (pv < 0 || qv < 0 || rv < 0 || sv < 0) return double.NaN;
+                if (pv < 0 || qv < 0 || rv < 0 || sv < 0) return none;
                 Vector2d P = pos2[pv], Q = pos2[qv], S = pos2[sv];
                 double lpr = (mesh.GetVertex(pv) - mesh.GetVertex(rv)).Length, lqr = (mesh.GetVertex(qv) - mesh.GetVertex(rv)).Length;
-                Vector2d pq = Q - P; double dd = pq.Length; if (dd == 0) return double.NaN;
+                Vector2d pq = Q - P; double dd = pq.Length; if (dd == 0) return none;
                 double x = (lpr * lpr - lqr * lqr + dd * dd) / (2 * dd); double y2 = lpr * lpr - x * x; double y = y2 > 0 ? Math.Sqrt(y2) : 0;
                 Vector2d ex = pq / dd, ey = new Vector2d(-ex.y, ex.x);
                 double side = Math.Sign(ex.x * (S - P).y - ex.y * (S - P).x);
-                if (side == 0) return double.NaN;                  // a degenerate triangle: no side to unfold to
+                if (side == 0) return none;                  // a degenerate triangle: no side to unfold to
                 pos2[rv] = P + x * ex + (side > 0 ? -y : y) * ey;
             }
             Vector2d Bary(int tid, Vector3d pt)
@@ -499,8 +508,7 @@ namespace gs
                 return bc.x * pos2[tt.a] + bc.y * pos2[tt.b] + bc.z * pos2[tt.c];
             }
             Vector2d q2 = Bary(path[path.Count - 1], q);
-            Vector2d dv = q2 - p2; if (dv.LengthSquared == 0) return double.NaN;
-            return Math.Atan2(dv.y, dv.x);
+            return q2 - p2;
         }
 
         // Rebuilds the faces of g with the neighbour order from surface directions at the vertices of the loops that BuildFaces drops for
@@ -512,17 +520,75 @@ namespace gs
             if (dropped <= 0) return current;
             HashSet<int> bad = BadLoopVertices(CopyGraph(g), maxSides, null, SurfaceMaxLoop);
             if (!SurfaceRepairApplies(bad.Count)) return current;
-            Dictionary<int, int[]> rot = SurfaceRotations(g, mesh, bad);
+            var tree = new DMeshAABBTree3(mesh, true);
+            Dictionary<int, int[]> rot = SurfaceRotations(g, mesh, bad, tree);
             if (rot.Count == 0) return current;
-            int d; DPolyMesh r = BuildFaces(CopyGraph(g), maxSides, out d, rot);
-            if (d < dropped && HasNoRepeatedVertex(r) && BoundaryEdgeCount(r) <= BoundaryEdgeCount(current)) { dropped = d; return r; }
-            return current;
+            Func<PolyGraph, Func<int[], bool>> rescue = graph => loop => SurfaceFaceDeviation(graph, mesh, tree, loop) <= SurfaceSliverTolerance;
+            int originalBoundary = BoundaryEdgeCount(current);
+            DPolyMesh best = current; int bestDropped = dropped;
+            int d; DPolyMesh r = BuildFaces(CopyGraph(g), maxSides, out d, rot, rescue(g));
+            if (d < bestDropped && HasNoRepeatedVertex(r) && BoundaryEdgeCount(r) <= originalBoundary) { best = r; bestDropped = d; }
+            if (bestDropped > 0) {
+                // loops that are still bad with the surface orders: two links of them that cross each other on the surface (not in space: they may pass a fold apart)
+                PolyGraph c = CopyGraph(g);
+                HashSet<int> still = BadLoopVertices(CopyGraph(g), maxSides, rot, SurfaceMaxLoop);
+                var removed = SurfaceCrossings(c, mesh, tree, still);
+                if (removed.Count > 0) {
+                    foreach (var e in removed) c.Unlink(e.Item1, e.Item2);
+                    var rot2 = new Dictionary<int, int[]>(rot);       // (the ends of the removed links get their orders again below)
+                    foreach (var kv in SurfaceRotations(c, mesh, removed.SelectMany(e => new[] { e.Item1, e.Item2 }).Distinct().OrderBy(x => x), tree)) rot2[kv.Key] = kv.Value;
+                    DPolyMesh r2 = BuildFaces(CopyGraph(c), maxSides, out d, rot2, rescue(c));
+                    if (d < bestDropped && HasNoRepeatedVertex(r2) && BoundaryEdgeCount(r2) <= originalBoundary) { best = r2; bestDropped = d; }
+                }
+            }
+            dropped = bestDropped;
+            return best;
         }
 
-        /// <summary> the neighbours of each of the vertices ordered by their direction along the surface; a vertex with a neighbour out of reach has no entry </summary>
-        internal static Dictionary<int, int[]> SurfaceRotations(PolyGraph g, DMesh3 mesh, IEnumerable<int> vertices)
+        /// <summary>
+        /// The links among those at the vertices that cross another one on the surface: both are drawn in the chart of the strip of triangles from the first end of one (the
+        /// vertices with the lower number), and cross there properly; of each pair the longer link (the lower numbers on a tie) is returned, none that joins two boundary
+        /// or crease vertices (a chain link, as in RemoveCrossings). At most SurfaceMaxCrossingVertices vertices are looked at.
+        /// </summary>
+        internal static List<Tuple<int, int>> SurfaceCrossings(PolyGraph g, DMesh3 mesh, DMeshAABBTree3 tree, IEnumerable<int> vertices)
         {
-            var tree = new DMeshAABBTree3(mesh, true);
+            var result = new List<Tuple<int, int>>();
+            var vs = vertices.OrderBy(x => x).ToList();
+            if (vs.Count == 0 || vs.Count > SurfaceMaxCrossingVertices) return result;
+            var edges = new List<Tuple<int, int>>(); var seen = new HashSet<long>();
+            foreach (int v in vs) foreach (int w in g.Adj[v]) { int a = Math.Min(v, w), b = Math.Max(v, w); if (seen.Add(((long)a << 32) | (uint)b)) edges.Add(Tuple.Create(a, b)); }
+            var drop = new HashSet<long>();
+            for (int i = 0; i < edges.Count; ++i)
+                for (int j = i + 1; j < edges.Count; ++j) {
+                    int a = edges[i].Item1, b = edges[i].Item2, c = edges[j].Item1, d = edges[j].Item2;
+                    if (a == c || a == d || b == c || b == d) continue;
+                    double li = (g.Pos[a] - g.Pos[b]).Length, lj = (g.Pos[c] - g.Pos[d]).Length;
+                    // (chord distance: the links of one patch of the surface are close)
+                    if ((g.Pos[a] - g.Pos[c]).Length > 3 * Math.Max(li, lj)) continue;
+                    int tp = tree.FindNearestTriangle(g.Pos[a]);
+                    Vector2d vb = SurfaceVector(mesh, tree, tp, g.Pos[a], g.Pos[b]), vc = SurfaceVector(mesh, tree, tp, g.Pos[a], g.Pos[c]), vd = SurfaceVector(mesh, tree, tp, g.Pos[a], g.Pos[d]);
+                    if (double.IsNaN(vb.x) || double.IsNaN(vc.x) || double.IsNaN(vd.x)) continue;
+                    if (!ChartSegmentsCross(Vector2d.Zero, vb, vc, vd)) continue;
+                    int drops = li > lj ? i : lj > li ? j : i;       // the longer; on a tie the first (lower numbers)
+                    Tuple<int, int> e = edges[drops], k = edges[drops == i ? j : i];
+                    if (IsChainLink(g, e.Item1, e.Item2)) { if (IsChainLink(g, k.Item1, k.Item2)) continue; e = k; }
+                    if (drop.Add(((long)e.Item1 << 32) | (uint)e.Item2)) result.Add(e);
+                }
+            return result;
+        }
+
+        static bool ChartSegmentsCross(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+        {
+            double o1 = Cross2(b - a, c - a), o2 = Cross2(b - a, d - a), o3 = Cross2(d - c, a - c), o4 = Cross2(d - c, b - c);
+            return (o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0) && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0);
+        }
+
+        static double Cross2(Vector2d u, Vector2d v) { return u.x * v.y - u.y * v.x; }
+
+        /// <summary> the neighbours of each of the vertices ordered by their direction along the surface; a vertex with a neighbour out of reach has no entry </summary>
+        internal static Dictionary<int, int[]> SurfaceRotations(PolyGraph g, DMesh3 mesh, IEnumerable<int> vertices, DMeshAABBTree3 tree = null)
+        {
+            if (tree == null) tree = new DMeshAABBTree3(mesh, true);
             var rot = new Dictionary<int, int[]>();
             foreach (int v in vertices) {
                 var nb = g.Adj[v]; var keys = new double[nb.Count]; var ids = nb.ToArray(); bool ok = true;
@@ -532,6 +598,52 @@ namespace gs
                 Array.Sort(keys, ids); rot[v] = ids;
             }
             return rot;
+        }
+
+        /// <summary>
+        /// The surface angle sum of a rescued face may be this far (radians) from (k - 2) pi. The sums of the 5 slivers of the 72 default configurations of the tests (gear 14, 16, 27,
+        /// l-profile 35, 60) are within 0.005 degrees of it (the faces are flat enough at their size); a sum across the cone of a corner is off by its angle defect (tens of degrees)
+        /// and an inverted loop by 4 pi, so 1 degree is a margin of more than 200 against the data and well below any corner.
+        /// </summary>
+        internal const double SurfaceSliverTolerance = Math.PI / 180;
+
+        /// <summary>
+        /// How far the loop is from a simple face of the surface: the interior angles on its left (the side of a face of the traced loops), each from the surface
+        /// directions to its previous and next vertex, add up to (k - 2) pi for a face and to (k + 2) pi for the same loop traced the other way round (the outer loop of
+        /// a patch, an inverted face); this is the difference to (k - 2) pi, infinity for a loop with a repeated vertex, a chord polygon that crosses itself
+        /// (in the plane of the mean normal) or a direction that cannot be found.
+        /// </summary>
+        internal static double SurfaceFaceDeviation(PolyGraph g, DMesh3 mesh, DMeshAABBTree3 tree, int[] loop)
+        {
+            int k = loop.Length;
+            if (k < 3) return double.PositiveInfinity;
+            for (int i = 0; i < k; ++i) for (int j = i + 1; j < k; ++j) if (loop[i] == loop[j]) return double.PositiveInfinity;
+            if (k > 3) {
+                Vector3d n = Vector3d.Zero; foreach (int v in loop) n += g.Nrm[v];
+                if (!(n.Length > 0)) return double.PositiveInfinity;
+                n.Normalize();
+                for (int i = 0; i < k; ++i) for (int j = i + 2; j < k; ++j) {
+                    if (i == 0 && j == k - 1) continue;
+                    if (SegmentsCross(g.Pos[loop[i]], g.Pos[loop[(i + 1) % k]], g.Pos[loop[j]], g.Pos[loop[(j + 1) % k]], n)) return double.PositiveInfinity;
+                }
+            }
+            double sum = 0;
+            for (int i = 0; i < k; ++i) {
+                int v = loop[i], prev = loop[(i + k - 1) % k], next = loop[(i + 1) % k];
+                int tp = tree.FindNearestTriangle(g.Pos[v]);
+                double an = SurfaceAngle(mesh, tree, tp, g.Pos[v], g.Pos[next]), ap = SurfaceAngle(mesh, tree, tp, g.Pos[v], g.Pos[prev]);
+                if (double.IsNaN(an) || double.IsNaN(ap)) return double.PositiveInfinity;
+                double ia = (ap - an) % (2 * Math.PI); if (ia < 0) ia += 2 * Math.PI;
+                sum += ia;
+            }
+            return Math.Abs(sum - (k - 2) * Math.PI);
+        }
+
+        static bool SegmentsCross(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d n)
+        {
+            Vector3d ab = b - a, cd = d - c;
+            double o1 = n.Dot(ab.Cross(c - a)), o2 = n.Dot(ab.Cross(d - a)), o3 = n.Dot(cd.Cross(a - c)), o4 = n.Dot(cd.Cross(b - c));
+            return (o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0) && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0);
         }
 
         /// <summary> the repair works on some bad vertices, but not on more than SurfaceMaxVertices (an input with many folds: the cost stays bounded) </summary>
@@ -1077,7 +1189,7 @@ namespace gs
         /// face away from the normals (the outer loops of an open graph, folded faces) and faces with more than maxSides sides are
         /// dropped (counted in dropped). Dangling edges are pruned first. Vertices without a face are not in the result.
         /// </summary>
-        internal static DPolyMesh BuildFaces(PolyGraph g, int maxSides, out int dropped, Dictionary<int, int[]> rotations = null)
+        internal static DPolyMesh BuildFaces(PolyGraph g, int maxSides, out int dropped, Dictionary<int, int[]> rotations = null, Func<int[], bool> rescue = null)
         {
             PruneDangling(g);
             int nv = g.Pos.Count;
@@ -1133,8 +1245,10 @@ namespace gs
             for (int f = 0; f < faces.Count; ++f) {
                 int[] fv = faces[f];
                 double a = flip ? -area[f] : area[f];
-                if (!(a > 0) || fv.Length < 3 || fv.Length > maxSides) { dropped++; continue; }     // the outer loop of an open mesh, a folded face, a hole
+                if (fv.Length < 3 || fv.Length > maxSides) { dropped++; continue; }
                 if (flip) { fv = (int[])fv.Clone(); Array.Reverse(fv); }
+                // the outer loop of an open mesh, a folded face, a hole: dropped, unless rescue (the surface repair) takes it for a face (a sliver across a fold)
+                if (!(a > 0) && !(rescue != null && rescue(fv))) { dropped++; continue; }
                 loops[f] = fv; kept.Add(f);
             }
             // A vertex whose kept faces form more than one fan (the faces touch only at the vertex: a degenerate star of the extraction, a hole or the outer
