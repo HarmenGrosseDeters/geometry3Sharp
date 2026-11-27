@@ -14,6 +14,8 @@ namespace geometry3Sharp.Tests
     /// </summary>
     internal static class PortableMath
     {
+        // (the quad pipeline fixtures use it too: QuadRemesherClosedOutputTests, QuadCreasePreservationTests, CrossFieldShapes.OpenPatch and
+        // the strips of the quad tests; QuadFixtureInputTests pins their inputs)
         internal static double Sin(double x) { return CoreMath.Sin(x); }
         internal static double Cos(double x) { return CoreMath.Cos(x); }
 
@@ -71,6 +73,36 @@ namespace geometry3Sharp.Tests
                 double radius = p.y == 0 ? baseRadius : topRadius;
                 m.SetVertex(v, new Vector3d(radius * Cos(angles[best]), p.y, radius * Sin(angles[best])));
             }
+            return m;
+        }
+
+        /// <summary> a hash of the vertex bits (in id order) and the triangles of a mesh: the identity of a test input </summary>
+        internal static string Hash(DMesh3 m)
+        {
+            var bytes = new System.Collections.Generic.List<byte>();
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                bytes.AddRange(BitConverter.GetBytes(v));
+                bytes.AddRange(BitConverter.GetBytes(p.x)); bytes.AddRange(BitConverter.GetBytes(p.y)); bytes.AddRange(BitConverter.GetBytes(p.z));
+            }
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tri = m.GetTriangle(t);
+                bytes.AddRange(BitConverter.GetBytes(tri.a)); bytes.AddRange(BitConverter.GetBytes(tri.b)); bytes.AddRange(BitConverter.GetBytes(tri.c));
+            }
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+                return BitConverter.ToString(sha.ComputeHash(bytes.ToArray())).Replace("-", "").Substring(0, 16);
+        }
+
+        /// <summary>
+        /// A test input whose results are topology-sensitive (the gear fixture of the quad tests, which failed on Windows net10.0: where a 1-ulp change of one outline
+        /// point decides whether the extraction drops a face) is pinned: a platform-dependent input then fails here, at the fixture, and not
+        /// as a changed result deep in the operation
+        /// </summary>
+        internal static DMesh3 Pinned(string fixture, DMesh3 m, string expected)
+        {
+            string h = Hash(m);
+            if (h != expected)
+                throw new Xunit.Sdk.XunitException("the test input " + fixture + " is not its pinned mesh (hash " + h + ", pinned " + expected + "): it was built with a platform-dependent step; build it with PortableMath");
             return m;
         }
     }

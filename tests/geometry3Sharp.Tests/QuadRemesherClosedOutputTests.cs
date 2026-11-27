@@ -28,6 +28,10 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        internal static readonly Dictionary<string, string> InputHashes = new Dictionary<string, string> {
+            { "sharp-box", "89E4378B303389FF" }, { "sharp-cylinder", "ED035019366524F9" }, { "l-profile", "52390C384A8C36B6" }, { "gear", "A1310834CD2DAAE4" }
+        };
+
         static DMesh3 BuildShape(string name, int passes)
         {
             DMesh3 m;
@@ -37,9 +41,7 @@ namespace geometry3Sharp.Tests
                 g.Generate();
                 m = g.MakeDMesh();
             } else if (name == "sharp-cylinder") {
-                var g = new CappedCylinderGenerator { BaseRadius = 0.6f, TopRadius = 0.6f, Height = 1.6f, Slices = 40, NoSharedVertices = false };
-                g.Generate();
-                m = g.MakeDMesh();
+                m = PortableMath.CappedCylinder(0.6f, 0.6f, 1.6f, 40);     // (the generator's rings with correctly rounded sin / cos)
             } else if (name == "l-profile") {
                 var gen = new TriangulatedPolygonGenerator { Polygon = new GeneralPolygon2d(new Polygon2d(new[] { new Vector2d(0, 0), new Vector2d(1.2, 0), new Vector2d(1.2, 0.4), new Vector2d(0.4, 0.4), new Vector2d(0.4, 1.2), new Vector2d(0, 1.2) })), Subdivisions = 2 };
                 gen.Generate();
@@ -53,10 +55,10 @@ namespace geometry3Sharp.Tests
                 var pts = new List<Vector2d>();
                 for (int k = 0; k < teeth; ++k) {
                     double a0 = 2 * Math.PI * k / teeth, step = 2 * Math.PI / (teeth * 4);
-                    pts.Add(new Vector2d(r0 * Math.Cos(a0), r0 * Math.Sin(a0)));
-                    pts.Add(new Vector2d(r0 * Math.Cos(a0 + step), r0 * Math.Sin(a0 + step)));
-                    pts.Add(new Vector2d(r1 * Math.Cos(a0 + 1.4 * step), r1 * Math.Sin(a0 + 1.4 * step)));
-                    pts.Add(new Vector2d(r1 * Math.Cos(a0 + 2.6 * step), r1 * Math.Sin(a0 + 2.6 * step)));
+                    pts.Add(new Vector2d(r0 * PortableMath.Cos(a0), r0 * PortableMath.Sin(a0)));
+                    pts.Add(new Vector2d(r0 * PortableMath.Cos(a0 + step), r0 * PortableMath.Sin(a0 + step)));
+                    pts.Add(new Vector2d(r1 * PortableMath.Cos(a0 + 1.4 * step), r1 * PortableMath.Sin(a0 + 1.4 * step)));
+                    pts.Add(new Vector2d(r1 * PortableMath.Cos(a0 + 2.6 * step), r1 * PortableMath.Sin(a0 + 2.6 * step)));
                 }
                 var gen = new TriangulatedPolygonGenerator { Polygon = new GeneralPolygon2d(new Polygon2d(pts.ToArray())), Subdivisions = 2 };
                 gen.Generate();
@@ -65,6 +67,10 @@ namespace geometry3Sharp.Tests
                 ext.Extrude();
                 m = new DMesh3(m, true);
             }
+            // the input before the remesh passes, pinned: the gear outline and the cylinder rings are built with correctly rounded sin / cos
+            // (PortableMath; with Math.Sin / Cos the Windows CRT moves some of the 64 outline values by an ulp, and one such ulp decides
+            // whether the extraction of gear/18 drops a face: 7 of the 128 single 1-ulp changes do)
+            PortableMath.Pinned("QuadRemesherClosedOutputTests " + name, m, InputHashes[name]);
             DMesh3 src = new DMesh3(m);
             var r = new Remesher(m) { SmoothSpeedT = 0.5 };
             r.SetProjectionTarget(MeshProjectionTarget.Auto(src));

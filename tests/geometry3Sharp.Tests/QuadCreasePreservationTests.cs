@@ -20,7 +20,7 @@ namespace geometry3Sharp.Tests
 
         const int FixturePasses = 20;
 
-        static DMesh3 Shape(string name, int passes = FixturePasses)
+        internal static DMesh3 Shape(string name, int passes = FixturePasses)
         {
             lock (shapes) {
                 DMesh3 m;
@@ -45,6 +45,10 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        internal static readonly Dictionary<string, string> InputHashes = new Dictionary<string, string> {
+            { "sharp-box", "89E4378B303389FF" }, { "sharp-cylinder", "ED035019366524F9" }, { "l-profile", "52390C384A8C36B6" }, { "gear", "A1310834CD2DAAE4" }
+        };
+
         static DMesh3 BuildShape(string name, int passes = FixturePasses)
         {
             DMesh3 m;
@@ -57,9 +61,7 @@ namespace geometry3Sharp.Tests
                     break;
                 }
                 case "sharp-cylinder": {
-                    var g = new CappedCylinderGenerator { BaseRadius = 0.6f, TopRadius = 0.6f, Height = 1.6f, Slices = 40, NoSharedVertices = false };
-                    g.Generate();
-                    m = g.MakeDMesh();
+                    m = PortableMath.CappedCylinder(0.6f, 0.6f, 1.6f, 40);     // (the generator's rings with correctly rounded sin / cos)
                     break;
                 }
                 case "l-profile": {
@@ -77,10 +79,10 @@ namespace geometry3Sharp.Tests
                     for (int k = 0; k < teeth; ++k) {
                         double a0 = 2 * Math.PI * k / teeth;
                         double step = 2 * Math.PI / (teeth * 4);
-                        pts.Add(new Vector2d(r0 * Math.Cos(a0), r0 * Math.Sin(a0)));
-                        pts.Add(new Vector2d(r0 * Math.Cos(a0 + step), r0 * Math.Sin(a0 + step)));
-                        pts.Add(new Vector2d(r1 * Math.Cos(a0 + 1.4 * step), r1 * Math.Sin(a0 + 1.4 * step)));
-                        pts.Add(new Vector2d(r1 * Math.Cos(a0 + 2.6 * step), r1 * Math.Sin(a0 + 2.6 * step)));
+                        pts.Add(new Vector2d(r0 * PortableMath.Cos(a0), r0 * PortableMath.Sin(a0)));
+                        pts.Add(new Vector2d(r0 * PortableMath.Cos(a0 + step), r0 * PortableMath.Sin(a0 + step)));
+                        pts.Add(new Vector2d(r1 * PortableMath.Cos(a0 + 1.4 * step), r1 * PortableMath.Sin(a0 + 1.4 * step)));
+                        pts.Add(new Vector2d(r1 * PortableMath.Cos(a0 + 2.6 * step), r1 * PortableMath.Sin(a0 + 2.6 * step)));
                     }
                     m = ExtrudePolygon(new Polygon2d(pts.ToArray()), 0.4);
                     break;
@@ -109,6 +111,7 @@ namespace geometry3Sharp.Tests
                 default:
                     throw new ArgumentException(name);
             }
+            PortableMath.Pinned("QuadCreasePreservationTests " + name, m, InputHashes[name]);     // (the input before the passes: see QuadRemesherClosedOutputTests)
             DMesh3 src = new DMesh3(m);
             // The input triangulation is pinned: the remesher without PreventNormalFlips and MinTriangleQuality (their
             // results changed with issue #1441, the results without them are pinned bit for bit by
