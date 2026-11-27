@@ -50,7 +50,7 @@ namespace g3
         /// <summary> A weight from a delegate. gradientBound must be an upper bound of |grad w| (NaN: unknown, no Enclosure). </summary>
         public TpmsBlendWeight(Func<Vector3d, double> weight, double gradientBound = double.NaN)
         {
-            if (weight == null) throw new ArgumentNullException(nameof(weight));
+            if ((object)weight == null) throw new ArgumentNullException(nameof(weight));
             Weight = weight; GradientBound = gradientBound;
         }
     }
@@ -285,7 +285,7 @@ namespace g3
                 for (int i = 0; i < n; ++i)
                     for (int j = 0; j < n; ++j)
                         for (int k = 0; k < n; ++k)
-                            values[idx++] = StyleValue(style, Evaluate(type, (i + 0.5) * step, (j + 0.5) * step, (k + 0.5) * step));
+                            values[idx++] = StyleValue(style, Evaluate(type, (i + 0.5) * step, (j + 0.5) * step, (k + 0.5) * step)) + 0.0;
             } else {
                 bool two = NeedsDoubleAngle(type);
                 var axis = new AxisTrig[n];
@@ -293,8 +293,10 @@ namespace g3
                 for (int i = 0; i < n; ++i)
                     for (int j = 0; j < n; ++j)
                         for (int k = 0; k < n; ++k)
-                            values[idx++] = StyleValue(style, EvaluateTrig(type, axis[i], axis[j], axis[k]));
+                            values[idx++] = StyleValue(style, EvaluateTrig(type, axis[i], axis[j], axis[k])) + 0.0;
             }
+            // (+ 0.0 above turns a -0 into +0: the values are finite (|f| <= 13), so equal values have equal bits and the sorted array
+            // is one array whatever order the sort leaves equal keys in)
             Array.Sort(values);
             var table = new double[TableKnots + 1];
             for (int m = 0; m <= TableKnots; ++m) {
@@ -341,7 +343,9 @@ namespace g3
             public volatile bool WeightNaN;
             public volatile bool LevelNaN;     // VolumeFractionAt returned NaN somewhere (a NaN node counts as outside and would go unseen)
             public bool Hybrid; public TpmsType Type2; public double Level2; public Func<Vector3d, double> Weight;   // two-type hybrid (section 9)
-            public DMeshAABBTree3 DomainTree; public AxisAlignedBox3d DomainBounds;
+            // the signed distance to the closed domain mesh (negative inside), null for the box: MeshDomainDistance in TpmsLattice.cs (outside the
+            // determinism proof scope: the AABB tree and the winding number are an obligation of a later stage)
+            public Func<Vector3d, double> DomainDistance;
             public GridTrig Grid;             // the sines and cosines at the nodes of the current grid (PhaseMap == null): see GridTrig
 
             public double Value(ref Vector3d p)
@@ -368,7 +372,7 @@ namespace g3
             public double SheetValue(ref Vector3d p)
             {
                 double px, py, pz;
-                if (PhaseMap != null) {
+                if ((object)PhaseMap != null) {
                     Vector3d ph = PhaseMap(p);
                     px = 2 * Math.PI * ph.x; py = 2 * Math.PI * ph.y; pz = 2 * Math.PI * ph.z;
                 } else {
@@ -388,16 +392,16 @@ namespace g3
             bool Lookup(ref Vector3d p, out AxisTrig x, out AxisTrig y, out AxisTrig z)
             {
                 x = y = z = default(AxisTrig);
-                return Grid != null && PhaseMap == null && Grid.Find(ref p, out x, out y, out z);
+                return Grid != null && (object)PhaseMap == null && Grid.Find(ref p, out x, out y, out z);
             }
 
-            public double SheetHalfWidth(Vector3d p) { return (LevelAt != null ? LevelAt(p) : Level) * InvLipschitz; }
+            public double SheetHalfWidth(Vector3d p) { return ((object)LevelAt != null ? LevelAt(p) : Level) * InvLipschitz; }
 
             public double DomainValue(ref Vector3d p)
             {
                 if (UseBox) {
                     double dx = Math.Abs(p.x - Center.x) - Half.x, dy = Math.Abs(p.y - Center.y) - Half.y, dz = Math.Abs(p.z - Center.z) - Half.z;
-                    return Math.Max(dx, Math.Max(dy, dz));
+                    return MathUtil.MaxExact(dx, MathUtil.MaxExact(dy, dz));
                 }
                 return DomainDistance(p);
             }
@@ -405,7 +409,7 @@ namespace g3
             double Raw(ref Vector3d p)
             {
                 double px, py, pz;
-                if (PhaseMap != null) {
+                if ((object)PhaseMap != null) {
                     Vector3d ph = PhaseMap(p);
                     px = 2 * Math.PI * ph.x; py = 2 * Math.PI * ph.y; pz = 2 * Math.PI * ph.z;
                 } else {
@@ -418,41 +422,26 @@ namespace g3
                     // h = w (g_A - c_A) + (1 - w) (g_B - c_B), w clamped to [0, 1] (a clamp keeps the Lipschitz bound; NaN stays NaN)
                     double w0 = Weight(p);
                     if (double.IsNaN(w0)) WeightNaN = true;
-                    double w = Math.Min(1.0, Math.Max(0.0, w0));
+                    double w = MathUtil.MinExact(1.0, MathUtil.MaxExact(0.0, w0));
                     double ga = StyleValue(Style, Eval(Type, hit, tx, ty, tz, px, py, pz)) - Level;
                     double gb = StyleValue(Style, Eval(Type2, hit, tx, ty, tz, px, py, pz)) - Level2;
                     g = (w * ga + (1 - w) * gb) * InvLipschitz;
                 } else {
                     double f = Eval(Type, hit, tx, ty, tz, px, py, pz);
-                    double c = LevelAt != null ? LevelAt(p) : Level;
+                    double c = (object)LevelAt != null ? LevelAt(p) : Level;
                     if (double.IsNaN(c)) LevelNaN = true;
                     g = (StyleValue(Style, f) - c) * InvLipschitz;
                 }
                 if (UseBox) {
                     double dx = Math.Abs(p.x - Center.x) - Half.x, dy = Math.Abs(p.y - Center.y) - Half.y, dz = Math.Abs(p.z - Center.z) - Half.z;
-                    double d = Math.Max(dx, Math.Max(dy, dz));
-                    return Math.Max(g, d);
+                    double d = MathUtil.MaxExact(dx, MathUtil.MaxExact(dy, dz));
+                    return MathUtil.MaxExact(g, d);
                 }
-                if (DomainTree != null) {
+                if ((object)DomainDistance != null) {
                     double d = DomainDistance(p);
-                    return Math.Max(g, d);
+                    return MathUtil.MaxExact(g, d);
                 }
                 return g;
-            }
-
-            // signed distance to the closed domain mesh (negative inside)
-            double DomainDistance(Vector3d p)
-            {
-                // outside the bounds the winding number is 0 (a closed mesh): the distance is the one to the nearest triangle
-                if (!DomainBounds.Contains(p)) {
-                    int tid0 = DomainTree.FindNearestTriangle(p, out double d20);
-                    return tid0 >= 0 ? Math.Sqrt(d20) : double.MaxValue;
-                }
-                double dist = double.MaxValue;
-                int tid = DomainTree.FindNearestTriangle(p, out double d2);
-                if (tid >= 0) dist = Math.Sqrt(d2);
-                bool inside = DomainTree.FastWindingNumber(p) > 0.5;
-                return inside ? -dist : dist;
             }
         }
 
@@ -472,11 +461,11 @@ namespace g3
             if (!(transverseHalfExtent >= 0) || double.IsInfinity(transverseHalfExtent)) throw new ArgumentException("the transverse extent must be finite and not negative");
             double slope = (period1 - period0) / (z1 - z0);
             double minPeriod = Math.Min(period0, period1);
-            double bound = Math.Sqrt(3 / (minPeriod * minPeriod) + 2 * Math.Pow(transverseHalfExtent * Math.Abs(slope) / (minPeriod * minPeriod), 2));
-            Func<double, double> period = z => period0 + (Math.Min(Math.Max(z, z0), z1) - z0) * slope;
+            double bound = Math.Sqrt(3 / (minPeriod * minPeriod) + 2 * Sq(transverseHalfExtent * Math.Abs(slope) / (minPeriod * minPeriod)));
+            Func<double, double> period = z => period0 + (MathUtil.MinExact(MathUtil.MaxExact(z, z0), z1) - z0) * slope;
             Func<double, double> phase = z => {
                 if (z <= z0) return (z - z0) / period0;
-                double top = Math.Min(z, z1);
+                double top = MathUtil.MinExact(z, z1);
                 // the integral of 1 / period: (top - z0) / period0 * log(1 + x) / x with x = slope (top - z0) / period0, accurate to a
                 // few ulps for every x (log1p by the u = 1 + x trick), so the phase has a relative error of a few u, also for gentle grades
                 double len = top - z0, x = slope * len / period0;
@@ -485,7 +474,7 @@ namespace g3
             };
             Func<Vector3d, Vector3d> map = p => {
                 double z = p[axis], l = period(z);
-                var v = new Vector3d();
+                var v = Vector3d.Zero;
                 v[axis] = phase(z);
                 v[(axis + 1) % 3] = p[(axis + 1) % 3] / l;
                 v[(axis + 2) % 3] = p[(axis + 2) % 3] / l;
@@ -500,7 +489,7 @@ namespace g3
         // assumption on the map (LinearGrade evaluates to a few ulps, see Log1pOverX); a PhaseMap is not allowed with Enclosure.
         internal static double EnclosureError(TpmsType type, double lw, double s, bool graded, double phaseMax, double jac, double h)
         {
-            double u = Math.Pow(2, -53);
+            const double u = 1.1102230246251565e-16;     // 2^-53
             double phase = graded ? 8 * u * (2 * phaseMax + 4 * jac * h) / (jac * s) : 4 * u;
             return 64 * u * TermSum(type) / (lw * s) + phase;
         }
@@ -510,14 +499,16 @@ namespace g3
         //  - the type terms: the weights sum to 1, so the evaluation errors of f_A and f_B enter with at most the larger of 64 u TermSum (as for one type);
         //  - the rounding steps of the combination, each at most u times a value of at most msum: g_A - c_A, g_B - c_B, w * (.), 1 - w (an error of at most u in
         //    the weight, times |g_B - c_B|), (1 - w) * (.), and the sum: 6 u msum;
-        //  - the error of the weight dw times |g_A - c_A - g_B + c_B| <= msum: dw <= 8 u + 2 u s Wmax. For SigmoidBlend, w = 0.5 (1 + tanh z) with z = 2 eta / width: eta = p - offset has a
-        //    relative error u, the division another, so z has a relative error of at most 2 u (also for |offset| > s); with sech^2(z) |z| <= 0.45 the error of tanh
-        //    propagated from z is at most 0.9 u, a tanh within 2 ulp adds 2 u, the sum 1 + tanh and the product by 0.5 (exact) add u: dw <= 0.5 (0.9 u + 2 u + 2 u) = 2.5 u < 8 u. A
+        //  - the error of the weight dw times |g_A - c_A - g_B + c_B| <= msum: dw <= 8 u + 2 u s Wmax. For SigmoidBlend, w = 1 / (1 + E), E = exp(y), y = -4 z, z = eta / width:
+        //    eta = p - offset has a relative error u and the division another, so z (and y, the factor 4 is exact) has a relative error of at most 2 u (also for
+        //    |offset| > s); dw/d(log E) = -w (1 - w), so the error of y, 2 u |y| relative in E, gives w (1 - w) 2 u |y| <= 0.448 u (max of w (1 - w) |y| is 0.2240),
+        //    the correctly rounded exp (CoreMath) u |E| relative gives w (1 - w) u <= 0.25 u, the sum 1 + E and the division a relative u each, at most u in w:
+        //    dw <= 0.448 u + 0.25 u + 2 u = 2.7 u < 8 u (checked against a 256-bit reference by SigmoidBlend_WeightError_IsWithinTheDerivedBound). A
         //    delegate weight is covered if its coordinate rounding is at most 2 u s (the second term) and its own evaluation error at most 8 u;
         //  - the phase as in EnclosureError.
         internal static double EnclosureErrorBlend(TpmsType a, TpmsType b, double lw, double s, bool graded, double phaseMax, double jac, double h, double msum, double wmax)
         {
-            double u = Math.Pow(2, -53);
+            const double u = 1.1102230246251565e-16;     // 2^-53
             double phase = graded ? 8 * u * (2 * phaseMax + 4 * jac * h) / (jac * s) : 4 * u;
             double epsW = 8 * u + 2 * u * s * wmax;
             return (64 * u * Math.Max(TermSum(a), TermSum(b)) + (6 * u + epsW) * msum) / (lw * s) + phase;
@@ -527,14 +518,15 @@ namespace g3
         /// The sigmoid weight of the in-plane hybrid design of Fang et al. (Sci. Rep. 16, 17947, 2026, eq. 6), for a single plane: w = 1 / (1 + exp(-k eta)) with eta the signed
         /// distance to the plane {p[axis] = offset} in lattice-frame length units (positive on the side that selects <see cref="TpmsLattice.Type"/>) and
         /// k = 4 / width, so that the slope at the plane is 1 / width and the 10 % to 90 % zone is about 1.1 width wide. The library derives the gradient bound 1 / width.
-        /// Evaluated as 0.5 (1 + tanh(k eta / 2)), which does not overflow. A power-of-two scale of offset and width gives the same weights bit for bit.
+        /// Evaluated as 1 / (1 + exp(-4 eta / width)) with the correctly rounded CoreMath exp, so the weights are the same bits on every runtime (an overflow of exp
+        /// gives the weight 0, exactly). A power-of-two scale of offset and width gives the same weights bit for bit.
         /// </summary>
         public static TpmsBlendWeight SigmoidBlend(int axis, double offset, double width)
         {
             if (axis < 0 || axis > 2) throw new ArgumentOutOfRangeException(nameof(axis));
             if (double.IsNaN(offset) || double.IsInfinity(offset)) throw new ArgumentException("the offset must be finite");
             if (!(width > 0) || double.IsInfinity(width)) throw new ArgumentException("the width must be finite and positive");
-            return new TpmsBlendWeight(p => 0.5 * (1 + Math.Tanh(2 * (p[axis] - offset) / width)), 1 / width);
+            return new TpmsBlendWeight(p => Logistic((p[axis] - offset) / width), 1 / width);
         }
 
         // log(1 + x) / x to a few ulps for all x > -1 (x == 0 gives 1): log1p by the trick log(u) x / (u - 1) with u = 1 + x
@@ -543,7 +535,16 @@ namespace g3
             if (x == 0) return 1;
             double u = 1 + x;
             if (u == 1) return 1 - x / 2;          // |x| below 2^-53: the series is exact to rounding
-            return Math.Log(u) / (u - 1);
+            return CoreMath.Log(u) / (u - 1);
         }
+
+        // 1 / (1 + exp(-4 z)): the weight of SigmoidBlend at z = eta / width. Correctly rounded exp (CoreMath, the same bits on every runtime, #1682);
+        // exp overflows to infinity for z below about -177 (w = 0, exact) and underflows to 0 above about 186 (w = 1), so no NaN for a finite or infinite z
+        internal static double Logistic(double z)
+        {
+            return 1 / (1 + CoreMath.Exp(-4 * z));
+        }
+
+        static double Sq(double x) { return x * x; }
     }
 }

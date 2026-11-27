@@ -390,7 +390,7 @@ namespace geometry3Sharp.Tests
             var blend = TpmsLattice.SigmoidBlend(1, 0.5, 0.25);
             Func<double, double> w = y => blend.Weight(new Vector3d(0.3, y, -7));
             Assert.Equal(0.5, w(0.5), 15);
-            Assert.Equal(1.0, w(0.5 + 800 * 0.25));    // no overflow: tanh saturates
+            Assert.Equal(1.0, w(0.5 + 800 * 0.25));    // no NaN: exp overflows to infinity, the weight is 1 / inf = 0 or 1 / 1
             Assert.Equal(0.0, w(0.5 - 800 * 0.25));
             Assert.False(double.IsNaN(w(1e6)) || double.IsNaN(w(-1e6)));
             for (double eta = 0.01; eta < 1; eta += 0.07) Assert.Equal(1.0, w(0.5 + eta) + w(0.5 - eta), 14);

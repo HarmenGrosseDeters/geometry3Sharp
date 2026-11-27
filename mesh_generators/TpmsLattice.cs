@@ -187,6 +187,23 @@ namespace g3
             }
         }
 
+        // signed distance to the closed domain mesh (negative inside), for FieldFunction.DomainDistance
+        static Func<Vector3d, double> MeshDomainDistance(DMeshAABBTree3 tree, AxisAlignedBox3d bounds)
+        {
+            return p => {
+                // outside the bounds the winding number is 0 (a closed mesh): the distance is the one to the nearest triangle
+                if (!bounds.Contains(p)) {
+                    int tid0 = tree.FindNearestTriangle(p, out double d20);
+                    return tid0 >= 0 ? Math.Sqrt(d20) : double.MaxValue;
+                }
+                double dist = double.MaxValue;
+                int tid = tree.FindNearestTriangle(p, out double d2);
+                if (tid >= 0) dist = Math.Sqrt(d2);
+                bool inside = tree.FastWindingNumber(p) > 0.5;
+                return inside ? -dist : dist;
+            };
+        }
+
         sealed class PartFunction : ImplicitFunction3d
         {
             public delegate double Part(ref Vector3d p);
@@ -366,9 +383,9 @@ namespace g3
                 if (maxCoord <= 0) maxCoord = h;
                 double s = MathUtil.IsFinite(maxCoord) ? g3.CoreMathPort.CoreMath.Ldexp(1.0, MathUtil.CeilLog2(maxCoord)) : maxCoord;   // #1612: the exact ceiling
                 while (s < maxCoord) s *= 2;
-                double unit = s * Math.Pow(2, -40);
+                double unit = s * 9.094947017729282e-13 /* 2^-40 */;
                 enclosureUnit = unit;
-                if (s / CellSize > Math.Pow(2, 20)) {
+                if (s / CellSize > 1048576.0 /* 2^20 */) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the domain extends over too many periods for the proven phase error bound (coordinate / CellSize > 2^20)");
                     return;
                 }
@@ -376,19 +393,19 @@ namespace g3
                     Fail(TpmsStatus.InvalidOptions, "Enclosure needs an exact dyadic grid: the cube size and the grid origin must be multiples of 2^-40 of the power of two above the largest coordinate (eg a dyadic CellSize / Divisions)");
                     return;
                 }
-                double u = Math.Pow(2, -53);
+                const double u = 1.1102230246251565e-16;     // 2^-53
                 // evaluation error of g in normalised units: terms (64 u per unit of term sum) / (Lw s); the phase error is 4 u
                 // (with a Grade the phase term is 4 u |phase| / (J s) and assumes the map is evaluated to a relative error of 4 u)
                 double eNorm = hybrid
                     ? EnclosureErrorBlend(Type, SecondType.Value, lw, s, map != null, phaseMax, jac, h, blendTermSum, wmax)
                     : EnclosureError(Type, lw, s, map != null, phaseMax, jac, h);
-                if (!(eNorm <= Math.Pow(2, -30))) {
+                if (!(eNorm <= 9.313225746154785e-10 /* 2^-30 */)) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the domain is too small against the period for the proven error bound");
                     return;
                 }
                 // + 2 Snap: the sliver guard moves node values by less than 2 Snap (one-sided, down), a sample error e in the sense of the
                 // audit's rule "level above half diagonal + e + S E"; the pad pays for it although a one-sided error would need less
-                isoValue = Math.Sqrt(3.0) * h / 2 + 2 * snap + s * (Math.Pow(2, -26) + 4 * eNorm);
+                isoValue = Math.Sqrt(3.0) * h / 2 + 2 * snap + s * (1.4901161193847656e-08 /* 2^-26 */ + 4 * eNorm);
                 // the samples of the outermost nodes are at least 1.2 cubes above the box; they must stay above the level
                 if (!(isoValue < 1.2 * h)) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the cube is too small against the coordinates for the proven level pad (reduce the number of cubes)");
@@ -401,7 +418,7 @@ namespace g3
                 Type = Type, Style = Style, K = k, PhaseMap = map, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt, Iso = isoValue, Snap = snap,
                 Hybrid = hybrid, Type2 = hybrid ? SecondType.Value : Type, Level2 = level2, Weight = hybrid ? Blend.Weight : null,
                 UseBox = tree == null, Center = box.Center, Half = new Vector3d(box.Width / 2, box.Height / 2, box.Depth / 2),
-                DomainTree = tree, DomainBounds = box
+                DomainDistance = tree == null ? null : MeshDomainDistance(tree, box)
             };
             if (tree == null) {
                 // the planes of the box as written: Center +- Half must reproduce Min and Max

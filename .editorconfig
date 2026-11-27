@@ -41,17 +41,17 @@ dotnet_diagnostic.G3E0003.severity = error
 # extended only where the determinism harness shows a difference that the result depends on: the terrain slope design
 # (issue 802: the fan directions differed between the Windows CRT of .NET and the others), and the winding-number terms
 # (issue 1577: the platform Math.Atan2 gave other repair meshes in WebAssembly; MathUtil.TriSolidAngle itself is not listed, it is a
-# file of many other uses, its one atan2 is pinned by SolidAnglePlatformIndependenceTests).
-[{mesh_ops/TerrainSlope*.cs,mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,mesh_ops/ExactMeshGeodesicDistance.cs,mesh_ops/PolyhedralGeodesicDistance.cs,mesh_ops/PolyhedralGeodesicPath.cs,solvers/SparseCholesky.cs,solvers/CholeskyNestedDissection.cs,spatial/FastWindingLeafKernel.cs,spatial/ExactWindingCache.cs,math/CoreMath/*.cs}]
+# file of many other uses, its one atan2 is pinned by SolidAnglePlatformIndependenceTests), and the TPMS field (#1682: its pinned hashes).
+[{mesh_ops/TerrainSlope*.cs,mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,mesh_ops/ExactMeshGeodesicDistance.cs,mesh_ops/PolyhedralGeodesicDistance.cs,mesh_ops/PolyhedralGeodesicPath.cs,solvers/SparseCholesky.cs,solvers/CholeskyNestedDissection.cs,spatial/FastWindingLeafKernel.cs,spatial/ExactWindingCache.cs,mesh_generators/TpmsLatticeField.cs,math/CoreMath/*.cs}]
 dotnet_diagnostic.G3E0004.severity = error
 
 # The determinism proof, stages 0 and 1 (docs/design/DETERMINISM_PROOF.md section 6.1): the exact kernel and the exact building blocks
 # (ExactTriangulation2, ExactPlanarSimplify, SnapRounding2, and TriangleBoxTree: ExactMeshArrangement.cs is named here, and the 'type' line of
-# DeterministicApis.txt restricts it to that class) are a closed world. Every
+# DeterministicApis.txt restricts it to that class), and the TPMS lattice field (mesh_generators/TpmsLatticeField.cs, section 5.6, #1682) are a closed world. Every
 # member of another assembly that it uses is on the allow list DeterministicApis.txt with the reason why its result is
 # specified on every runtime, and the environment-dependent constructs (#if, double -> integer casts, [SkipLocalsInit],
 # restricted members) are registered there (G3D0001-9, tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs)
-[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/ExactLimbSigns.cs,math/ExactLimbPrepared.cs,math/Generated/IndirectPredicates.cs,math/Generated/DoublePredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,comp_geom/SnapRounding2.cs,mesh_ops/ExactMeshArrangement.cs,mesh_ops/ExactMeshBoolean.cs}]
+[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/ExactLimbSigns.cs,math/ExactLimbPrepared.cs,math/Generated/IndirectPredicates.cs,math/Generated/DoublePredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,comp_geom/SnapRounding2.cs,mesh_ops/ExactMeshArrangement.cs,mesh_ops/ExactMeshBoolean.cs,mesh_generators/TpmsLatticeField.cs}]
 dotnet_diagnostic.G3D0001.severity = error
 dotnet_diagnostic.G3D0002.severity = error
 dotnet_diagnostic.G3D0005.severity = error
