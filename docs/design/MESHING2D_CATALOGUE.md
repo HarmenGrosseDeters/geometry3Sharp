@@ -1,6 +1,6 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 110 covered, 8 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 111 covered, 7 pending, 8 deferred by the owner's scope, 3 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
 - **covered**: runs now through the oracle (or the named test), on the registered production mesher.
@@ -81,7 +81,7 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-31/a | Min angle and area with locked outer boundary | pending | m3.locks |  |
 | F-31/b | The same with a max angle | deferred |  | Q3: no maximum angle bound in scope |
 | F-32 | Extreme edge lengths in refinement | covered | f-32 |  |
-| F-33 | Per-triangle area limits on a point-set mesh | pending | m3.refine-again | I8. The input to refine again is the mesh of this point set; session 2 adds the area map to the fixture when the API exists |
+| F-33 | Per-triangle area limits on a point-set mesh | covered | f-33 | I8. Per-triangle area limits 1/4 on three unique Delaunay triangles around vertices 1 and 6 of the point-set mesh |
 | F-34 | Area-only refinement (performance row) | covered | f-34 | time target about 14 ms; the time is measured by the benchmark |
 | F-35 | Refining a point-set mesh keeps the hull | covered | f-35 |  |
 | F-36 | Crossing locked breaklines: no vertex outside | pending | m3.locks |  |
