@@ -178,6 +178,97 @@ namespace g3
         }
 
         /// <summary>
+        /// Locates a point in the closed triangles and returns the minimum non-null entry in <paramref name="areas"/> among all
+        /// triangles containing it (one when strictly inside; across the shared edge or vertex star on a boundary). Uses and updates
+        /// <paramref name="hintTri"/> for O(1) amortised walk cost; exact and independent of triangle order.
+        /// </summary>
+        internal bool TryLocateMinArea(Vector2d point, double?[] areas, ref int hintTri, out double? minArea)
+        {
+            minArea = null;
+            int nt = triangles.Length;
+            if (nt == 0) return false;
+            int t;
+            if (hintTri >= 0 && hintTri < nt) {
+                t = hintTri;
+            } else {
+                int samples = Math.Max(1, MathUtil.ToIntSaturating(Math.Pow(nt, 1.0 / 3.0)));
+                t = 0;
+                double best = double.MaxValue;
+                for (int s = 0; s < samples; ++s) {
+                    int c = (int)((long)s * nt / samples);
+                    var q = vertices[triangles[c].a];
+                    double dx = q.x - point.x, dy = q.y - point.y, d = dx * dx + dy * dy;
+                    if (d < best) { best = d; t = c; }
+                }
+            }
+            long limit = 4L * nt + 16;
+            int entry = -1;
+            bool found = false;
+            for (long step = 0; step < limit; ++step) {
+                int moved = -1;
+                for (int j = 0; j < 3; ++j) {
+                    int k = (int)((step + j) % 3);
+                    int nb = neighbours[t][k];
+                    if (nb == entry && nb >= 0) continue;
+                    var u = vertices[triangles[t][(k + 1) % 3]];
+                    var w = vertices[triangles[t][(k + 2) % 3]];
+                    if (ExactPredicates.Orient2d(u, w, point) < 0) { moved = k; break; }
+                }
+                if (moved < 0) { found = true; break; }
+                int next = neighbours[t][moved];
+                if (next < 0) return false;
+                entry = t;
+                t = next;
+            }
+            if (!found) {
+                t = -1;
+                for (int c = 0; c < nt && t < 0; ++c) if (Contains(c, point)) t = c;
+                if (t < 0) return false;
+            }
+            hintTri = t;
+            double? bestArea = areas[t];
+            void Consider(int ti)
+            {
+                var a = areas[ti];
+                if (a != null && (bestArea == null || a.Value < bestArea.Value)) bestArea = a;
+            }
+            for (int k = 0; k < 3; ++k) {
+                int v = triangles[t][k];
+                var q = vertices[v];
+                if (q.x == point.x && q.y == point.y) {
+                    int cur = vertexTriangle[v];
+                    if (cur >= 0) {
+                        int walk = cur;
+                        do {
+                            Consider(walk);
+                            int j = triangles[walk].a == v ? 0 : triangles[walk].b == v ? 1 : 2;
+                            walk = neighbours[walk][(j + 2) % 3];
+                        } while (walk >= 0 && walk != cur);
+                        if (walk < 0) {
+                            walk = cur;
+                            while (true) {
+                                int j = triangles[walk].a == v ? 0 : triangles[walk].b == v ? 1 : 2;
+                                walk = neighbours[walk][(j + 1) % 3];
+                                if (walk < 0) break;
+                                Consider(walk);
+                            }
+                        }
+                    }
+                    minArea = bestArea;
+                    return true;
+                }
+                var u = vertices[triangles[t][(k + 1) % 3]];
+                var w = vertices[triangles[t][(k + 2) % 3]];
+                if (ExactPredicates.Orient2d(u, w, point) == 0) {
+                    int nb = neighbours[t][k];
+                    if (nb >= 0) Consider(nb);
+                }
+            }
+            minArea = bestArea;
+            return true;
+        }
+
+        /// <summary>
         /// Checks the published mesh in linear time: every triangle counter-clockwise under the exact test, neighbours
         /// symmetric and edge-to-edge, every interior edge locally Delaunay (exact in-circle; with a valid triangulation of
         /// the hull that is the Delaunay property), the boundary one convex cycle winding once, every distinct input point a

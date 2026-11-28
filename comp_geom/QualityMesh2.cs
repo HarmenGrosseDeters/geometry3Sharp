@@ -73,17 +73,228 @@ namespace g3
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
-            if (double.IsNaN(MinAngle) || MinAngle < 0 || MinAngle >= 60) throw new ArgumentException("MinAngle must be at least 0 and below 60 degrees (decision D12)");
-            if (MaxArea != null && !(MaxArea.Value > 0) || MaxArea != null && double.IsInfinity(MaxArea.Value)) throw new ArgumentException("MaxArea must be positive and finite");
-            if (SteinerLimit != null && SteinerLimit.Value < 0) throw new ArgumentException("SteinerLimit must not be negative");
+            ValidateOptions();
             if (input.Regions != null)
                 foreach (var r in input.Regions)
                     if (r != null && r.MaxArea != null && !(r.MaxArea.Value > 0)) throw new ArgumentException("a region's MaxArea must be positive");
+            return ComputeCore(input, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Refines an existing point-set triangulation further (spec I8, O17), keeping its vertices and convex hull while enforcing
+        /// this instance's quality bounds and optional per-triangle maximum areas. Does not modify <paramref name="mesh"/> (spec I9).
+        /// </summary>
+        /// <param name="mesh">The triangulation to refine.</param>
+        /// <param name="triangleMaxAreas">Optional per-triangle maximum area (length equal to <see cref="TriangulationMesh2.TriangleCount"/>;
+        /// null entries leave that triangle without a per-triangle limit). Combined with <see cref="MaxArea"/> by taking the stricter bound.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="mesh"/> is null.</exception>
+        /// <exception cref="ArgumentException">An option is invalid, or <paramref name="triangleMaxAreas"/> has the wrong length or a non-positive/non-finite entry.</exception>
+        public ConstrainedTriangulation2Result Refine(TriangulationMesh2 mesh, IReadOnlyList<double?> triangleMaxAreas = null, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            if (mesh == null) throw new ArgumentNullException(nameof(mesh));
+            ValidateOptions();
+            var areas = ValidateTriangleAreas(triangleMaxAreas, mesh.TriangleCount);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (mesh.TriangleCount == 0) {
+                var verts = new Vector2d[mesh.Vertices.Count];
+                for (int i = 0; i < verts.Length; ++i) {
+                    var p = mesh.Vertices[i];
+                    verts[i] = new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y);
+                }
+                var map = new int[mesh.InputToVertex.Count];
+                for (int i = 0; i < map.Length; ++i) map[i] = mesh.InputToVertex[i];
+                var empty = new ConstrainedMesh2(verts, verts.Length, map, new Index3i[0], new Index3i[0], new int[0], new Mesh2Subsegment[0],
+                    null, new int[0], new int[0], new int[0], new Vector2d[0], 0);
+                return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, empty, new string[0]);
+            }
+            var input = new ConstrainedMesh2Input { Points = mesh.Vertices.ToList() };
+            var areaMap = areas == null ? null : new TriangleAreaMap(mesh, areas);
+            return ComputeCore(input, areaMap, cancellationToken);
+        }
+
+        /// <summary>
+        /// Refines an existing constrained triangulation further (spec I8, O17), preserving its domain (outer boundaries, holes,
+        /// islands), region labels, subsegment markers, locks, heights, input vertex mapping, and original constraint geometry (spec O12)
+        /// while enforcing this instance's quality bounds and optional per-triangle maximum areas. Does not modify <paramref name="mesh"/> (spec I9).
+        /// </summary>
+        /// <param name="mesh">The constrained triangulation to refine.</param>
+        /// <param name="triangleMaxAreas">Optional per-triangle maximum area (length equal to <see cref="ConstrainedMesh2.TriangleCount"/>;
+        /// null entries leave that triangle without a per-triangle limit). Combined with <see cref="MaxArea"/> by taking the stricter bound.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="mesh"/> is null.</exception>
+        /// <exception cref="ArgumentException">An option is invalid, or <paramref name="triangleMaxAreas"/> has the wrong length or a non-positive/non-finite entry.</exception>
+        public ConstrainedTriangulation2Result Refine(ConstrainedMesh2 mesh, IReadOnlyList<double?> triangleMaxAreas = null, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            if (mesh == null) throw new ArgumentNullException(nameof(mesh));
+            ValidateOptions();
+            var areas = ValidateTriangleAreas(triangleMaxAreas, mesh.TriangleCount);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (mesh.TriangleCount == 0) {
+                var verts = new Vector2d[mesh.Vertices.Count];
+                for (int i = 0; i < verts.Length; ++i) {
+                    var p = mesh.Vertices[i];
+                    verts[i] = new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y);
+                }
+                var map = new int[mesh.InputToVertex.Count];
+                for (int i = 0; i < map.Length; ++i) map[i] = mesh.InputToVertex[i];
+                double[] heights = mesh.Heights == null ? null : mesh.Heights.ToArray();
+                var empty = new ConstrainedMesh2(verts, mesh.InputCount, map, new Index3i[0], new Index3i[0], new int[0], new Mesh2Subsegment[0],
+                    heights, new int[0], new int[0], new int[0], new Vector2d[0], 0);
+                return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, empty, new string[0]);
+            }
+
+            bool hasTriangleAreas = areas != null;
+            bool willRefine = MinAngle > 0 || MaxArea != null || SizeFunction != null || Conforming || hasTriangleAreas;
+            bool useSavedSources = SnapTolerance == 0 && mesh.SavedSources != null && mesh.SubsegmentSourceIds != null
+                && mesh.SubsegmentSourceIds.Length == mesh.Subsegments.Count;
+
+            var segments = new List<Mesh2Segment>(mesh.Subsegments.Count);
+            var segSourceIds = useSavedSources ? new List<int[]>(mesh.Subsegments.Count) : null;
+            var edgeSet = new HashSet<long>(PairKeys.Comparer);
+            static long EdgeKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
+            for (int i = 0; i < mesh.Subsegments.Count; ++i) {
+                var s = mesh.Subsegments[i];
+                edgeSet.Add(EdgeKey(s.A, s.B));
+                if (useSavedSources) {
+                    segments.Add(new Mesh2Segment(s.A, s.B, s.Marker, s.Locked));
+                    segSourceIds.Add(mesh.SubsegmentSourceIds[i]);
+                } else if (s.Markers != null && s.Markers.Length > 0) {
+                    for (int m = 0; m < s.Markers.Length; ++m)
+                        segments.Add(new Mesh2Segment(s.A, s.B, s.Markers[m], s.Locked));
+                } else {
+                    segments.Add(new Mesh2Segment(s.A, s.B, s.Marker, s.Locked));
+                }
+            }
+
+            // Preserve any interior region-label transition edges not already in Subsegments (defensive)
+            for (int t = 0; t < mesh.TriangleCount; ++t) {
+                var tri = mesh.Triangles[t];
+                var nbs = mesh.Neighbours[t];
+                int label = mesh.TriangleLabels[t];
+                for (int k = 0; k < 3; ++k) {
+                    int nb = nbs[k];
+                    if (nb > t && mesh.TriangleLabels[nb] != label) {
+                        int u = tri[(k + 1) % 3], v = tri[(k + 2) % 3];
+                        if (edgeSet.Add(EdgeKey(u, v))) {
+                            segments.Add(new Mesh2Segment(u, v));
+                            segSourceIds?.Add(null);
+                        }
+                    }
+                }
+            }
+
+            // Constrain domain boundary edges not already in Subsegments (e.g. convex hull edges of a point-set mesh) when refining or snapping
+            int hullFrom = segments.Count;
+            if (willRefine || SnapTolerance > 0) {
+                for (int t = 0; t < mesh.TriangleCount; ++t) {
+                    var tri = mesh.Triangles[t];
+                    var nbs = mesh.Neighbours[t];
+                    for (int k = 0; k < 3; ++k) {
+                        if (nbs[k] >= 0) continue;
+                        int u = tri[(k + 1) % 3], v = tri[(k + 2) % 3];
+                        if (edgeSet.Add(EdgeKey(u, v))) {
+                            segments.Add(new Mesh2Segment(u, v));
+                            segSourceIds?.Add(null);
+                        }
+                    }
+                }
+            }
+
+            // Synthetic regions so Builder.Build maps tag > 0 back to each distinct nonzero region label
+            var distinctLabels = new SortedSet<int>();
+            for (int t = 0; t < mesh.TriangleCount; ++t) {
+                int l = mesh.TriangleLabels[t];
+                if (l != 0) distinctLabels.Add(l);
+            }
+            var regions = new List<Mesh2Region>(distinctLabels.Count);
+            var labelToTag = new Dictionary<int, int>(distinctLabels.Count);
+            foreach (int l in distinctLabels) {
+                regions.Add(new Mesh2Region { Label = l });
+                labelToTag.Add(l, regions.Count);
+            }
+
+            var input = new ConstrainedMesh2Input {
+                Points = mesh.Vertices.ToList(),
+                Segments = segments,
+                Regions = regions,
+                Heights = mesh.Heights?.ToList()
+            };
+
+            bool hasExtraHull = hullFrom < segments.Count;
+            var result = ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => {
+                var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken) {
+                    OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false,
+                    SnapRounded = snap != null
+                };
+                if (snap == null) {
+                    if (useSavedSources) {
+                        builder.PreloadedSources = mesh.SavedSources;
+                        builder.SegmentSourceIds = segSourceIds;
+                    }
+                    if (hasExtraHull) builder.ExtraHullFrom = hullFrom;
+                } else if (hasExtraHull && willRefine) {
+                    builder.HullSegmentsFrom = snap.SegmentChainStart[hullFrom];
+                    builder.HullSegmentsTo = snap.SegmentChainStart[input.Segments.Count];
+                }
+                int classifyHint = -1;
+                builder.ClassifyTag = g => {
+                    if (!mesh.TryLocateMinArea(g, null, ref classifyHint, out _, out int origT)) return -1;
+                    int label = mesh.TriangleLabels[origT];
+                    return label == 0 ? 0 : labelToTag[label];
+                };
+                var areaMap = areas == null ? null : new TriangleAreaMap(mesh, areas);
+                var refiner = new Refiner(this, builder, snap, areaMap);
+                builder.refine = refiner.Run;
+                builder.IsBad = refiner.BelowAngle;
+                return builder.Run();
+            });
+
+            if (result.Mesh == null) return result;
+            var composedMap = new int[mesh.InputCount];
+            for (int i = 0; i < mesh.InputCount; ++i) {
+                int m = mesh.InputToVertex[i];
+                composedMap[i] = m >= 0 && m < result.Mesh.InputToVertex.Count ? result.Mesh.InputToVertex[m] : -1;
+            }
+            var mappedMesh = result.Mesh.WithInputMapping(mesh.InputCount, composedMap, keepMetadata: SnapTolerance == 0);
+            return new ConstrainedTriangulation2Result(result.Status, result.FailureKind, mappedMesh, result.Diagnostics, result.ProblemCoordinate, result.FailureDetail);
+        }
+
+        void ValidateOptions()
+        {
+            if (double.IsNaN(MinAngle) || MinAngle < 0 || MinAngle >= 60) throw new ArgumentException("MinAngle must be at least 0 and below 60 degrees (decision D12)");
+            if (MaxArea != null && !(MaxArea.Value > 0) || MaxArea != null && double.IsInfinity(MaxArea.Value)) throw new ArgumentException("MaxArea must be positive and finite");
+            if (SteinerLimit != null && SteinerLimit.Value < 0) throw new ArgumentException("SteinerLimit must not be negative");
+            if (SnapTolerance != 0 && (!(SnapTolerance > 0) || double.IsInfinity(SnapTolerance))) throw new ArgumentException("SnapTolerance must be zero or positive and finite (spec O11)");
+        }
+
+        static double?[] ValidateTriangleAreas(IReadOnlyList<double?> triangleMaxAreas, int triangleCount)
+        {
+            if (triangleMaxAreas == null) return null;
+            if (triangleMaxAreas.Count != triangleCount)
+                throw new ArgumentException("triangleMaxAreas must have one entry per triangle (" + triangleCount + " expected, got " + triangleMaxAreas.Count + ")", nameof(triangleMaxAreas));
+            var copy = new double?[triangleCount];
+            bool any = false;
+            for (int i = 0; i < triangleCount; ++i) {
+                var a = triangleMaxAreas[i];
+                if (a != null) {
+                    if (!(a.Value > 0) || double.IsInfinity(a.Value))
+                        throw new ArgumentException("triangleMaxAreas[" + i + "] must be positive and finite", nameof(triangleMaxAreas));
+                    copy[i] = a;
+                    any = true;
+                }
+            }
+            return any ? copy : null;
+        }
+
+        ConstrainedTriangulation2Result ComputeCore(ConstrainedMesh2Input input, TriangleAreaMap triangleAreas, CancellationToken cancellationToken)
+        {
             // On the grid, a hull domain's hull edges are snap-rounded with the segments (owner decision 2026-11-02, option C of
             // MESHING2D_HULL_GRID.md): appended as segments, their chains through hot pixels become the hull sources, so refinement
             // splits them in the envelopes of the true hull edges, as it splits segments
             int hullFrom = -1;
-            if (SnapTolerance > 0 && Refines(input) && !(input.Rings ?? new List<Mesh2Ring>()).Any(r => r != null && !r.Hole)) {
+            if (SnapTolerance > 0 && Refines(input, triangleAreas != null) && !(input.Rings ?? new List<Mesh2Ring>()).Any(r => r != null && !r.Hole)) {
                 // (the input checked first, as Snapped does, so that a bad input gets its own message, not one of the hull; review)
                 new ConstrainedDelaunayMesh2.Builder(input, true, cancellationToken).Validate();
                 var hull = ExactHull(input.Points);
@@ -98,17 +309,35 @@ namespace g3
             return ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => {
                 var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false, SnapRounded = snap != null };
                 if (hullFrom >= 0) { builder.HullSegmentsFrom = snap.SegmentChainStart[hullFrom]; builder.HullSegmentsTo = snap.SegmentChainStart[input.Segments.Count]; }
-                var refiner = new Refiner(this, builder, snap);
+                var refiner = new Refiner(this, builder, snap, triangleAreas);
                 builder.refine = refiner.Run;
                 builder.IsBad = refiner.BelowAngle;
                 return builder.Run();
             });
         }
 
-        /// <summary> refinement runs: an angle, an area, a size, a region area, or conforming (as Refiner.Run decides) </summary>
-        bool Refines(ConstrainedMesh2Input input)
+        /// <summary> Per-triangle area lookup on an existing mesh, using hinted exact point location. </summary>
+        internal sealed class TriangleAreaMap
         {
-            if (MinAngle > 0 || MaxArea != null || SizeFunction != null || Conforming) return true;
+            readonly TriangulationMesh2 triMesh;
+            readonly ConstrainedMesh2 conMesh;
+            readonly double?[] areas;
+            int hint = -1;
+
+            internal TriangleAreaMap(TriangulationMesh2 mesh, double?[] areas) { triMesh = mesh; this.areas = areas; }
+            internal TriangleAreaMap(ConstrainedMesh2 mesh, double?[] areas) { conMesh = mesh; this.areas = areas; }
+
+            internal double? At(Vector2d point)
+            {
+                if (triMesh != null) return triMesh.TryLocateMinArea(point, areas, ref hint, out var area) ? area : null;
+                return conMesh.TryLocateMinArea(point, areas, ref hint, out var cArea, out _) ? cArea : null;
+            }
+        }
+
+        /// <summary> refinement runs: an angle, an area, a size, a region area, per-triangle areas, or conforming (as Refiner.Run decides) </summary>
+        bool Refines(ConstrainedMesh2Input input, bool hasTriangleAreas = false)
+        {
+            if (MinAngle > 0 || MaxArea != null || SizeFunction != null || Conforming || hasTriangleAreas) return true;
             foreach (var r in input.Regions ?? new List<Mesh2Region>()) if (r != null && r.MaxArea != null) return true;
             return false;
         }
@@ -267,14 +496,15 @@ namespace g3
             /// 2026-11-01, MESHING2D_SNAP.md section 3g); null otherwise </summary>
             readonly SnapRounding2 snap;
             readonly SnapGrid grid;
+            readonly TriangleAreaMap triangleAreas;
             /// <summary> triangles whose rounded circumcentre was refused (its pixel holds a vertex or is crossed by a constraint) </summary>
             internal long GridBlocked;
             /// <summary> subsegments with no valid split point on the grid </summary>
             internal long GridUnsplittable;
 
-            internal Refiner(QualityMesh2 options, ConstrainedDelaunayMesh2.Builder builder, SnapRounding2 snap = null)
+            internal Refiner(QualityMesh2 options, ConstrainedDelaunayMesh2.Builder builder, SnapRounding2 snap = null, TriangleAreaMap triangleAreas = null)
             {
-                this.options = options; b = builder; this.snap = snap; grid = snap?.Grid;
+                this.options = options; b = builder; this.snap = snap; grid = snap?.Grid; this.triangleAreas = triangleAreas;
                 double s = Math.Sin(options.MinAngle * Math.PI / 180);
                 sin2Min = s * s;
                 halfCot = HalfCot(sin2Min);
@@ -421,7 +651,7 @@ namespace g3
                 limit = options.SteinerLimit ?? 10L * (b.n + segmentCount) + 100000;
                 // (hull chains appended for refinement on the grid: refinement runs, also where the snapped input lost the region area
                 // that asked for it, so that the hull is constrained and flooded as on every grid path; review)
-                bool any = options.MinAngle > 0 || options.MaxArea != null || options.SizeFunction != null || HasRegionArea() || options.Conforming || b.HullFromSegments;
+                bool any = options.MinAngle > 0 || options.MaxArea != null || options.SizeFunction != null || HasRegionArea() || triangleAreas != null || options.Conforming || b.HullFromSegments;
                 if (!any) return null;
                 // (what is in the domain before refinement: an input point or segment that refinement leaves in no triangle is reported)
                 var domainBefore = grid == null ? DomainVertices() : null;
@@ -524,7 +754,7 @@ namespace g3
             /// <summary> without outer rings the hull is the boundary (D13): its edges become constraints, so it does not grow </summary>
             ConstrainedTriangulation2Result ConstrainHull()
             {
-                if (b.outerRings > 0 || b.OuterRingsCollapsed) return null;
+                if (b.outerRings > 0 || b.OuterRingsCollapsed || b.ClassifyTag != null) return null;
                 var pieces = new List<ConstrainedDelaunayMesh2.Builder.Piece>();
                 // (on the grid the hull edges came in as snapped segments, hull sources already: only the flood below)
                 for (int t = 0; t < k.TriangleSlots && !b.HullFromSegments; ++t) {
@@ -640,14 +870,14 @@ namespace g3
             void CheckTags()
             {
                 ++operations;
-                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
+                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0 || b.ClassifyTag != null) return;
                 if (k.TriangleSlots >= DenseCheckBelowTriangles && (operations & (operations - 1)) != 0) return;
                 CheckTagsNow();
             }
 
             void CheckTagsNow()
             {
-                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0) return;
+                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0 || b.ClassifyTag != null) return;
                 var inside = b.InsideFromScratch();
                 // The rule "a ghost neighbour counts as outside" in Collect reads -1 and not the ghost's stored tag, because every ghost's tag
                 // is -1; with that invariant the two are the same (so are ignoring the ghost, since the sliver is also tagged from the sides
@@ -889,7 +1119,7 @@ namespace g3
             }
 
             /// <summary> the exponent that brings the largest of the values to [1, 2), 0 if all are zero </summary>
-            static int ScaleOf(double a, double b, double c, double d)
+            internal static int ScaleOf(double a, double b, double c, double d)
             {
                 double m = Math.Max(Math.Max(Math.Abs(a), Math.Abs(b)), Math.Max(Math.Abs(c), Math.Abs(d)));
                 return m > 0 ? Exponent(m) : 0;
@@ -1005,6 +1235,11 @@ namespace g3
                 if (k.Tag[t] > 0) {
                     var ra = b.input.Regions[k.Tag[t] - 1].MaxArea;
                     if (ra != null) maxArea = maxArea == null ? ra : Math.Min(maxArea.Value, ra.Value);
+                }
+                if (triangleAreas != null) {
+                    var g = a0 + ScaleB((q0 + r0) * (1.0 / 3.0), ex);
+                    var ta = triangleAreas.At(g);
+                    if (ta != null) maxArea = maxArea == null ? ta : Math.Min(maxArea.Value, ta.Value);
                 }
                 // (a margin of 2^-40 below the bound: the area in doubles may round down below it while the exact area is above)
                 if (maxArea != null && area > maxArea.Value * (1 - 1.0 / (1L << 40)) && !areaExempt) return true;

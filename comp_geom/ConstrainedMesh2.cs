@@ -51,6 +51,11 @@ namespace g3
         /// empty result. Internal:
         /// the acceptance oracle reads it (#870) </summary>
         internal bool[] ExistedBeforeRefinement;
+        /// <summary> Active input constraint sources (with Ring = -1; VA/VB in this mesh's vertex ids or -1) and per-subsegment indices into
+        /// them, so <see cref="QualityMesh2.Refine(ConstrainedMesh2, IReadOnlyList{double?}, System.Threading.CancellationToken)"/> keeps original
+        /// segment endpoints without drift across chained refinements (spec O12, O17). Null on snap-rounded or empty meshes. </summary>
+        internal ConstrainedDelaunayMesh2.Source[] SavedSources;
+        internal int[][] SubsegmentSourceIds;
         /// <summary> Heights per vertex if the input had heights, otherwise null. </summary>
         public IReadOnlyList<double> Heights { get; }
 
@@ -108,6 +113,16 @@ namespace g3
         {
             var map = new int[inputCount];
             for (int i = 0; i < inputCount; ++i) map[i] = InputToVertex[i];
+            return WithInputMapping(inputCount, map, keepMetadata: false);
+        }
+
+        /// <summary>
+        /// The same mesh with a given input count and mapping (used by snap rounding and <see cref="QualityMesh2.Refine(ConstrainedMesh2, IReadOnlyList{double?}, System.Threading.CancellationToken)"/>):
+        /// vertices at or above <paramref name="inputCount"/> that are in no triangle and no input mapping entry are dropped and higher ids compact down (spec Q8).
+        /// </summary>
+        internal ConstrainedMesh2 WithInputMapping(int inputCount, int[] inputToVertex, bool keepMetadata)
+        {
+            var map = (int[])inputToVertex.Clone();
             // the mesh of the snapped input took the vertices snap rounding made (crossings) as its input points, and keeps every input
             // point; a made vertex in no triangle and no input point's vertex (a crossing inside a hole) is dropped, as the mesher drops
             // its own unused vertices (spec Q8: made vertices are in triangles), and the ids above it move down
@@ -118,9 +133,20 @@ namespace g3
             var newId = new int[vertices.Length];
             int count = 0;
             for (int v = 0; v < vertices.Length; ++v) newId[v] = keep[v] ? count++ : -1;
-            if (count == vertices.Length)
-                return new ConstrainedMesh2(vertices, inputCount, map, triangles, neighbours, TriangleLabels.ToArray(), Subsegments.ToArray(),
-                    Heights?.ToArray(), fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached, DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments };
+            if (count == vertices.Length) {
+                var same = new ConstrainedMesh2(vertices, inputCount, map, triangles, neighbours, TriangleLabels.ToArray(), Subsegments.ToArray(),
+                    Heights?.ToArray(), fullV, fullH, slotId, fullP, infinite) {
+                    BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached,
+                    DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments
+                };
+                if (keepMetadata) {
+                    same.SubsegmentSources = SubsegmentSources;
+                    same.ExistedBeforeRefinement = ExistedBeforeRefinement;
+                    same.SavedSources = SavedSources;
+                    same.SubsegmentSourceIds = SubsegmentSourceIds;
+                }
+                return same;
+            }
             var kept = new Vector2d[count];
             double[] keptHeights = Heights == null ? null : new double[count];
             for (int v = 0; v < vertices.Length; ++v) if (keep[v]) { kept[newId[v]] = vertices[v]; if (keptHeights != null) keptHeights[newId[v]] = Heights[v]; }
@@ -129,8 +155,31 @@ namespace g3
             for (int i = 0; i < tris.Length; ++i) tris[i] = new Index3i(newId[triangles[i].a], newId[triangles[i].b], newId[triangles[i].c]);
             var subs = Subsegments.ToArray();
             for (int i = 0; i < subs.Length; ++i) { subs[i].A = newId[subs[i].A]; subs[i].B = newId[subs[i].B]; }
-            return new ConstrainedMesh2(kept, inputCount, map, tris, neighbours, TriangleLabels.ToArray(), subs,
-                keptHeights, fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached, DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments };
+            var compacted = new ConstrainedMesh2(kept, inputCount, map, tris, neighbours, TriangleLabels.ToArray(), subs,
+                keptHeights, fullV, fullH, slotId, fullP, infinite) {
+                BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached,
+                DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments
+            };
+            if (keepMetadata) {
+                compacted.SubsegmentSources = SubsegmentSources;
+                compacted.SubsegmentSourceIds = SubsegmentSourceIds;
+                if (ExistedBeforeRefinement != null) {
+                    var keptBefore = new bool[count];
+                    for (int v = 0; v < vertices.Length; ++v) if (keep[v]) keptBefore[newId[v]] = ExistedBeforeRefinement[v];
+                    compacted.ExistedBeforeRefinement = keptBefore;
+                }
+                if (SavedSources != null) {
+                    var keptSources = new ConstrainedDelaunayMesh2.Source[SavedSources.Length];
+                    for (int i = 0; i < SavedSources.Length; ++i) {
+                        var s = SavedSources[i];
+                        s.VA = s.VA >= 0 && s.VA < newId.Length ? newId[s.VA] : -1;
+                        s.VB = s.VB >= 0 && s.VB < newId.Length ? newId[s.VB] : -1;
+                        keptSources[i] = s;
+                    }
+                    compacted.SavedSources = keptSources;
+                }
+            }
+            return compacted;
         }
 
         static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
@@ -147,25 +196,39 @@ namespace g3
         public bool TryLocate(Vector2d point, out int triangleId)
         {
             DelaunayMesh2.CheckCoordinate(point.x, point.y, "point");
+            int hint = -1;
+            return TryLocateMinArea(point, null, ref hint, out _, out triangleId);
+        }
+
+        /// <summary>
+        /// Hinted exact point location in the full hull triangulation behind the mesh. Sets <paramref name="triangleId"/> to the
+        /// smallest domain triangle id containing <paramref name="point"/> (or -1 outside the domain), and when <paramref name="areas"/>
+        /// is non-null sets <paramref name="minArea"/> to the minimum non-null entry among all containing domain triangles.
+        /// Updates <paramref name="hintSlot"/> for O(1) amortised walk cost.
+        /// </summary>
+        internal bool TryLocateMinArea(Vector2d point, double?[] areas, ref int hintSlot, out double? minArea, out int triangleId)
+        {
+            minArea = null;
             triangleId = -1;
             if (triangles.Length == 0) return false;
             int slots = fullV.Length / 3;
-            int t = 0;
+            int t = hintSlot >= 0 && hintSlot < slots && !Ghost(hintSlot) ? hintSlot : 0;
             while (t < slots && Ghost(t)) ++t;
             if (t == slots) return false;
+            // deterministic stochastic walk: constrained triangulations need not be globally Delaunay, so varying the first edge tried
+            // prevents cycling while staying deterministic; the result is exact regardless of the path taken
+            uint state = 2463534242u ^ ((uint)t * 2654435761u);
             long limit = 4L * slots + 16;
-            int entry = -1;
             bool found = false;
             for (long step = 0; step < limit; ++step) {
-                int moved = -1;
+                state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+                int start = (int)(state % 3), moved = -1;
                 for (int j = 0; j < 3; ++j) {
-                    int e = 3 * t + (int)((step + j) % 3);
-                    if (e == entry) continue;
+                    int e = 3 * t + (start + j) % 3;
                     if (ExactPredicates.Orient2d(fullP[fullV[e]], fullP[fullV[Next(e)]], point) < 0) { moved = e; break; }
                 }
                 if (moved < 0) { found = true; break; }
-                entry = fullH[moved];
-                t = entry / 3;
+                t = fullH[moved] / 3;
                 if (Ghost(t)) return false;   // outside the hull
             }
             if (!found) {
@@ -173,9 +236,21 @@ namespace g3
                 for (int s = 0; s < slots && t < 0; ++s) if (!Ghost(s) && ContainsSlot(s, point)) t = s;
                 if (t < 0) return false;
             }
+            hintSlot = t;
             // all slots that contain the point: t, a neighbour across an edge through it, or the star of a vertex at it
             int best = int.MaxValue;
-            void Consider(int s) { if (!Ghost(s) && slotId[s] >= 0 && slotId[s] < best) best = slotId[s]; }
+            double? bestArea = null;
+            void Consider(int s)
+            {
+                if (Ghost(s)) return;
+                int id = slotId[s];
+                if (id < 0) return;
+                if (id < best) best = id;
+                if (areas != null) {
+                    var a = areas[id];
+                    if (a != null && (bestArea == null || a.Value < bestArea.Value)) bestArea = a;
+                }
+            }
             Consider(t);
             for (int k = 0; k < 3; ++k) {
                 int e = 3 * t + k, v = fullV[e];
@@ -187,6 +262,7 @@ namespace g3
             }
             if (best == int.MaxValue) return false;
             triangleId = best;
+            minArea = bestArea;
             return true;
         }
 
