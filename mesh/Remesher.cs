@@ -224,7 +224,8 @@ namespace g3 {
         /// given to SetDeviationReference. Refusals are counted in DeviationRejected. With MaxDeviation set, smoothing and
         /// projection are buffered (EnableSmoothInPlace is ignored) so that every move is checked; not guarded: vertex moves
         /// made outside ProcessEdge and ApplyVertexBuffer (eg by a subclass; RemesherPro's passes go through both).
-        /// RemeshCertificate checks a result afterwards, both ways.
+        /// Cost: about 8.4 times the time of MinTriangleQuality alone at a band of 0.5 % of the diagonal (20 Thingi10K meshes,
+        /// benchmarks/RemeshQualityBenchmark). RemeshCertificate checks a result afterwards, both ways.
         /// </summary>
         public double MaxDeviation = 0;
 

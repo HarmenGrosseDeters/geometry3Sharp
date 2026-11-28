@@ -464,7 +464,7 @@ is the band alone.
 dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- thingi=benchmarks/RemeshBenchmark/data/meshes 'only=^[0-9]+$' base=0.2 quality=0.2 band=0.005 runs=3
 ```
 
-4 cores, net10.0, 2026-11-28; raw output [perf/band_guard_2026-11-28.txt](perf/band_guard_2026-11-28.txt). Thingi10K (20), off = `MinTriangleQuality 0.2`,
+4 cores, net10.0, 2026-11-28, run in a session container (a GitHub-hosted re-run is to come); raw output, summaries only, [perf/band_guard_2026-11-28.txt](perf/band_guard_2026-11-28.txt). Thingi10K (20), off = `MinTriangleQuality 0.2`,
 on = the same with the band at 0.5 % of the diagonal:
 
 | measure | off | on |
