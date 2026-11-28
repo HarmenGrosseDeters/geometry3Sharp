@@ -88,3 +88,36 @@ What is exact:
 
 A 1 % timing verdict needs a quiet machine. The job: build both trees as above, then run each executable 5 times in
 alternation with `default 31`, and compare the medians per row.
+
+## Uncut input-frame and plane-origin volume fast paths (2026-11-28, .NET 10.0.115, 2× Intel Xeon @ 2.30 GHz)
+
+Paired same-machine run against `origin/master` (`2959dfaa`), command:
+
+```
+DOTNET_TieredPGO=0 dotnet run -c Release --no-build --project benchmarks/BooleanVolumeGradient -- gradient 11
+```
+
+| input | op | pieces | gradient before | gradient after | speedup | gradient / boolean (before → after) |
+|---|---|---:|---:|---:|---:|---|
+| spheres n=16 | Union | 6428 | 43.2 ms | 8.8 ms | 4.9× (−79.6 %) | 87.4 % → 18.3 % |
+| spheres n=16 | Intersection | 3280 | 24.0 ms | 8.9 ms | 2.7× (−62.9 %) | 80.7 % → 30.4 % |
+| spheres n=16 | Difference | 5228 | 41.6 ms | 8.0 ms | 5.2× (−80.8 %) | 95.6 % → 19.9 % |
+| spheres n=32 | Union | 25196 | 189.7 ms | 24.2 ms | 7.8× (−87.2 %) | 157.3 % → 21.2 % |
+| spheres n=32 | Intersection | 10932 | 106.5 ms | 18.0 ms | 5.9× (−83.1 %) | 110.8 % → 19.1 % |
+| spheres n=32 | Difference | 19578 | 190.2 ms | 24.9 ms | 7.6× (−86.9 %) | 154.4 % → 20.4 % |
+| boxes, flush faces | Union / Int / Diff | 58–68 | 0.2–0.3 ms | 0.2 ms | ~1.5× | 22.7–25.5 % → 15.7–17.1 % |
+
+What changed:
+- **Uncut kept pieces (85–92 % of kept pieces on `spheres n=32`):** when an output piece is a cyclic permutation of its
+  source input triangle's corners, its exact centroid barycentric coordinates are $(1/3, 1/3, 1/3)$ and its exact edge
+  differences use Knuth's `TwoDiff` in IEEE 754 binary64 (with `ExactInterval` outward rounding and `BigInteger` fallback
+  outside `2^1020` or at subnormals). Each corner receives $s_P \frac{1}{6}(V_1 - V_0) \times (V_2 - V_0)$ directly without
+  allocating a `Tri` or touching `BigInteger`.
+- **Result-vertex volume origin:** Pass 1 picks an actual input vertex $O$ of a kept piece and bounds `E_vol` over every
+  kept piece's vertex ($V_0$ for uncut pieces, `ot.A` for cut pieces) relative to $O$, using `TwoDiff` for input vertices
+  and cached exact points only for constructed cut vertices. Far-from-origin offsets (e.g. UTM) cancel and large clipping
+  triangles do not inflate `E_vol` or `VolumeBound` (with `BigInteger` fallback outside the `TwoDiff` range or when no
+  kept piece has an input vertex at `ot.A`).
+- **Cut pieces & scaling:** input-to-input differences in `tri()`/`diff()` reuse `TwoDiff`, `enclose()` fast-paths exact
+  $\le 53$-bit integers, and `scale()` fast-paths strictly-normal ($> 2^{-1022}$) power-of-two multiplies. `ExactMeshBoolean` is untouched.
+
