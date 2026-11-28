@@ -278,7 +278,16 @@ hashes move with a reason each, and a release note says "the triangulation of co
   Both are pinned by existing tests that fail on the old code of this branch (`GeneralizedWinding_MatchesExactForClosedMeshes` with the mutation: the dedup off, red).
 - **Pins**: tests that compare the old rule's mechanics (coplanar walk, certificate fan and box tree tests, certificate file round trip: the file format has no regions) set
   `RegionClipping = false` explicitly; `GeneralizedWinding_MatchesExactForClosedMeshes` compares triangle counts with the old rule (the exact path culls, the generalized does not,
-  and the triangulations then differ: 12 against 21) and the volumes with the default.
+  and the triangulations can then differ) and the volumes with the default.
+- **Correction (review of #1744)**: an earlier text of this PR said the flush-box intersection goes from 12 to 21 triangles. The 21 was the open result of the
+  winding bug above; with the fix it is 12 closed, equal to the old rule. Measured counts with regions are equal or lower (fine boxes 5 per edge, offset (0.3, 0.2): union 312
+  against 324, intersection 160 against 172; 7 per edge, offset (0.3, 0.1): 596 against 676); `TheDefaultIsOn_AndShowsInTheTriangulationOfOffsetFineBoxes` pins the default with the
+  first case. The walk is off with regions, so a larger count in another case is not excluded.
+- **Lean regions are incomplete, never unsound** (review of #1744): the plane test is `rep` equality, exact `same_plane` against a common representative, with the bucket of the
+  rounded plane picking the candidates. Equal planes split by `round_key` at a rounding boundary, or beyond `MaxPlaneCandidates = 8` planes in a bucket (which planes overflow
+  depends on the triangle order), get no join: a triangle outside a candidate pair is a one-triangle region, exactly the old clip. A missed join costs speed (and can make the
+  triangulation depend on the operand order), never exactness. A `same_plane` fallback where the reps differ would close the gap; it is a follow-up, not in this PR (the corpus run
+  of this head stays valid).
 - **Known limit**: a certificate file (`CertificateFile`) of a region-clipped result cannot be checked stand-alone; the in-process certificate checks it.
 
 Cost of the switch on procedural inputs of the corpus's sizes (`dotnet run --project benchmarks/CoplanarRegionClipping -c Release`, 4 cores, median of 3, ms; phases of the last run):

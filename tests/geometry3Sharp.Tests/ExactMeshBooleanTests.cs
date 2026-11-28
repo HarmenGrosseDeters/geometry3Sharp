@@ -528,8 +528,9 @@ namespace geometry3Sharp.Tests
                     // (the fast winding number counted a centroid on a flat edge of a region twice: the intersection of the coplanar boxes was open)
                     foreach (var on in new[] { genOn, antOn })
                         Assert.Equal(Volume(exact.Result), Volume(on.Result), 12);
-                    Assert.True(antOn.Result.IsClosed() == ant.Result.IsClosed());
-                    Assert.True(gen.Result.IsClosed() == genOn.Result.IsClosed(), $"case {cases.IndexOf(c)} {op}: closed off {gen.Result.IsClosed()} on {genOn.Result.IsClosed()} tris {gen.Result.TriangleCount}/{genOn.Result.TriangleCount} boundary {genOn.Result.BoundaryEdgeIndices().Count()}");
+                    // (the inputs are closed: the results are closed and manifold, not only as closed as the old rule's)
+                    foreach (var on in new[] { genOn, antOn })
+                        Assert.True(on.Result.IsClosed() && on.Result.CheckValidity(true, FailMode.ReturnOnly), $"case {cases.IndexOf(c)} {op}");
                     Assert.False(gen.ExactWindingA || gen.ExactWindingB);
                     Assert.Equal(0, gen.Counts["antipodal_meshes"]);
                     Assert.Equal(2, ant.Counts["antipodal_meshes"]);

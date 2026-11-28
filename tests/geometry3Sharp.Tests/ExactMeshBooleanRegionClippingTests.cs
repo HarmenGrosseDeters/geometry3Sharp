@@ -24,6 +24,23 @@ namespace geometry3Sharp.Tests
             return new GridBox3Generator() { Box = new Box3d(new Vector3d((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), new Vector3d((x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2)), EdgeVertices = n }.Generate().MakeDMesh();
         }
 
+        [Fact]
+        public void TheDefaultIsOn_AndShowsInTheTriangulationOfOffsetFineBoxes()
+        {
+            // (#1630 stage 4: no flag is set on `on`. Two fine boxes with flush faces and grids that do not line up: the same surface, 312 triangles with regions and
+            // 324 without; a default that went back to off gives 324 here. Pinned from the measured run, the volumes are equal.)
+            DMesh3 a = FineBox(0, 0, 0, 1, 1, 1, 5), b = FineBox(0.3, 0.2, 0, 1.3, 1.2, 1, 5);
+            var on = new ExactMeshBoolean(a, b, Ops.Union);
+            var off = new ExactMeshBoolean(a, b, Ops.Union) { RegionClipping = false };
+            Assert.True(on.RegionClipping);
+            Assert.True(on.Compute() && off.Compute());
+            Assert.Equal(312, on.Result.TriangleCount);
+            Assert.Equal(324, off.Result.TriangleCount);
+            Assert.True(on.Result.IsClosed() && on.Result.CheckValidity(true, FailMode.ReturnOnly));
+            Func<DMesh3, double> volume = m => MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex).x;
+            Assert.Equal(volume(off.Result), volume(on.Result), 12);
+        }
+
         public static IEnumerable<object[]> Cases()
         {
             foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
