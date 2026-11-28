@@ -12,20 +12,39 @@ The timers start before `ExactMeshBoolean.Compute` and include the raw scan, end
 
 ## Reproduce
 
-Use a scratch worktree at the study revision. The patch adds the trial hook, comparator and a scratch-only analyzer registration. The production branch requires no patch to run the existing endpoint benchmarks. Use the same generated operands and inspect the hashes in the output. [Thingi10K tail recipe](ENDPOINT_BUDGET.md#documented-tail-cases) · [Prepared fixtures and external corpora](ENDPOINT_BUDGET.md)
+Use .NET 10, Python 3.12, and CadQuery 2.7.0. Run these commands from the PR checkout. The preparation script generates the procedural fixtures and prepares the recorded Thingi10K, ABC, EMBER, and Objaverse operands. It checks original source hashes and verifies the resulting 25 file-backed operands against every archived endpoint JSONL row.
+
+Supply the two ABC STEP originals under `$sources/abc/` as `00000177.step` and `00000382.step`. Their download URLs and uncompressed SHA-256 hashes are in the pinned source manifest. The targeted ABC workflow can fetch them on a GitHub-hosted runner with `python "$work/suite/benchmarks/TargetedMeshRegression/fetch_extended.py" "$sources" --abc`. The preparation script downloads other missing originals on demand. Add `--offline` to require a prefilled source cache. [Pinned corpus manifest](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/0577940f6916f759e7f0dda7a7e690cb89842d4f/benchmarks/TargetedMeshRegression/corpus-sources.json)
 
 ```sh
 audit_dir="$PWD/benchmarks/SolidBooleanAudit"
-git fetch origin pull/1738/head
-git worktree add --detach /tmp/g3-weighted-trial c9bf2264f
-cd /tmp/g3-weighted-trial
+work=$(mktemp -d)
+sources="$work/sources"
+inputs="$work/inputs"
+git fetch origin refs/pull/1711/head refs/pull/1738/head
+git worktree add --detach "$work/suite" 0577940f6916f759e7f0dda7a7e690cb89842d4f
+git worktree add --detach "$work/cli" 864cd5f98a70781b4c80bb0c214daa2f6b72bbb7
+dotnet build "$work/cli/tools/g3cli/g3cli.csproj" -c Release -m:1
+dotnet build benchmarks/BooleanComparison -c Release -m:1
+export DOTNET_PROCESSOR_COUNT=2 DOTNET_TieredPGO=0 DOTNET_GCHeapHardLimit=0x150000000
+
+# Place the two ABC STEP originals in "$sources/abc" before preparing the inputs.
+python "$audit_dir/prepare-endpoint-inputs.py" prepare "$inputs" \
+  --source-cache "$sources" --suite "$work/suite" \
+  --cli "$work/cli/tools/g3cli/bin/Release/net10.0/g3cli.dll" \
+  --exporter "$PWD/benchmarks/BooleanComparison/bin/Release/net10.0/BooleanComparison.dll"
+
+git worktree add --detach "$work/trial" c9bf2264f7812cfef919f9ed37e6d9e9c8bde675
+cd "$work/trial"
 git apply "$audit_dir/weighted-endpoint-trial.patch"
 dotnet build benchmarks/SolidBooleanAudit -c Release -m:1
 audit="$PWD/benchmarks/SolidBooleanAudit/bin/Release/net10.0/SolidBooleanAudit.dll"
-bash "$audit_dir/run-weighted-trial.sh" stage1 "$(command -v dotnet)" "$audit" "$tail_root" "$fixtures" "$derived" > stage1.jsonl
-bash "$audit_dir/run-weighted-trial.sh" stage2 "$(command -v dotnet)" "$audit" "$tail_root" "$fixtures" "$derived" > stage2.jsonl
+bash "$audit_dir/run-weighted-trial.sh" stage1 "$(command -v dotnet)" "$audit" "$inputs" "$inputs/fixtures" "$inputs/derived" > stage1.jsonl
+bash "$audit_dir/run-weighted-trial.sh" stage2 "$(command -v dotnet)" "$audit" "$inputs" "$inputs/fixtures" "$inputs/derived" > stage2.jsonl
 python "$audit_dir/summarize-weighted-trial.py" stage1.jsonl stage2.jsonl
 ```
+
+Use `ENDPOINT_TRIAL_REPETITIONS=1` for a smoke replay of every workload and cap. Use the default repetitions for the timing study. To check a previously prepared directory without rebuilding the operands, run `python "$audit_dir/prepare-endpoint-inputs.py" verify "$inputs"`.
 
 The first stage covers a weighted-only refusal on each of two documented Thingi10K cases, equality with the complete weighted certificate on 70 rotated cubes, and acceptance with both weighted passes exercised on the alternate-diagonal coplanar fixture. The second stage includes common refusals, raw-gated and scanned fallbacks, a second synthetic boundary, two other Thingi10K cases, rational crossings, a fine ABC CAD cut, EMBER intersection and union, and a repaired Objaverse asset.
 

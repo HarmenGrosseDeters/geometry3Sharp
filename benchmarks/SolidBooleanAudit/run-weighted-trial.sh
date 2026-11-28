@@ -15,7 +15,10 @@ derived=$6
 export DOTNET_PROCESSOR_COUNT=2 DOTNET_TieredPGO=0 DOTNET_GCHeapHardLimit=0x150000000
 
 run() {
-    timeout 420s "$sdk" "$audit" endpoint-prototype "$@"
+    local label=$1 operation=$2 cap=$3 repetitions=$4
+    shift 4
+    timeout 420s "$sdk" "$audit" endpoint-prototype "$label" "$operation" "$cap" \
+        "${ENDPOINT_TRIAL_REPETITIONS:-$repetitions}" "$@"
 }
 
 tail_pair() {
