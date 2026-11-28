@@ -4,13 +4,17 @@ Investigates the documented Alpha Wrap budget and size-estimator cliffs (issues 
 #1726, and Thingi10K 40118 in docs/perf/ALPHA_DEFAULTS_800.md) together with extreme-scale
 range obligations on mesh_ops/AlphaWrapEstimate.cs:
 
-1. Grid-welding saturation and ULP equivalence (PrepareFrame / Analyze):
-   - When span / cell > 2^54 (including SafeGridLimit = 1e18 in the [0, 2) normalized frame),
-     cell < 0.5 * (span * 2^-52), strictly smaller than half a ULP at the normalized span:
-     exact-coordinate bit keys agree with infinite-precision grid cells without Int64 clamp
-     collapse.
-   - Negative control (SAT): at span / cell = 2^50, distinct binary64 coordinates can still share
-     a grid cell.
+1. Grid-welding exact-integer bound and ULP behavior (PrepareFrame / Analyze / Cell):
+   - SafeGridLimit = 2^52 keeps |v / cell| inside binary64's exact integer range (ulp <= 1,
+     strictly below 2^53 and Int64.MaxValue) so Cell(v, cell) neither loses unit spacing nor
+     saturates at ±9e18.
+   - Negative control (SAT): a limit of 1e18 exceeds 2^53 (binary64 exact integers), allowing
+     distinct coordinates up to 16 * alpha apart to collapse in Cell.
+   - When span / cell > 2^54, cell < 0.5 * (span * 2^-52), strictly smaller than half a ULP for
+     coordinates of magnitude Theta(span) (in [1, 2) of the normalized frame); exact-bit welding
+     agrees with infinite-precision cells at magnitude Theta(span) and serves as a non-collapsing
+     fallback beyond binary64 grid-index precision (not claiming exact equivalence near lo).
+   - Negative control (SAT): at span / cell = 2^50, a grid cell still spans multiple ULPs.
 2. Thin-plate classifier scale invariance and geometry bounds (Terms):
    - Under positive rescaling s > 0 (V = s^3 V', A = s^2 A', alpha = s alpha'),
      2|V'|/A' < ThinFactor * alpha' iff 2|V|/A < ThinFactor * alpha.
@@ -23,17 +27,21 @@ range obligations on mesh_ops/AlphaWrapEstimate.cs:
      even when sharp == 0 (welded thin-plate rim edges with uses > 2).
 3. Documented performance cliffs:
    - Long narrow slit cliff (AlphaWrapEstimate.cs:34): Z3 synthesizes a SAT witness with slit width
-     w < 2 * alpha (too narrow for the alpha ball to enter) and length L > 4 * alpha where the
+     w < 0.5 * alpha (too narrow for the alpha ball to enter) and length L > 4 * alpha where the
      axis-aligned opening diagonal sqrt(w^2 + L^2) exceeds OpeningFactor * alpha = 4 * alpha,
      doubling bulk area and adding rim triangles unnecessarily.
-   - Thingi10K 40118 neck-closure cliff (ALPHA_DEFAULTS_800.md): with MaxAlphaCoarsening = c_max >= 1,
-     UsedAlpha <= c_max * alpha_0, so any neck wider than c_max * alpha_0 stays open (UNSAT to seal);
-     without a cap, budget coarsening k = sqrt(E / B) admits a neck-sealing witness (SAT).
-4. Concrete binary64 replays pinning UTM+tiny-alpha Cell collapse, 2^-360 cubic volume underflow,
-   2^350 cubic volume NaN + cross.Length overflow, 2^±600 LargestOpening overflow/underflow, and
+   - Thingi10K 40118 neck-closure cliff (ALPHA_DEFAULTS_800.md, MeshAlphaWrap.cs:144): the wrap
+     closes an opening narrower than about 2 * UsedAlpha. With MaxAlphaCoarsening = c_max >= 1,
+     UsedAlpha <= c_max * alpha_0, so any neck of full width w_neck > 2 * c_max * alpha_0 stays
+     open (UNSAT for 2 * UsedAlpha >= w_neck); without a cap, budget coarsening k = sqrt(E / B)
+     admits a neck-sealing witness (SAT).
+4. Concrete binary64 replays mirroring PrepareFrame, SafeLength, SafeUnit, and Cell at UTM + 1e-12,
+   the SafeGridLimit = 2^52 vs 1e18 fast-path and normalized-path counterexamples, 2^-360 cubic
+   volume underflow, 2^350 cubic volume NaN + cross.Length overflow, 2^±600 LargestOpening, and
    the documented 40118 budget/cap cliff.
 """
 import math
+import struct
 import sys
 import z3
 
@@ -43,50 +51,61 @@ ESTIMATE_SOURCE = 'mesh_ops/AlphaWrapEstimate.cs'
 WRAP_SOURCE = 'mesh_ops/MeshAlphaWrap.cs'
 
 ESTIMATE_ANCHORS = [
-    ('public const double OpeningFactor = 4.0;', 'static int Pow2Exp(', '32d6ae063d08e88a5f09fc5466b5b34c33bf7b4fb876b5807261b809c2ec9b34'),
-    ('static bool PrepareFrame(', 'public static double OpenArea(', 'f1408e0bcda17b4d8334f0e515d1d27206090482a3d21e2b8bf5a43336043f9a'),
-    ('for (int root = 0; root < nv; ++root)', 'public static double LargestOpening(', '43fcbcfa4164396f661218ed4df1bc3dd78f6b9f6d6cc463670321bfcc4c6393'),
+    ('public const double OpeningFactor = 4.0;', 'static int Pow2Exp(', '48455ac1f4c74f5a9dd54ba138d80f009c507a2a0b917dab2b679c19a92d6d29'),
+    ('static long NormBits(', 'public static double OpenArea(', 'c2f9ac581494eb5992fc33edd4c2d328a2ca03e126426317933b709de62875ce'),
+    ('public static readonly double ThinFactor = 0.2;', 'public static EstimateTerms Terms(', 'dca2a8cccf779bbb923b1cc4d94d24c92bc00f6879c18c4a15775977abe90ab2'),
+    ('for (int root = 0; root < nv; ++root)', 'public static double LargestOpening(', '125cb92e84bfe9f67f61a15102bf1dd6443a3217822806b369118acb9d80c886'),
     ('static void Analyze(', 'int nv = ids.Count;', '312952cff7f1edc6ea6ff6d606a581c79f93b5699fc90cff88a6018615e236d2'),
+    ('static long Cell(', 'static void CountEdge(', '56728091ee5be31c5c6e3e51435effbe097fb11fa72f9cb4750b8ed7d4168d76'),
 ]
 
 WRAP_ANCHORS = [
-    ('double cap = MaxAlphaCoarsening > 0 ?', 'UsedAlpha = alpha; UsedOffset = offset;', 'c94ce0bef20a4adb21db447954441da6f6d641d912ad26f65921b932a2bcb2f4'),
+    ('if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles) {', 'UsedAlpha = alpha; UsedOffset = offset;', '719f8fbd756e6581e3e1596776b988f09da90c6f3753841950563afd11405cc0'),
 ]
 
 
 def grid_saturation_obligations():
     rows = []
     span, cell = z3.Reals('span cell')
-    ulp = span * z3.Q(1, 1 << 52)
+    ulp_at_span = span * z3.Q(1, 1 << 52)
     sat_prem = [span > 0, cell > 0, span > cell * (1 << 54)]
     rows.append(('grid_saturation_assumptions_sat', sat_prem, span == 2, 'sat', 'QF_NRA'))
     rows.append((
-        'grid_saturation_implies_sub_half_ulp',
+        'grid_saturation_implies_sub_half_ulp_at_span',
         sat_prem,
-        cell >= z3.Q(1, 2) * ulp,
+        cell >= z3.Q(1, 2) * ulp_at_span,
         'unsat',
         'QF_NRA',
     ))
-    # Negative control: below 2^52, a cell can exceed one ULP (welding distinct binary64 points)
+    # Negative control: below 2^52, a cell can exceed one ULP at magnitude Theta(span)
     rows.append((
         'grid_below_threshold_can_weld_distinct_ulps_negative_control',
         [span > 0, cell > 0, span == cell * (1 << 50)],
-        cell > ulp,
+        cell > ulp_at_span,
         'sat',
         'QF_NRA',
     ))
 
-    # SafeGridLimit = 1e18 < 9e18 < Int64.MaxValue (~9.22e18): floor(q) never saturates Int64
+    # SafeGridLimit = 2^52 keeps |v / cell| in binary64's exact integer range (< 2^53) and below ±9e18 / Int64.MaxValue
     q = z3.Int('q')
-    limit = 10**18
+    safe_limit = 1 << 52
+    b64_exact_int = 1 << 53
     int64_max = (1 << 63) - 1
-    bound_prem = [-limit <= q, q <= limit]
-    rows.append(('safe_grid_limit_assumptions_sat', bound_prem, q > 0, 'sat', 'QF_LIA'))
+    bound_prem = [-safe_limit <= q, q <= safe_limit]
+    rows.append(('safe_grid_limit_assumptions_sat', bound_prem, q == safe_limit, 'sat', 'QF_LIA'))
     rows.append((
-        'safe_grid_limit_within_int64',
+        'safe_grid_limit_exact_binary64_and_int64',
         bound_prem,
-        z3.Or(q > 9 * 10**18, q < -9 * 10**18, q >= int64_max),
+        z3.Or(q >= b64_exact_int, q <= -b64_exact_int, q > 9 * 10**18, q < -9 * 10**18, q >= int64_max),
         'unsat',
+        'QF_LIA',
+    ))
+    # Negative control: a 1e18 limit admits quotients > 2^53 where binary64 ulp(v / cell) >= 2
+    rows.append((
+        'grid_limit_1e18_exceeds_binary64_exact_int_negative_control',
+        [-10**18 <= q, q <= 10**18],
+        q > b64_exact_int,
+        'sat',
         'QF_LIA',
     ))
     return rows
@@ -162,8 +181,8 @@ def performance_cliff_obligations():
     rows = []
 
     # 1. Documented slit over-estimation cliff (AlphaWrapEstimate.cs:34):
-    #    A narrow slit w < 2*alpha (ball cannot enter -> 1-sided wrap) with length L > 4*alpha
-    #    has opening diagonal sqrt(w^2 + L^2) > OpeningFactor * alpha (4*alpha) -> doubles estimate.
+    #    A narrow slit w < 0.5 * alpha (ball cannot enter -> 1-sided wrap) with length L > 4 * alpha
+    #    has opening diagonal sqrt(w^2 + L^2) > OpeningFactor * alpha (4 * alpha) -> doubles estimate.
     w, L, alpha = z3.Reals('w L alpha')
     rows.append((
         'documented_cliff_narrow_slit_classified_open_witness',
@@ -173,30 +192,79 @@ def performance_cliff_obligations():
         'QF_NRA',
     ))
 
-    # 2. Documented 40118 neck-closure cliff (docs/perf/ALPHA_DEFAULTS_800.md):
-    #    Cavity behind neck of width w_neck > alpha0: under MaxAlphaCoarsening = c_max >= 1,
-    #    used_alpha <= c_max * alpha0, so any neck wider than c_max * alpha0 cannot be sealed.
+    # 2. Documented 40118 neck-closure cliff (docs/perf/ALPHA_DEFAULTS_800.md, MeshAlphaWrap.cs:144):
+    #    The wrap closes an opening narrower than about 2 * UsedAlpha. Under MaxAlphaCoarsening = c_max >= 1,
+    #    UsedAlpha <= c_max * alpha0, so any neck of full width w_neck > 2 * c_max * alpha0 stays open.
     alpha0, w_neck, c_max, coarse = z3.Reals('alpha0 w_neck c_max coarse')
     used = z3.If(coarse > c_max * alpha0, c_max * alpha0, coarse)
-    neck_prem = [alpha0 > 0, c_max >= 1, coarse >= alpha0, w_neck > c_max * alpha0]
+    neck_prem = [alpha0 > 0, c_max >= 1, coarse >= alpha0, w_neck > 2 * c_max * alpha0]
     rows.append(('neck_cap_assumptions_sat', neck_prem, c_max == z3.Q(6, 5), 'sat', 'QF_NRA'))
     rows.append((
         'coarsening_cap_preserves_neck_above_cap',
         neck_prem,
-        used >= w_neck,
+        2 * used >= w_neck,
         'unsat',
         'QF_NRA',
     ))
-    # Negative control (SAT): without MaxAlphaCoarsening, budget coarsening k = sqrt(E / B) seals the neck
+    # Negative control (SAT): without MaxAlphaCoarsening, budget coarsening k = sqrt(E / B) seals a 3 * alpha0 neck
     E, B, k = z3.Reals('E B k')
     rows.append((
         'uncapped_budget_seals_neck_cliff_negative_control',
-        [alpha0 > 0, E > B, B > 0, k > 1, k * k * B == E, w_neck > alpha0, w_neck == z3.Q(3, 2) * alpha0],
-        k * alpha0 > w_neck,
+        [alpha0 > 0, E > B, B > 0, k > 1, k * k * B == E, w_neck == 3 * alpha0],
+        2 * k * alpha0 > w_neck,
         'sat',
         'QF_NRA',
     ))
     return rows
+
+
+# ---- Python binary64 mirrors of AlphaWrapEstimate helpers for replay_fp() ----
+
+_MIN_NORMAL = 2.2250738585072014e-308  # 2^-1022
+_SAFE_GRID_LIMIT = float(1 << 52)
+
+
+def _pow2_exp(v):
+    bits = struct.unpack('<Q', struct.pack('<d', v))[0]
+    biased = (bits >> 52) & 0x7FF
+    if biased != 0:
+        return biased - 1023
+    sbits = struct.unpack('<Q', struct.pack('<d', v * float(1 << 54)))[0]
+    return ((sbits >> 52) & 0x7FF) - 1023 - 54
+
+
+def _safe_length(vx, vy, vz):
+    d2 = vx * vx + vy * vy + vz * vz
+    if d2 >= 4.0 * _MIN_NORMAL and not math.isinf(d2):
+        return math.sqrt(d2)
+    m = max(abs(vx), abs(vy), abs(vz))
+    if math.isnan(m):
+        return float('nan')
+    if m == 0.0:
+        return 0.0
+    if math.isinf(m):
+        return float('inf')
+    e = _pow2_exp(m)
+    sx, sy, sz = math.ldexp(vx, -e), math.ldexp(vy, -e), math.ldexp(vz, -e)
+    return math.ldexp(math.sqrt(sx * sx + sy * sy + sz * sz), e)
+
+
+def _safe_unit(vx, vy, vz):
+    m = max(abs(vx), abs(vy), abs(vz))
+    if not (m > 0.0) or math.isinf(m):
+        return None
+    e = _pow2_exp(m)
+    sx, sy, sz = math.ldexp(vx, -e), math.ldexp(vy, -e), math.ldexp(vz, -e)
+    l = math.sqrt(sx * sx + sy * sy + sz * sz)
+    return (sx / l, sy / l, sz / l)
+
+
+def _cell(v, cell):
+    return int(max(-9e18, min(9e18, math.floor(v / cell))))
+
+
+def _norm_bits(d):
+    return struct.unpack('<q', struct.pack('<d', 0.0 if d == 0.0 else d))[0]
 
 
 def replay_fp():
@@ -205,10 +273,8 @@ def replay_fp():
     # 1. UTM (5e6) + tiny alpha (1e-12): old Cell saturates at 9e18 and merges all vertices; origin-shifted stays distinct
     x0, x1, alpha = 5e6, 5e6 + 1.0, 1e-12
     cell = alpha / 8.0
-    old_c0 = int(max(-9e18, min(9e18, math.floor(x0 / cell))))
-    old_c1 = int(max(-9e18, min(9e18, math.floor(x1 / cell))))
-    new_c0 = int(math.floor((x0 - x0) / cell))
-    new_c1 = int(math.floor((x1 - x0) / cell))
+    old_c0, old_c1 = _cell(x0, cell), _cell(x1, cell)
+    new_c0, new_c1 = _cell(x0 - x0, cell), _cell(x1 - x0, cell)
     replays.append(dict(
         name='utm_tiny_alpha_cell_collapse',
         old_collapsed=(old_c0 == old_c1),
@@ -216,14 +282,42 @@ def replay_fp():
         passed=(old_c0 == old_c1) and (new_c0 != new_c1),
     ))
 
-    # 2. Cubic volume underflow at 2^-360: s^2 normal, s^3 underflows to 0 -> thick cube misclassified as thin
+    # 2. SafeGridLimit = 2^52 vs 1e18 binary64 ulp>1 counterexamples (fast path and normalized path)
+    side30 = math.ldexp(1.0, -30)
+    utm_a, utm_b = 7_500_000.0, 7_500_000.0 + side30
+    utm_cell = 1e-10 / 8.0
+    old_utm_collapse = (_cell(utm_a, utm_cell) == _cell(utm_b, utm_cell))  # 6e17 in [2^53, 1e18]
+    # Under SafeGridLimit = 2^52: 7_500_000 / utm_cell > 2^52 -> shifts by lo and rescales by Pow2Exp(side30) = -30
+    utm_exp = _pow2_exp(side30)
+    new_utm_cell = math.ldexp(1e-10, -utm_exp) / 8.0
+    new_utm_distinct = (_cell(math.ldexp(utm_a - utm_a, -utm_exp), new_utm_cell)
+                        != _cell(math.ldexp(utm_b - utm_a, -utm_exp), new_utm_cell))
+    eps52 = math.ldexp(1.0, -52)
+    norm_a, norm_b = 1.5, 1.5 + eps52
+    norm_cell = 1.6e-17 / 8.0  # 2 / norm_cell = 1e18 > 2^52
+    old_norm_collapse = (_cell(norm_a, norm_cell) == _cell(norm_b, norm_cell))
+    new_norm_exact = (2.0 / norm_cell > _SAFE_GRID_LIMIT) and (_norm_bits(norm_a) != _norm_bits(norm_b))
+    replays.append(dict(
+        name='safe_grid_limit_2p52_vs_1e18_counterexamples',
+        old_utm_collapse=old_utm_collapse,
+        new_utm_distinct=new_utm_distinct,
+        old_norm_collapse=old_norm_collapse,
+        new_norm_exact=new_norm_exact,
+        passed=old_utm_collapse and new_utm_distinct and old_norm_collapse and new_norm_exact,
+    ))
+
+    # 3. Cubic volume underflow at 2^-360: old s^3 underflows to 0 -> false thin; PrepareFrame ldexp keeps thick
     s_small = math.ldexp(1.0, -360)
+    a_small = 0.05 * s_small
     old_area = 6.0 * (s_small * s_small)
     old_vol = (s_small * s_small) * s_small
-    a_small = 0.05 * s_small
     old_false_thin = (old_area > 0.0) and (2.0 * abs(old_vol) / old_area < 0.2 * a_small)
-    # Normalized frame (scaleExp = -360): s' = 1, V' = 1, A' = 6, alpha' = 0.05 -> 2/6 = 0.333 >= 0.01 (thick)
-    new_thin = (2.0 * 1.0 / 6.0) < (0.2 * 0.05)
+    exp_s = _pow2_exp(s_small)
+    ws = math.ldexp(s_small, -exp_s)
+    wa = math.ldexp(a_small, -exp_s)
+    new_area = 6.0 * (ws * ws)
+    new_vol = (ws * ws) * ws
+    new_thin = (new_area > 0.0) and (2.0 * abs(new_vol) / new_area < 0.2 * wa)
     replays.append(dict(
         name='cubic_volume_underflow_2m360',
         old_area_positive=(old_area > 0.0),
@@ -233,37 +327,47 @@ def replay_fp():
         passed=old_false_thin and (not new_thin),
     ))
 
-    # 3. Cubic volume overflow (+Inf + -Inf = NaN) and cross.Length overflow (+Inf -> normal = 0 -> false sharp) at 2^350
+    # 4. Cubic volume NaN and cross.Length overflow at 2^350: old fails, PrepareFrame + SafeLength + SafeUnit succeed
     s_big = math.ldexp(1.0, 350)
     vol_pos = (s_big * s_big) * s_big
     vol_sum = vol_pos + (-vol_pos)
     cross_mag = s_big * s_big
     old_cross_len = math.sqrt(cross_mag * cross_mag)
-    old_normal_x = cross_mag / old_cross_len  # finite / +Inf = 0.0 -> dot = 0 < SharpCos -> every edge looks sharp!
+    old_normal_x = cross_mag / old_cross_len
+    exp_b = _pow2_exp(s_big)
+    wb = math.ldexp(s_big, -exp_b)
+    new_vol_sum = ((wb * wb) * wb) + (-((wb * wb) * wb))
+    new_cross = wb * wb
+    new_len = _safe_length(new_cross, 0.0, 0.0)
+    new_unit = _safe_unit(new_cross, 0.0, 0.0)
     replays.append(dict(
         name='cubic_volume_nan_and_cross_inf_2p350',
         old_vol_nan=math.isnan(vol_sum),
         old_cross_inf=math.isinf(old_cross_len),
         old_normal_zero=(old_normal_x == 0.0),
-        passed=math.isnan(vol_sum) and math.isinf(old_cross_len) and (old_normal_x == 0.0),
+        new_ok=(new_vol_sum == 0.0) and (new_len == 1.0) and (new_unit == (1.0, 0.0, 0.0)),
+        passed=(math.isnan(vol_sum) and math.isinf(old_cross_len) and (old_normal_x == 0.0)
+                and (new_vol_sum == 0.0) and (new_len == 1.0) and (new_unit == (1.0, 0.0, 0.0))),
     ))
 
-    # 4. LargestOpening at 2^600 and 2^-600: old .Length gives +Inf and 0.0
+    # 5. LargestOpening at 2^600 and 2^-600: old .Length gives +Inf and 0.0; SafeLength mirror stays finite and scaled
     d_big = math.ldexp(1.0, 600)
     d_small = math.ldexp(1.0, -600)
     old_open_big = math.sqrt(d_big * d_big + d_big * d_big)
     old_open_small = math.sqrt(d_small * d_small + d_small * d_small)
-    new_open_big = math.ldexp(math.sqrt(2.0), 600)
-    new_open_small = math.ldexp(math.sqrt(2.0), -600)
+    new_open_big = _safe_length(d_big, d_big, 0.0)
+    new_open_small = _safe_length(d_small, d_small, 0.0)
     replays.append(dict(
         name='largest_opening_2p600_and_2m600',
         old_big_inf=math.isinf(old_open_big),
         old_small_zero=(old_open_small == 0.0),
-        new_finite=math.isfinite(new_open_big) and (new_open_small > 0.0),
-        passed=math.isinf(old_open_big) and (old_open_small == 0.0) and math.isfinite(new_open_big) and (new_open_small > 0.0),
+        new_finite=(math.isfinite(new_open_big) and abs(new_open_big - math.ldexp(math.sqrt(2.0), 600)) == 0.0
+                    and (new_open_small > 0.0) and abs(new_open_small - math.ldexp(math.sqrt(2.0), -600)) == 0.0),
+        passed=(math.isinf(old_open_big) and (old_open_small == 0.0)
+                and math.isfinite(new_open_big) and (new_open_small > 0.0)),
     ))
 
-    # 5. Thingi10K 40118 budget cliff replay (docs/perf/ALPHA_DEFAULTS_800.md: E = 2.70M, B = 300k, neck cliff in (1.22, 1.50))
+    # 6. Thingi10K 40118 budget cliff replay (docs/perf/ALPHA_DEFAULTS_800.md: E = 2.70M, B = 300k, neck cliff in (1.22, 1.50))
     est_40118, budget_40118 = 2_700_000.0, 300_000.0
     k_uncapped = math.sqrt(est_40118 / budget_40118)
     k_capped = min(k_uncapped, 1.2)

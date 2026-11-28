@@ -37,7 +37,7 @@ namespace g3
         const double MinNormal = 2.2250738585072014e-308; // 2^-1022
         const double FastScaleMin = 7.888609052210118e-31; // 2^-100
         const double FastScaleMax = 1.2676506002282294e30; // 2^100
-        const double SafeGridLimit = 1e18;                 // safely below Int64.MaxValue (~9.22e18)
+        const double SafeGridLimit = 4503599627370496.0;   // 2^52: exact binary64 integer range (ulp(v / cell) <= 1)
 
         static int Pow2Exp(double v)
         {
@@ -85,8 +85,29 @@ namespace g3
 
         static long NormBits(double d) => BitConverter.DoubleToInt64Bits(d == 0.0 ? 0.0 : d);
 
+        static bool IsOpenWidth(double openingWork, double workAlpha, double alpha, int scaleExp)
+        {
+            double width = OpeningFactor * workAlpha;
+            if (scaleExp == 0 || width > 0)
+                return openingWork > width;
+            // workAlpha underflowed to 0 at extreme span / alpha (> 2^1072): compare in input units.
+            return openingWork > 0 && ExactPoint3.ScaleB(openingWork, scaleExp) > OpeningFactor * alpha;
+        }
+
+        static bool IsThinThickness(double absVolume, double area, double workAlpha, double alpha, int scaleExp)
+        {
+            if (!(area > 0)) return false;
+            double limit = ThinFactor * workAlpha;
+            if (scaleExp == 0 || limit > 0)
+                return 2 * absVolume / area < limit;
+            // ThinFactor * workAlpha underflowed to 0 while alpha > 0: a zero-volume plate is still thin.
+            if (absVolume == 0) return true;
+            return ExactPoint3.ScaleB(2 * absVolume / area, scaleExp) < ThinFactor * alpha;
+        }
+
         // Prepares either the original list (ordinary scale, bit-identical to master) or a shifted, power-of-two
-        // span-normalized copy where coordinates lie in [0, 2) so area, cubic volume and cross products stay O(1).
+        // globally span-normalized copy where coordinates lie in [0, 2) so area, cubic volume and cross products stay O(1).
+        // Normalization is single-scale per mesh (components ~1e-120x smaller than the mesh span are outside this single-alpha estimator).
         // Returns false if any coordinate is non-finite or all points coincide.
         static bool PrepareFrame(List<Vector3d> tris, double alpha, out List<Vector3d> work, out double workAlpha, out int scaleExp, out bool exactKeys)
         {
@@ -131,8 +152,10 @@ namespace g3
             scaleExp = exp + pre;
             workAlpha = ExactPoint3.ScaleB(alpha, -scaleExp);
             double workCell = workAlpha / WeldCells;
-            // In the normalized frame coordinates lie in [0, 2); if 2 / workCell > 1e18 then workCell < 2e-18 << ulp(1),
-            // so no two distinct binary64 coordinates share a grid cell and exact-bit welding matches infinite-precision cells.
+            // In the normalized frame coordinates lie in [0, 2); when 2 / workCell > 2^52, v / workCell can exceed binary64's
+            // exact integer range (ulp > 1) and grid-cell division loses resolution. Fall back to exact-bit welding, which agrees
+            // with infinite-precision cells for coordinates of magnitude Theta(span) (in [1, 2)) and avoids collapse without
+            // claiming exact equivalence near lo.
             exactKeys = !(workCell > 0) || (2.0 / workCell > SafeGridLimit);
             work = new List<Vector3d>(tris.Count);
             if (pre == 0) {
@@ -151,15 +174,14 @@ namespace g3
             if (!PrepareFrame(tris, alpha, out List<Vector3d> work, out double workAlpha, out int scaleExp, out bool exactKeys))
                 return 0;
             Analyze(work, workAlpha, exactKeys, out int[] corner, out int[] comp, out double[] opening, out _, out _);
-            double width = OpeningFactor * workAlpha;
             bool any = false;
             for (int v = 0; v < opening.Length; ++v)
-                if (opening[v] > width) { any = true; break; }
+                if (IsOpenWidth(opening[v], workAlpha, alpha, scaleExp)) { any = true; break; }
             if (!any)
                 return 0;
             double area = 0;
             for (int t = 0; t < work.Count / 3; ++t)
-                if (opening[Find(comp, corner[3 * t])] > width)
+                if (IsOpenWidth(opening[Find(comp, corner[3 * t])], workAlpha, alpha, scaleExp))
                     area += 0.5 * SafeLength((work[3 * t + 1] - work[3 * t]).Cross(work[3 * t + 2] - work[3 * t]));
             return scaleExp == 0 ? area : ExactPoint3.ScaleB(area, 2 * scaleExp);
         }
@@ -201,7 +223,6 @@ namespace g3
             if (!PrepareFrame(tris, alpha, out List<Vector3d> work, out double workAlpha, out int scaleExp, out bool exactKeys))
                 return terms;
             Analyze(work, workAlpha, exactKeys, out int[] corner, out int[] comp, out double[] opening, out Vector3d[] pos, out Dictionary<(int, int), int> edgeUse);
-            double width = OpeningFactor * workAlpha;
             int n = work.Count / 3;
             // (per component root, in vertex ids: arrays, so that the sums come in a fixed order)
             int nv = pos.Length;
@@ -244,14 +265,14 @@ namespace g3
             foreach (var kv in edgeUse)
                 if (kv.Value == 1) {
                     int root = Find(comp, kv.Key.Item1);
-                    if (opening[root] > width)
+                    if (IsOpenWidth(opening[root], workAlpha, alpha, scaleExp))
                         terms.OpenBoundary += SafeLength(pos[kv.Key.Item1] - pos[kv.Key.Item2]);
                 }
             for (int root = 0; root < nv; ++root) {
                 if (!hasReference[root]) continue;
-                if (opening[root] > width) {
+                if (IsOpenWidth(opening[root], workAlpha, alpha, scaleExp)) {
                     terms.OpenArea += area[root];
-                } else if (!inconsistent[root] && area[root] > 0 && 2 * Math.Abs(volume[root]) / area[root] < ThinFactor * workAlpha) {
+                } else if (!inconsistent[root] && IsThinThickness(Math.Abs(volume[root]), area[root], workAlpha, alpha, scaleExp)) {
                     terms.ThinArea += area[root];
                     terms.ThinRim += Math.Max(0.5 * sharp[root], 2 * Math.Sqrt(Math.PI * 0.5 * area[root]));
                 } else {
@@ -340,7 +361,7 @@ namespace g3
                 }
         }
 
-        // (called only when coordinates / cell stay within SafeGridLimit <= 1e18; saturates cleanly otherwise)
+        // (called only when coordinates / cell stay within SafeGridLimit = 2^52; saturates cleanly otherwise)
         static long Cell(double v, double cell) => (long)Math.Max(-9e18, Math.Min(9e18, Math.Floor(v / cell)));
 
         static void CountEdge(Dictionary<(int, int), int> uses, int a, int b)
