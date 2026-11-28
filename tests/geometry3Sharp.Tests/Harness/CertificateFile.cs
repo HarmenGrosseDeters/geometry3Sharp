@@ -14,10 +14,10 @@ namespace geometry3Sharp.Tests
     /// boolean or its arrangement (this file and BooleanCertificate.cs do not name them; BooleanCertificate.Recording.cs is the
     /// only part that does, and CertificateFileTests checks that by reading the sources).
     ///
-    /// Format R (the rational corners the checker reads), version 1. Little-endian, deterministic, no floating-point text: every
+    /// Format R (the rational corners the checker reads), version 2 (version 1 is still read with RegionClipping = false). Little-endian, deterministic, no floating-point text: every
     /// number is an integer (varints, zigzag for signed ones, BigInteger as a length and its two's complement bytes) or the 64
     /// raw bits of a double. Layout: magic "G3BC", version, format; the operation (built-in only: a custom winding predicate has
-    /// no file format); the culling mesh; whether the result was rounded, MaxLength and the removed components (claims: MaxLength
+    /// no file format); the culling mesh; flags (bit 0: rounded, bit 1: RegionClipping), MaxLength and the removed components (claims: MaxLength
     /// is checked against a bound the reader derives from the output and the caller's rounding settings, which are not in the file); the grid (ScaleExp, Center); the triangles reversed by the boolean (the
     /// reader rebuilds the arrangement's meshes from the caller's); per input triangle its mesh, id and culled flag; the points
     /// (X, Y, Z, W, each used once or more); the pieces (mesh, source, three point ids); the labels (front winding numbers, keep and flip);
@@ -44,7 +44,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        public const int Version = 1;
+        public const int Version = 2;
         static readonly byte[] Magic = { (byte)'G', (byte)'3', (byte)'B', (byte)'C' };
 
         // ------------------------------------------------------------------ writer
@@ -75,13 +75,12 @@ namespace geometry3Sharp.Tests
             var sections = LastSections = new List<(string, int)>();
             if (c.NotApplicableReason != null) throw new NotSupportedException("no certificate: " + c.NotApplicableReason);
             if (c.Operation == null) throw new NotSupportedException("a custom winding predicate has no file format");
-            if (c.RegionClipping) throw new NotSupportedException("region-clipped: the file format has no regions (the stand-alone checker would reject a correct result with a C2 straddle)");
             var w = new W();
             foreach (byte b in Magic) w.Byte(b);
             w.U(Version); w.U(1);                                           // format R
             w.U((ulong)(int)c.Operation.Value);
             w.I(c.CullMesh);
-            w.Byte(c.Rounded ? 1 : 0);
+            w.Byte((c.Rounded ? 1 : 0) | (c.RegionClipping ? 2 : 0));
             w.Bits(c.MaxLength); w.U((ulong)c.RemovedComponents);
             w.I(c.ScaleExp); foreach (BigInteger x in c.Center) w.Big(x);
             // the triangles the boolean reversed: by comparing corner positions with the caller's meshes
@@ -210,7 +209,8 @@ namespace geometry3Sharp.Tests
             if (bad != "") throw new FormatException2(bad);
             var r = new R(bytes);
             foreach (byte m in Magic) if (r.Byte() != m) throw new FormatException2("not a certificate (magic)");
-            if (r.U() != Version) throw new FormatException2("an unknown version");
+            ulong ver = r.U();
+            if (ver != 1 && ver != Version) throw new FormatException2("an unknown version");
             if (r.U() != 1) throw new FormatException2("an unknown format");
             ulong op = r.U();
             if (op > 2 || Enum.IsDefined(typeof(Ops), (int)op) == false) throw new FormatException2("an unknown operation");
@@ -219,8 +219,10 @@ namespace geometry3Sharp.Tests
             long cull = r.I();
             if (cull < -1 || cull >= inputs.Count) throw new FormatException2("a culling mesh out of range");
             c.CullMesh = (int)cull;
-            int rounded = r.Byte();
-            if (rounded > 1) throw new FormatException2("a flag out of range");
+            int headerFlags = r.Byte();
+            int maxHeaderFlags = ver == 1 ? 1 : 3;
+            if (headerFlags > maxHeaderFlags) throw new FormatException2("a flag out of range");
+            c.RegionClipping = (headerFlags & 2) != 0;
             c.SettingStrict = settings.Strict; c.SettingMaxDisplacement = settings.MaxDisplacement;
             c.SettingUlpFactor = settings.UlpFactor; c.SettingAbsoluteTolerance = settings.AbsoluteTolerance;
             double maxLength = r.Bits();
@@ -295,7 +297,7 @@ namespace geometry3Sharp.Tests
             if (r.AtEnd == false) throw new FormatException2("bytes after the certificate");
             c.Assembled = assembled;
             c.Result = output;
-            c.SetRounding(rounded == 1, maxLength, removed);
+            c.SetRounding((headerFlags & 1) != 0, maxLength, removed);
             return c;
         }
 
