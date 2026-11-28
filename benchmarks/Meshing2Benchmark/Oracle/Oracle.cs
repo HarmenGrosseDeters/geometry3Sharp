@@ -2671,7 +2671,7 @@ namespace Meshing2Acceptance
                     var idx = ring.Vertices;
                     for (int i = 0; i < idx.Length; ++i) {
                         Pt a = inPts[idx[i]], b = inPts[idx[(i + 1) % idx.Length]];
-                        if (!a.Equals(b)) { sources.Add((a, b, ring.Marker, id, false)); sourceInputs.Add((idx[i], idx[(i + 1) % idx.Length])); }
+                        if (!a.Equals(b)) { sources.Add((a, b, ring.Marker, id, ring.Locked)); sourceInputs.Add((idx[i], idx[(i + 1) % idx.Length])); }
                         ++id;
                     }
                 }
@@ -4040,6 +4040,11 @@ namespace Meshing2Acceptance
                 bool anySize = input.MaxArea != null || input.SizeFunction != null || labelArea != null;
                 if (!anySize || o.SteinerLimitReached) return;
                 Q? maxArea = input.MaxArea == null ? (Q?)null : Q.FromDouble(input.MaxArea.Value);
+                Q? angleFloorSin2 = null;
+                if (input.MinAngleDeg != null && input.MinAngleDeg.Value > 0 && !e.InvalidAngle) {
+                    double s = Math.Sin(input.MinAngleDeg.Value * Math.PI / 180);
+                    angleFloorSin2 = Q.FromDouble(s * s);
+                }
                 for (int i = 0; i < o.Triangles.Length; ++i) {
                     var t = o.Triangles[i];
                     Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
@@ -4047,9 +4052,11 @@ namespace Meshing2Acceptance
                     Q? bound = maxArea;
                     if (labelArea != null && labelArea[i] != null) bound = bound == null ? labelArea[i] : Q.Min(bound.Value, labelArea[i].Value);
                     Q locked2 = LongestLockedEdge2(t);
-                    // O5, O9: a triangle over an edge that may not be split cannot shrink below a needle. Exempt while its height is at
-                    // most half of that edge (area < L^2 / 4); beyond that a vertex would shrink it without a needle. A choice, not a spec value.
-                    bool areaExempt = locked2 > area * 4;
+                    // O5, O9: a triangle over a locked edge of length L cannot shrink below (L^2 / 4) * tan(theta) without
+                    // violating MinAngle = theta (isosceles with base L and base angles theta). Without an angle bound there is
+                    // no area floor (F-25). Exact: 16 * area^2 * (1 - sin^2 theta) < locked2^2 * sin^2 theta.
+                    bool areaExempt = locked2.Sign > 0 && angleFloorSin2 != null
+                        && area * area * new Q(16, 1) * (Q.One - angleFloorSin2.Value) < locked2 * locked2 * angleFloorSin2.Value;
                     if (bound != null && area > bound.Value && !areaExempt) r.Add(Violation.AreaAboveBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " has area " + area);
                     if (input.SizeFunction != null) {
                         Pt centroid = Centroid(t);
@@ -4070,18 +4077,46 @@ namespace Meshing2Acceptance
                 return best;
             }
 
-            bool TouchesLocked(int[] t)
+            Dictionary<long, bool> lockedSubMemo;
+
+            bool OnLockedSubsegment(int a, int b)
             {
-                for (int k = 0; k < 3; ++k) {
-                    long key = Key(t[(k + 1) % 3], t[(k + 2) % 3]);
-                    if (!constraintEdges.Contains(key)) continue;
-                    Pt a = v[KeyA(key)], b = v[KeyB(key)];
-                    // (the locked sources only, listed once: a scan of all sources per constrained edge of every triangle below the bound
-                    // copied a struct of two points per source, 2 s of coast8000; the answer is the same: only a locked source can satisfy it)
-                    lockedSources ??= sources.Where(s => s.locked).ToList();
-                    foreach (var s in lockedSources) if (WithinTube(s, a) && WithinTube(s, b)) return true;
+                long key = SubKey(a, b);
+                lockedSubMemo = lockedSubMemo ?? new Dictionary<long, bool>();
+                if (!lockedSubMemo.TryGetValue(key, out bool locked)) {
+                    Pt pa = v[a], pb = v[b];
+                    locked = false;
+                    foreach (var s in lockedSources) if (WithinTube(s, pa) && WithinTube(s, pb)) { locked = true; break; }
+                    lockedSubMemo[key] = locked;
                 }
-                return false;
+                return locked;
+            }
+
+            /// <summary>
+            /// The angle bound near locked constraints (O8, O9): t's circumcentre (on the grid: its pixel's centre) lies behind a locked
+            /// subsegment (the segment from t's centroid to it crosses the subsegment). Replaces the broader TouchesLocked rule, which
+            /// excused even acute triangles on a locked edge whose circumcentre lies wide open in the interior (MESHING2D_PLAN section 9).
+            /// </summary>
+            bool CircumcentreBehindLocked(int[] t)
+            {
+                if (o.Subsegments == null) return false;
+                lockedSources ??= sources.Where(s => s.locked).ToList();
+                if (lockedSources.Count == 0) return false;
+                Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
+                Q bx = b.Qx - a.Qx, by = b.Qy - a.Qy, cx = c.Qx - a.Qx, cy = c.Qy - a.Qy, d = (bx * cy - by * cx) * 2;
+                if (d.Sign == 0) return false;
+                Q b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+                Pt p;
+                if (input.SnapTolerance > 0) {
+                    Q pixel = Q.FromDouble(input.SnapTolerance);
+                    Q Centre(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1) * pixel; }
+                    p = new Pt(Centre(a.Qx + (cy * b2 - by * c2) / d), Centre(a.Qy + (bx * c2 - cx * b2) / d));
+                } else {
+                    p = new Pt(a.Qx + (cy * b2 - by * c2) / d, a.Qy + (bx * c2 - cx * b2) / d);
+                }
+                if (!Behind(t, p, -1, OnLockedSubsegment)) return false;
+                r.LockedAngleExcused++;
+                return true;
             }
             List<(Pt a, Pt b, int marker, int sourceId, bool locked)> lockedSources;
 
@@ -4120,7 +4155,7 @@ namespace Meshing2Acceptance
                         if (!below && atHigh && listed.Contains(i)) r.Add(Violation.BadListWrong, "triangle " + i + " is listed but not below the angle");
                     }
                     if (!below || o.SteinerLimitReached || !e.AngleGuaranteed) continue;
-                    if (ForcedByInputAngle(t, low, thresholds, lowLo, lowHi, around) || TouchesLocked(t)
+                    if (ForcedByInputAngle(t, low, thresholds, lowLo, lowHi, around) || CircumcentreBehindLocked(t)
                         || SpansSmallInputAngle(t, smallPair, smallPairKnown, spLo, spHi, hasSin2, sLo, sHi)
                         || AtPrecisionLimit(t) || Zone(t, low)) continue;
                     if (BelowGridFloor(t) || GridBlocked(t) || CircumcentreBehindGridUnsplittable(t) || CircumcentreBehindO11Unsplittable(t)) continue;

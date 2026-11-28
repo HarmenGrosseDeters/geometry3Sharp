@@ -1201,15 +1201,50 @@ namespace Meshing2Acceptance
             Reject("area bound per region broken", Violation.AreaAboveBound, With(steinerIn, i => i.Regions = new List<RegionInput> { i.Regions[0], new RegionInput { Seed = i.Regions[1].Seed, Label = 4, MaxArea = 0.25 } }), steinerOut, M3());
             Accept("size bound 3/2 holds", With(steinerIn, i => i.SizeFunction = (x, y) => new Q(3, 2)), steinerOut, M3());
             Reject("size bound 5/4 broken", Violation.SizeAboveBound, With(steinerIn, i => i.SizeFunction = (x, y) => new Q(5, 4)), steinerOut, M3());
-            // O5: a triangle that cannot shrink because its boundary segments must not be split
+            // O5, O9: a triangle over a locked edge of length L is area-exempt only below (L^2 / 4) * tan(MinAngle) (no exemption when MinAngle == 0)
             var big = Points(0, 0, 64, 0, 32, 8);
-            big.MaxArea = 1;
+            big.MaxArea = 1; big.MinAngleDeg = 20;
             for (int i = 0; i < 3; ++i) big.Segments.Add(new SegmentInput(i, (i + 1) % 3, 0, locked: true));
             var bigOut = new Mesh2Output {
                 Status = Mesh2Status.Success, VX = big.X, VY = big.Y, InputToVertex = new[] { 0, 1, 2 }, Triangles = new[] { new[] { 0, 1, 2 } },
+                Neighbours = new[] { new[] { -1, -1, -1 } }, BadTriangles = new[] { 0 },
+                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 0) } };
+            Accept("locked segments exempt area below (L^2/4)*tan(MinAngle)", big, bigOut, M3());
+            Reject("locked segments do not exempt area without MinAngle", Violation.AreaAboveBound, With(big, i => i.MinAngleDeg = null), S_Of(bigOut, o => o.BadTriangles = new int[0]), M3());
+            var bigTall = Points(0, 0, 64, 0, 32, 16);
+            bigTall.MaxArea = 1; bigTall.MinAngleDeg = 20;
+            for (int i = 0; i < 3; ++i) bigTall.Segments.Add(new SegmentInput(i, (i + 1) % 3, 0, locked: true));
+            var bigTallOut = new Mesh2Output {
+                Status = Mesh2Status.Success, VX = bigTall.X, VY = bigTall.Y, InputToVertex = new[] { 0, 1, 2 }, Triangles = new[] { new[] { 0, 1, 2 } },
                 Neighbours = new[] { new[] { -1, -1, -1 } }, BadTriangles = new int[0],
                 Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 0) } };
-            Accept("locked segments exempt the area bound", big, bigOut, M3());
+            Reject("locked segments do not exempt area above (L^2/4)*tan(MinAngle)", Violation.AreaAboveBound, bigTall, bigTallOut, M3());
+            // O8/O9: locked ring split at a free point is rejected as LockedSplit
+            var lockedRingIn = With(steinerIn, i => i.Rings = i.Rings.Select(g => new RingInput(g.Vertices, g.Hole, g.Marker, true)).ToList());
+            Reject("locked ring split at a free point", Violation.LockedSplit, lockedRingIn, steinerOut, M3());
+            // O9: CircumcentreBehindLocked excuses obtuse triangle over locked edge, rejects acute skinny triangle touching locked edge
+            var obtuseLockIn = Points(0, 0, 10, 0, 10, 10, 0, 10, 1, 5);
+            obtuseLockIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false, 0, true));
+            obtuseLockIn.MinAngleDeg = 20;
+            var obtuseTris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 0, 4 } };
+            var obtuseLockOut = new Mesh2Output {
+                Status = Mesh2Status.Success, VX = obtuseLockIn.X, VY = obtuseLockIn.Y, InputToVertex = new[] { 0, 1, 2, 3, 4 },
+                Triangles = obtuseTris, Neighbours = NeighboursOf(obtuseTris), TriangleLabels = new[] { 0, 0, 0, 0 },
+                BadTriangles = new[] { 3 },
+                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) } };
+            Accept("obtuse triangle over locked edge is excused by CircumcentreBehindLocked", obtuseLockIn, obtuseLockOut, M3());
+            // acute skinny triangle (0,1,4) with vertex 4 at (5, 30) over locked edge (0,1) of length 10: angles ~80.5, 80.5, 19 < 20, cc inside at (5, 14.58)
+            var acuteSkinnyIn = Points(0, 0, 10, 0, 10, 30, 0, 30, 5, 30);
+            acuteSkinnyIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 4, 3 }, false, 0, true));
+            acuteSkinnyIn.MinAngleDeg = 20;
+            var acuteSkinnyTris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 4, 3, 0 } };
+            var acuteSkinnyOut = new Mesh2Output {
+                Status = Mesh2Status.Success, VX = acuteSkinnyIn.X, VY = acuteSkinnyIn.Y, InputToVertex = new[] { 0, 1, 2, 3, 4 },
+                Triangles = acuteSkinnyTris, Neighbours = NeighboursOf(acuteSkinnyTris), TriangleLabels = new[] { 0, 0, 0 },
+                BadTriangles = new[] { 0, 1, 2 },
+                Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 4), new SubsegmentOutput(4, 3), new SubsegmentOutput(3, 0) } };
+            Reject("acute skinny triangle touching locked edge is not excused by CircumcentreBehindLocked", Violation.AngleBelowBound, acuteSkinnyIn, acuteSkinnyOut, M3());
+            Mesh2Output S_Of(Mesh2Output src, Action<Mesh2Output> edit) { var o = Clone(src); edit(o); return o; }
             var bigFree = Points(0, 0, 64, 0, 32, 8);
             bigFree.MaxArea = 1;
             for (int i = 0; i < 3; ++i) bigFree.Segments.Add(new SegmentInput(i, (i + 1) % 3));
