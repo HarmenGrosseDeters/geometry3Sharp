@@ -11,11 +11,11 @@ to [archive](../archive/README.md) when the item is done or dropped.
 | [alphawrap-remove-cgal-wrap-and-second-ref.md](alphawrap-remove-cgal-wrap-and-second-ref.md) | remove `external/cgal_wrap.cpp` and evaluate a second alpha-wrap reference | #1260 |
 | [boolean-40-stages-1b-1c.md](boolean-40-stages-1b-1c.md) | Exact Boolean 4.0 stages 1b and 1c | #1254 |
 | [boolean-certifying-checker-stage-3.md](boolean-certifying-checker-stage-3.md) | certifying boolean checker stage 3, certified user mode, exact coplanar clip coordinates | #1256 |
-| [boolean-differentiable-volumetric-csg.md](boolean-differentiable-volumetric-csg.md) | exact differentiable volumetric CSG (Phase 2: Spike 3-0 -> moments, SE(3) pullbacks, fast path) | — |
+| [boolean-differentiable-volumetric-csg.md](boolean-differentiable-volumetric-csg.md) | exact differentiable volumetric CSG (Phase 2 — Spike 3-0 passed: moments, SE(3) pullbacks, untouched-tri fast path) | — |
 | [boolean-ember-lever-2.md](boolean-ember-lever-2.md) | EMBER lever 2 — skip self-pairs of certified operands in chained booleans | #1255 |
-| [boolean-multimaterial-partition-spike-2b0.md](boolean-multimaterial-partition-spike-2b0.md) | multi-material cellular complexes (2B) & patch cell-graph DFS (4A-1) — Go/No-Go Spike 2B-0 first (Phase 3) | — |
+| [boolean-multimaterial-partition-spike-2b0.md](boolean-multimaterial-partition-spike-2b0.md) | multi-material cellular complexes (2B) & patch cell-graph DFS (4A-1) — Spike 2B-0 passed (Phase 3, FULL GO) | — |
 | [boolean-provenance-and-attributes.md](boolean-provenance-and-attributes.md) | opt-in attribute & provenance propagation for `ExactMeshBoolean` (Phase 1 — 2A) | — |
-| [boolean-scaling-hygiene-and-batch-union.md](boolean-scaling-hygiene-and-batch-union.md) | boolean scaling hygiene (4C-0, 4B-0) & density-gated `UnionMany` / self-join skip (4A-2, 4C-1) | — |
+| [boolean-scaling-hygiene-and-batch-union.md](boolean-scaling-hygiene-and-batch-union.md) | boolean scaling hygiene (4B-0) & density-gated `UnionMany` (4A-2, `Sphere ∧ PCA-OBB >= 11.0`); `4C-1` dropped after Spike `4C-0` | — |
 | [boolean-speed-work-parked.md](boolean-speed-work-parked.md) | boolean speed work (#1064 levers, normal-cone certificate, ABC chain step 3 lead) | #1253 |
 | [boolean-verification-v2.md](boolean-verification-v2.md) | `SolidBooleanPipeline.Verification` v2 & internal certificate hygiene (Phase 1 — 1A + 1B) | — |
 | [dc-coarse-first-construction.md](dc-coarse-first-construction.md) | dual contouring coarse-first construction (opt-in sparse grid with implicit bounds) | #1276 |

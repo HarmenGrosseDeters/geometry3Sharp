@@ -1179,3 +1179,40 @@ lemmas has a SAT mutant beside it (a broken rule or a dropped factor), and the t
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_bisector_sos.py -v
 ```
+
+## Exact-boolean next-phase spike lemmas (`boolean_next_phase_spikes.py`)
+
+Pre-implementation real-arithmetic (`QF_NRA` / `QF_LRA`) lemmas supporting the four spikes recorded in
+[EXACT_BOOLEAN_SPIKES_2026-11.md](../../docs/research/EXACT_BOOLEAN_SPIKES_2026-11.md) (10 UNSAT + 23 SAT = 33
+obligations across four families; every constrained UNSAT obligation has a SAT non-vacuity check, and every UNSAT
+obligation has controlled SAT mutants). Executed automatically by `.github/workflows/z3-pilot.yml` via the fast-gate
+`test_*.py` loop (the workflow gate file itself is untouched; local JSON reports can be written via `--out` or
+`Z3_BOOLEAN_NEXT_PHASE_SPIKES_REPORT`).
+
+* **Degree-4 transverse radial-order fast path (`2 UNSAT + 10 SAT`).** Bridge: for a non-degenerate directed edge
+  `e = u -> v = (0, 0, +1)` and incident triangles not collinear with `e`, projecting perpendicular to `e` yields
+  nonzero 2D rays `r_i` whose `cross2(r_i, r_j)` has the exact sign of `ExactPredicates.Orient3d(u, v, p_i, p_j)`.
+  Proves (a) 1 strict test (`cross(a1, b1) > 0`) suffices for opposite-side flat cuts (`a2 = -a1, b2 = -b1`;
+  relaxing to `>= 0` admits a collinear tie), (b) 4 consecutive strict `Orient3d > 0` tests form an **irreducible
+  sufficient guard** for arbitrary non-flat degree-4 creases against an independent non-circular half-plane total
+  order (dropping any single test admits a SAT counterexample; a separate SAT witness shows reflex dihedral angles
+  `>= pi` fail the guard and must fall back to `radial_order`), and (c) `n = 5` admits a SAT pentagram double-wrap.
+* **Hadamard volumetric moment polynomials (`4 UNSAT + 4 SAT`).** Proves exact algebraic equality over all reals
+  of `TriSq`, `TriCube`, `TriInt2`, and `TriInt3` against `2! i! j! k! / (i + j + k + 2)!`, with 4 coefficient-typo
+  SAT mutants.
+* **3D `shared=3` collapsed double-face impossibility (`1 UNSAT + 3 SAT`).** Over 3D coordinates `a, b, c in R^3`
+  and any nonzero plane `(n, d)` (`|n|^2 > 0`), proves `T1 = (a, b, c)` and `T2 = (b, a, c)` admit no plane placing
+  `T1 >= 0` and `T2 <= 0` with any vertex strictly separated, whereas splitting one vertex ID (`T2 = (b, a2, c)`) or
+  a `shared=2` 3D hinge (`b != a`) is strictly separable (SAT).
+* **`Sphere ∧ OBB` conservative overlap filter (`3 UNSAT + 6 SAT`).** In exact real arithmetic, proves a shared
+  point inside both spheres forces `|cA - cB|^2 <= (rA + rB)^2` (WLOG in the plane of `cA, cB, p`) and proves the
+  per-axis bound and 6-term triangle inequality of the OBB SAT projection (composition bridge:
+  `p = oA + sum t_i u_i = oB + sum s_i v_i => (oB - oA).L = sum(t_i (u_i.L)) - sum(s_i (v_i.L))`).
+* **Not proved / open scope:** No binary64 rounding model, no `ContOrientedBox3` PCA non-orthonormality or near-zero
+  cross-product SAT axis guard (`UnionMany` uses `Sphere ∧ OBB` strictly as a performance routing heuristic), and no
+  C# source contracts yet (these are pre-implementation spike lemmas; source contracts will be added in the
+  corresponding implementation PRs).
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_boolean_next_phase_spikes.py -v
+```

@@ -2,7 +2,7 @@
 
 - **Umbrella study:** [EXACT_BOOLEAN_NEXT_PHASE_2026-11.md](../research/EXACT_BOOLEAN_NEXT_PHASE_2026-11.md) (Area 1)
 - **Kind:** Phase 1 — ready to start (no pre-implementation spike needed)
-- **Tier:** S (1A test-only hygiene) + M (1B `SolidBooleanPipeline.Verification` v2; no exact-predicate or error-bound changes)
+- **Tier:** S (1A test-only hygiene) + M/L (1B `SolidBooleanPipeline.Verification` v2: touches `mesh_ops/ExactMeshBoolean.cs` and adds a sound `ExactInterval` enclosure for `ExactQuantities`, so it triggers the incremental mutation gate and a bounds review per `AGENTS.md`)
 - **Plan status:** draft, 2026-11-28 (Berlin).
 
 ## Current state

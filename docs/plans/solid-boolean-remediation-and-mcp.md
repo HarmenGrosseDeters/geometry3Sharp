@@ -23,7 +23,7 @@
   - `mesh_ops/SolidBooleanPipeline.cs`:
     - Fix `Report.Clean` to be `false` whenever `Status != PipelineStatus.Success` (Audit F7).
     - Lock `SafeRounding = true` and `CountInsideOutCells = !AllowInsideOutInputs` after `ConfigureBoolean` (Audit F6).
-    - Validate exact coordinate range (`[2^-200, 2^200]`, no subnormals) upfront as `InvalidInput` with vertex witness (Audit F7).
+    - Validate exact coordinate magnitudes upfront (`|x| == 0 || 2^-200 <= |x| <= 2^200`, no subnormals, matching `MeshRoundingRepair`) as `InvalidInput` with vertex witness (Audit F7).
     - Add `SolidBooleanInputDiagnosis` and non-mutating `SolidBooleanPipeline.Diagnose()` ($O(V+T)$ welded-edge scan: openness, boundary edge/loop count, boundary length ratio, orientation flips, signed volume, thickness, 3D `WitnessPoint`).
 - **Stage 5B (Typed `SolidBooleanRemediation` contract):**
   - `mesh_ops/SolidBooleanPipeline.cs`: add `RemediationRiskClass` (`GeometryPreserving`, `BoundedGeometryChange`, `IntentDependent`, `InspectOnly`) and `SolidBooleanRemediation` (`ActionId`, `Risk`, `RequiresIntentConfirmation`, `TargetInput`, `ParameterDelta`, `Assumption`, `Metrics`, `HasWitnessPoint`, `WitnessPoint`), populated deterministically on every refusal and every actionable warning (`InputsWithWindingOutsideZeroOne`, `EmptyAfterRounding`, `SolidWithContacts`, reduction `StopReason != TargetReached`).
@@ -33,7 +33,7 @@
   - `tools/g3cli/docs/mesh-commands.md`, `tools/g3cli/docs/mcp-reference.md`.
 - **Tests:**
   - `tests/geometry3Sharp.Tests/SolidBooleanRemediationTests.cs` (covers every status/warning mapping, `Diagnose()` accuracy & invariance, `ParameterDelta` schema parity test verifying every emitted key maps to a real pipeline/CLI parameter, determinism, reuse).
-  - `tests/geometry3Sharp.Tests/G3CliSolidBooleanMcpTests.cs` (JSON-RPC end-to-end tests: diagnose → refuse → explicit retry → verified `Solid`; `strict_agent` blocking on `EmptyAfterRounding` & winding-2 cavity; `timeout_ms` clean cancellation; `tools/list` annotations).
+  - `tests/g3cli.Tests/G3CliSolidBooleanMcpTests.cs` (JSON-RPC end-to-end tests: diagnose → refuse → explicit retry → verified `Solid`; `strict_agent` blocking on `EmptyAfterRounding` & winding-2 cavity; `timeout_ms` clean cancellation; `tools/list` annotations).
 
 ## Non-goals
 
@@ -49,7 +49,7 @@
   - `SolidBooleanReport.InputDiagnostics` (`List<SolidBooleanInputDiagnosis>`)
   - `SolidBooleanReport.Remediations` (`List<SolidBooleanRemediation>`)
 - `g3cli` / MCP tools:
-  - `solid_boolean`: `a`, `b`, `more`, `output`, `op` (`union|intersection|difference`), `input_roles`, `policy` (`default|strict_agent`), `verification` (`none|no_invented_surface|rounding_volume|standard`), `timeout_ms`, `max_pieces`, plus 1-to-1 `SolidBooleanPipeline` parameters matching `ParameterDelta` keys (`input_repair`, `orientation`, `allow_inside_out_inputs`, `input_grid`, `automatic_steps`, `min_thickness`, `thin_inputs`, `separate_self_contacts`, `separate_self_contacts_distance`, `target_triangles`, `target_fraction`, `max_deviation`, `pair_contacts_mode`).
+  - `solid_boolean`: `a`, `b`, `more`, `output`, `op` (`union|intersection|difference`), `input_roles`, `policy` (`default|strict_agent`), `verification` (`none|no_invented_surface|rounding_volume|standard`), `timeout_ms`, `max_pieces`, plus 1-to-1 `SolidBooleanPipeline` parameters matching `ParameterDelta` keys (`input_repair`, `orientation`, `allow_inside_out_inputs`, `input_grid`, `automatic_steps`, `min_thickness`, `thin_inputs`, `separate_self_contacts`, `target_triangle_count`, `target_fraction`, `max_deviation`, `pair_contacts_mode`).
   - `solid_boolean_diagnose` (`readOnlyHint: true`): same input args without `output`; runs `Diagnose()` only.
   - `sheet_extend` & `sheet_extend_diagnose` (`readOnlyHint: true`): wraps `MeshSheetExtension.Compute()` / `Diagnose()`, returning `runs[]`, `u_relative_to_workpiece`, `max_depth_relative`, `witness_point`, `status`.
 - **`strict_agent` policy contract:** returns `code: "policy_refused"` and MCP `isError: true` (with structured `remediations[]`) whenever `ResultKind` is `EmptyAfterRounding` or `SolidNotClean`, `ThinComponentsKept > 0`, or `InputsWithWindingOutsideZeroOne` is non-empty.

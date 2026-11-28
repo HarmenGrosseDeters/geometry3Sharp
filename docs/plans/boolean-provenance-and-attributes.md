@@ -2,7 +2,7 @@
 
 - **Umbrella study:** [EXACT_BOOLEAN_NEXT_PHASE_2026-11.md](../research/EXACT_BOOLEAN_NEXT_PHASE_2026-11.md) (Area 2A)
 - **Kind:** Phase 1 — ready to start (no separate pre-implementation spike needed)
-- **Tier:** M (touches `ExactMeshBoolean` assembly, `ExactPlanarSimplify`, `ExactMeshArrangementRegions` opt-in guard, and `MeshRoundingRepair` provenance preservation; zero changes to exact predicates or error bounds)
+- **Tier:** M/L (touches `mesh_ops/ExactMeshBoolean.cs`, `ExactPlanarSimplify`, `mesh_ops/ExactMeshArrangementRegions.cs`, and `MeshRoundingRepair`; no changes to exact predicates or error bounds, but touching `mesh_ops/ExactMesh*` triggers the incremental mutation gate and exact-code review per `AGENTS.md`)
 - **Plan status:** draft, 2026-11-28 (Berlin).
 
 ## Current state
@@ -19,14 +19,14 @@ Add opt-in, bit-identical-when-off **face provenance, `TriangleGroups` preservat
 
 - `mesh_ops/ExactMeshBoolean.cs`:
   - Opt-in `PreserveTriangleGroups` (`bool`, default `false`) and `TrackFaceProvenance` (`bool`, default `false`).
-  - Expose `FaceProvenance` (`(int MeshIndex, int SourceTriangleId, bool Flipped)` per output triangle) and preserve `TriangleGroups` on `Result` (mapping `(meshIndex, inputGroup)` deterministically to output group IDs via an explicit group map or caller-provided group offsets).
+  - Expose `ResultProvenance` (`TriangleProvenance[]` with `(int MeshIndex, int SourceTriangle, bool Reversed)` per output triangle) and preserve `TriangleGroups` on `Result` (mapping `(meshIndex, inputGroup)` deterministically to output group IDs via an explicit group map or caller-provided group offsets).
   - `rederive_sources`: after `MeshRoundingRepair`, re-associate any locally edited/re-triangulated triangles to their nearest consistent pre-rounding provenance face (preserving provenance for 100% of untouched triangles directly via triangle-ID tracking, and exact/closest consistent fallback for the few rounding-edited triangles).
 - `mesh_ops/ExactPlanarSimplify.cs`:
   - When `PreserveTriangleGroups` or `TrackFaceProvenance` (with group boundaries) is enabled, key planar regions by `(planeId, groupId)` instead of `planeId` alone so material/face-ID seams are never merged across.
 - `mesh_ops/ExactMeshArrangementRegions.cs`:
   - When `PreserveTriangleGroups` is enabled, treat edges between two triangles with different `TriangleGroup` IDs as non-flat region boundaries in `flat_edge` (zero effect when `PreserveTriangleGroups == false`).
 - `mesh_ops/ExactMeshAttributeTransfer.cs` (new helper):
-  - Per-corner **local-frame barycentric interpolation** (shifted to source triangle corner `a` to avoid catastrophic cancellation at UTM `1e7` coordinates!) for vertex UVs, normals, and colors from `FaceProvenance`.
+  - Per-corner **local-frame barycentric interpolation** (shifted to source triangle corner `a` to avoid catastrophic cancellation at UTM `1e7` coordinates!) for vertex UVs, normals, and colors from `ResultProvenance`.
   - Opt-in `SplitAttributeSeams` pass that splits shared output vertices along UV/normal/material discontinuities into duplicate corner vertices (preserving exact geometric position, clean optional post-step so watertight geometry is never corrupted).
 - `mesh_ops/SolidBooleanPipeline.cs`: forward `PreserveTriangleGroups` / `TrackFaceProvenance` cleanly (and preserve `TriangleGroups` boundaries in `Reducer` via `MeshConstraints` / group-boundary pinning when enabled).
 - `tests/geometry3Sharp.Tests/ExactBooleanProvenanceTests.cs`.
