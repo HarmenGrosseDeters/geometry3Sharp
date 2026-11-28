@@ -7145,9 +7145,10 @@ namespace g3
         // MeshRoundingRepair pick the candidate pre-rounding provenance at their vertices whose input triangle is
         // nearest to the edited triangle's centroid (computed per-candidate in a local frame shifted to tv.a and scaled
         // by an exact power of two, preferring consistently oriented candidates on near-coincident opposite-facing faces).
-        void rederive_provenance(PreparedInput[] prepared, Index3i[] beforeTris, TriangleProvenance[] beforeProv)
+        internal void rederive_provenance(PreparedInput[] prepared, Index3i[] beforeTris, TriangleProvenance[] beforeProv)
         {
             int maxT = Result.MaxTriangleID;
+            int nBefore = beforeTris.Length < beforeProv.Length ? beforeTris.Length : beforeProv.Length;
             var prov = new TriangleProvenance[maxT];
             for (int i = 0; i < maxT; ++i)
                 prov[i] = TriangleProvenance.None;
@@ -7158,21 +7159,18 @@ namespace g3
                 if (Result.IsTriangle(tid) == false)
                     continue;
                 Index3i tv = Result.GetTriangle(tid);
-                if (tid < beforeTris.Length && tid < beforeProv.Length && beforeProv[tid].IsValid) {
+                if (tid < nBefore && beforeProv[tid].IsValid) {
                     Index3i bt = beforeTris[tid];
                     if (bt.a == tv.a && bt.b == tv.b && bt.c == tv.c) {
                         prov[tid] = beforeProv[tid];
-                        if (PreserveTriangleGroups) {
-                            int expectedG = output_group_of(prepared, beforeProv[tid].MeshIndex, beforeProv[tid].SourceTriangle);
-                            if (Result.GetTriangleGroup(tid) != expectedG)
-                                Result.SetTriangleGroup(tid, expectedG);
-                        }
+                        if (PreserveTriangleGroups)
+                            Result.SetTriangleGroup(tid, output_group_of(prepared, beforeProv[tid].MeshIndex, beforeProv[tid].SourceTriangle));
                         continue;
                     }
                 }
                 if (atVertex == null) {
                     atVertex = new Dictionary<int, List<TriangleProvenance>>();
-                    for (int b = 0; b < beforeTris.Length && b < beforeProv.Length; ++b) {
+                    for (int b = 0; b < nBefore; ++b) {
                         TriangleProvenance bp = beforeProv[b];
                         if (bp.IsValid == false || beforeTris[b].a < 0)
                             continue;
@@ -7264,7 +7262,7 @@ namespace g3
                 if (best.IsValid == false)
                     best = cands[0];
                 prov[tid] = best;
-                if (PreserveTriangleGroups && best.IsValid)
+                if (PreserveTriangleGroups)
                     Result.SetTriangleGroup(tid, output_group_of(prepared, best.MeshIndex, best.SourceTriangle));
             }
             ResultProvenance = prov;
@@ -7273,7 +7271,7 @@ namespace g3
         // TriangleGroups after SafeRounding when PreserveTriangleGroups is true and TrackFaceProvenance is false:
         // restores exact groups for any triangle edited or zipped by MeshRoundingRepair (for example try_zip appends
         // without a group id). Untouched triangles keep their pre-rounding group in O(1).
-        void rederive_groups(Index3i[] beforeTris, Vector3d[] beforeVerts, int[] beforeGroup)
+        internal void rederive_groups(Index3i[] beforeTris, Vector3d[] beforeVerts, int[] beforeGroup)
         {
             int maxT = Result.MaxTriangleID;
             Dictionary<int, List<int>> atVertex = null;
@@ -7285,8 +7283,7 @@ namespace g3
                 if (tid < beforeTris.Length) {
                     Index3i bt = beforeTris[tid];
                     if (bt.a == tv.a && bt.b == tv.b && bt.c == tv.c) {
-                        if (Result.GetTriangleGroup(tid) != beforeGroup[tid])
-                            Result.SetTriangleGroup(tid, beforeGroup[tid]);
+                        Result.SetTriangleGroup(tid, beforeGroup[tid]);
                         continue;
                     }
                 }
@@ -7360,7 +7357,7 @@ namespace g3
             list.Add(x);
         }
 
-        static int compare_prov(TriangleProvenance a, TriangleProvenance b)
+        internal static int compare_prov(TriangleProvenance a, TriangleProvenance b)
         {
             if (a.MeshIndex != b.MeshIndex) return a.MeshIndex < b.MeshIndex ? -1 : 1;
             if (a.SourceTriangle != b.SourceTriangle) return a.SourceTriangle < b.SourceTriangle ? -1 : 1;
@@ -7370,6 +7367,8 @@ namespace g3
 
         static double max_abs_vec(Vector3d v)
         {
+            if (double.IsNaN(v.x) || double.IsNaN(v.y) || double.IsNaN(v.z))
+                return double.NaN;
             double ax = v.x < 0 ? -v.x : v.x;
             double ay = v.y < 0 ? -v.y : v.y;
             double az = v.z < 0 ? -v.z : v.z;
@@ -7378,7 +7377,7 @@ namespace g3
         }
 
         // Exact unbiased binary exponent e so that 2^e <= m < 2^(e+1) for positive finite m (including subnormals).
-        static int ilogb_pos(double m)
+        internal static int ilogb_pos(double m)
         {
             long bits = BitConverter.DoubleToInt64Bits(m);
             int exp = (int)((bits >> 52) & 0x7FFL);
@@ -7391,7 +7390,7 @@ namespace g3
         }
 
         // Exact power-of-two scaling across the full double exponent range (including subnormals).
-        static double ldexp_exact(double x, int shift)
+        internal static double ldexp_exact(double x, int shift)
         {
             if (x == 0 || shift == 0)
                 return x;
@@ -7412,7 +7411,7 @@ namespace g3
         }
 
         // Power-of-two scaled cross product (immune to overflow/underflow across full double range).
-        static Vector3d scaled_cross(Vector3d u, Vector3d v)
+        internal static Vector3d scaled_cross(Vector3d u, Vector3d v)
         {
             double mu = max_abs_vec(u), mv = max_abs_vec(v);
             if (mu <= 0 || mv <= 0 || double.IsNaN(mu) || double.IsNaN(mv) || double.IsInfinity(mu) || double.IsInfinity(mv))
@@ -7424,7 +7423,7 @@ namespace g3
 
         // Euclidean distance from p to closed triangle (a, b, c) with per-candidate exact power-of-two scaling
         // (exact under 2^k scaling, immune to subnormal/mixed-scale underflow and overflow).
-        static double cand_point_triangle_dist(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        internal static double cand_point_triangle_dist(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
             double m = max_abs_vec(p);
             double ma = max_abs_vec(a); if (ma > m) m = ma;
@@ -7436,12 +7435,12 @@ namespace g3
                 return 0.0;
             int e = ilogb_pos(m);
             double dsq = point_triangle_dist_sq(scale_vec_pow2(p, -e), scale_vec_pow2(a, -e), scale_vec_pow2(b, -e), scale_vec_pow2(c, -e));
-            if (dsq <= 0 || double.IsNaN(dsq))
-                return dsq <= 0 ? 0.0 : double.PositiveInfinity;
-            return ldexp_exact(Math.Sqrt(dsq), e);
+            if (double.IsNaN(dsq))
+                return double.PositiveInfinity;
+            return dsq <= 0 ? 0.0 : ldexp_exact(Math.Sqrt(dsq), e);
         }
 
-        static double min_vertex_dist_sq(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        internal static double min_vertex_dist_sq(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
             double dax = p.x - a.x, day = p.y - a.y, daz = p.z - a.z;
             double da = dax * dax + day * day + daz * daz;
@@ -7455,7 +7454,7 @@ namespace g3
 
         // squared distance from point p to closed triangle (a, b, c) (Ericson, Real-Time Collision Detection §5.1.5)
         // with every denominator guarded so degenerate/coincident/collinear triangles never divide 0/0.
-        static double point_triangle_dist_sq(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        internal static double point_triangle_dist_sq(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
         {
             double abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
             double acx = c.x - a.x, acy = c.y - a.y, acz = c.z - a.z;
