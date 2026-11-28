@@ -1147,3 +1147,24 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+* `alpha_wrap_pinch_bisection.py` checks `RefineNonManifold` / `PullPinchPoints` (`#1045`,
+  `docs/design/ALPHA_WRAP_MANIFOLD_QUALITY.md`) and R1 1-Lipschitz bisection worst cases
+  (`docs/design/ALPHA_WRAP_PAPER_NOTES.md`) across `mesh_ops/MeshAlphaWrap.cs` and
+  `mesh_ops/AlphaWrapOracle.cs`: proves in `QF_NRA`/`QF_LRA` that a pulled pinch point
+  `x = cc + ((r - s) / L) * (q - cc)` stays strictly inside the segment and circumsphere,
+  preserves vertex separation `|x - v| >= s = min(delta, alpha - delta)` (with variant C
+  `0.5 * s` negative control), clears the open offset ball along the closest-point ray when
+  `d(cc) > delta` (with `d(cc) < delta` and uncapped `3.3 * delta` witnesses), and preserves
+  the law-of-sines gate angle bound (with `make_manifold` `R > alpha` and variant C negative
+  controls); proves `refine_non_manifold` bounded progress and `LocalPinchTrials` remote
+  pocket-flip confirmation necessity (`QF_LIA`); proves 1-Lipschitz interval-pruning soundness
+  (with quarter-width and 2-Lipschitz negative controls), grazing-tangent `Omega(sqrt(delta / eps))`
+  quadratic non-pruning band (`u^2 <= 2*delta*(half_w - eps)`) vs `AlphaWrapOracle.sphere_entry`
+  `O(1)` negative-discriminant rejection, and runs 3 `binary64` replays (Soup 42/28 pulled pinch
+  points, `eps = 2^-20` grazing tangent vs analytic `sphere_entry`, and `rule_intersection` 60-step
+  exit-bisection stalls near `t = 1` and at UTM `5e6`). Full end-to-end 3D carving runtime remains outside this pilot.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_alpha_wrap_pinch_bisection.py -v
+```
