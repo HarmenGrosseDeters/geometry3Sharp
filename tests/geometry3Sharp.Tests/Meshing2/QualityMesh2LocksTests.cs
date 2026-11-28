@@ -81,8 +81,8 @@ namespace geometry3Sharp.Tests
             Assert.False(output.SteinerLimitReached);
             Assert.True(report.Ok, report.ToString());
             for (int v = 0; v < output.VX.Length; ++v) {
-                Assert.InRange(output.VX[v], -1e-9, 96 + 1e-9);
-                Assert.InRange(output.VY[v], -1e-9, 96 + 1e-9);
+                Assert.InRange(output.VX[v], 0.0, 96.0);
+                Assert.InRange(output.VY[v], 0.0, 96.0);
             }
         }
 
@@ -252,28 +252,35 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void LockedRing_Reuse_AndDeterminism_ParallelEqualsSerial()
         {
-            var input = new ConstrainedMesh2Input {
+            var inputA = new ConstrainedMesh2Input {
+                Points = { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 20), new Vector2d(0, 20), new Vector2d(5, 10) }
+            };
+            inputA.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }, false, 1, locked: true));
+
+            var inputB = new ConstrainedMesh2Input {
                 Points = { new Vector2d(0, 0), new Vector2d(16, 1), new Vector2d(19, 9), new Vector2d(13, 17), new Vector2d(2, 15), new Vector2d(8, 8), new Vector2d(12, 6) }
             };
-            input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3, 4 }, false, 1, locked: true));
-            input.Segments.Add(new Mesh2Segment(5, 6, 2, locked: true));
+            inputB.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3, 4 }, false, 1, locked: true));
+            inputB.Segments.Add(new Mesh2Segment(5, 6, 2, locked: true));
 
-            var mesher = new QualityMesh2 { MinAngle = 20, MaxArea = 3 };
-            var first = mesher.Compute(input);
-            var second = mesher.Compute(input);
-            Assert.Equal(Triangulation2Status.Success, first.Status);
-            Assert.Equal(first.Mesh.Vertices, second.Mesh.Vertices);
-            Assert.Equal(first.Mesh.Triangles, second.Mesh.Triangles);
-            Assert.Equal(first.Mesh.Subsegments.Count, second.Mesh.Subsegments.Count);
+            var reused = new QualityMesh2 { MinAngle = 20, MaxArea = 3 };
+            var resA = reused.Compute(inputA);
+            var resBAfterA = reused.Compute(inputB);
+            var freshB = new QualityMesh2 { MinAngle = 20, MaxArea = 3 }.Compute(inputB);
+            Assert.Equal(Triangulation2Status.Success, resA.Status);
+            Assert.Equal(Triangulation2Status.Success, resBAfterA.Status);
+            Assert.Equal(freshB.Mesh.Vertices, resBAfterA.Mesh.Vertices);
+            Assert.Equal(freshB.Mesh.Triangles, resBAfterA.Mesh.Triangles);
+            Assert.Equal(freshB.Mesh.Subsegments.Count, resBAfterA.Mesh.Subsegments.Count);
 
             var parallel = new ConstrainedTriangulation2Result[8];
             Parallel.For(0, parallel.Length, i => {
-                parallel[i] = new QualityMesh2 { MinAngle = 20, MaxArea = 3 }.Compute(input);
+                parallel[i] = new QualityMesh2 { MinAngle = 20, MaxArea = 3 }.Compute(inputB);
             });
             for (int i = 0; i < parallel.Length; ++i) {
                 Assert.Equal(Triangulation2Status.Success, parallel[i].Status);
-                Assert.Equal(first.Mesh.Vertices, parallel[i].Mesh.Vertices);
-                Assert.Equal(first.Mesh.Triangles, parallel[i].Mesh.Triangles);
+                Assert.Equal(freshB.Mesh.Vertices, parallel[i].Mesh.Vertices);
+                Assert.Equal(freshB.Mesh.Triangles, parallel[i].Mesh.Triangles);
             }
         }
 
@@ -307,6 +314,130 @@ namespace geometry3Sharp.Tests
             Assert.False(output.SteinerLimitReached);
             Assert.True(report.Ok, report.ToString());
             Assert.Equal(4, output.Subsegments.Count);
+        }
+
+        [Fact]
+        public void CyclicTrapezoidLockedRing_CircumcentreOnLockedEdge_PassesFastAndReferenceOracle()
+        {
+            // Review finding B1: cyclic isosceles trapezoid (0,0)-(5,0)-(4,2)-(1,2) at MinAngle = 30 deg has circumcentre
+            // (2.5, 0) strictly on the open interior of locked edge (0,0)-(5,0), with no valid interior point satisfying 30 deg.
+            var input = new Mesh2Input {
+                X = new double[] { 0, 5, 4, 1 },
+                Y = new double[] { 0, 0, 2, 2 },
+                MinAngleDeg = 30
+            };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false, 1, locked: true));
+            var output = new QualityMesh2Candidate().Run(input);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Assert.False(output.SteinerLimitReached);
+            Assert.Equal(4, output.Subsegments.Count);
+
+            Oracle.CheckFastPathForTests = true;
+            OracleReport fast;
+            try { fast = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M3, StatedArea = 8 }); }
+            finally { Oracle.CheckFastPathForTests = false; }
+            var reference = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M3, StatedArea = 8, Reference = true });
+            Assert.True(fast.Ok, fast.ToString());
+            Assert.True(reference.Ok, reference.ToString());
+            Assert.Equal(reference.LockedAngleExcused, fast.LockedAngleExcused);
+            Assert.True(fast.LockedAngleExcused > 0);
+        }
+
+        [Fact]
+        public void SizeFunction_UnlockedEdgeSlightlyLongerThanLockedTie_RefinesAndPassesOracle()
+        {
+            // Review finding M1: triangle (0,0)-(5,0)-(3+2^-50, 4-2^-51) with locked base (0,0)-(5,0) has exact Len2(a,c) > 25 = Len2(a,b),
+            // though both round to the same double in Local(t). With h = 4.9 (between L/2 = 2.5 and L = 5), splitting ac satisfies the
+            // size bound cleanly without splitting the locked edge; without the BigInteger tie-break the triangle is skipped and fails SizeAboveBound.
+            var input = new Mesh2Input {
+                X = new double[] { 0, 5, 3 + Math.Pow(2, -50) },
+                Y = new double[] { 0, 0, 4 - Math.Pow(2, -51) },
+                MinAngleDeg = 0,
+                SizeConstant = 4.9,
+                SizeFunction = (x, y) => new Q(49, 10)
+            };
+            input.Segments.Add(new SegmentInput(0, 1, 1, locked: true));
+            var report = Judge(input, out var output);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Assert.False(output.SteinerLimitReached);
+            Assert.True(report.Ok, report.ToString());
+            Assert.True(output.Triangles.Length > 1, "expected exact tie-break to refine the triangle");
+        }
+
+        [Fact]
+        public void SmallMinAngle_AreaExemptNearCancellationBoundary_PassesOracle()
+        {
+            // Review finding M2: at very small MinAngle = 0.001 deg on a rotated triangle over a locked edge,
+            // LocalArea cancellation must not falsely exempt a triangle whose exact area exceeds (L^2 / 4) * tan(theta).
+            double s = Math.Sin(0.001 * Math.PI / 180);
+            double tan = Math.Sqrt(s * s / (1 - s * s));
+            double bx = 1.3, by = 1.7;
+            double cx = 0.5 * bx - 0.5 * tan * by - 12 * Math.Pow(2, -53);
+            double cy = 0.5 * by + 0.5 * tan * bx - 15 * Math.Pow(2, -53);
+            var input = new Mesh2Input {
+                X = new double[] { 0, bx, cx },
+                Y = new double[] { 0, by, cy },
+                MinAngleDeg = 0.001,
+                MaxArea = 1e-6
+            };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false, 1, locked: true));
+            var report = Judge(input, out var output);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Assert.False(output.SteinerLimitReached);
+            Assert.True(report.Ok, report.ToString());
+            Assert.Equal(3, output.Subsegments.Count);
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(0.25)]
+        public void CircumcentreBehindLocked_FastPathMatchesReferenceOracle(double snapTol)
+        {
+            // Review finding m4: verify CheckFastPathForTests and Reference oracle agree identically on locked meshes off-grid and on-grid.
+            var input = new Mesh2Input {
+                X = new double[] { 0, 16, 16, 0, 2, 14, 8 },
+                Y = new double[] { 0, 0, 16, 16, 8, 8, 1 },
+                MinAngleDeg = 20,
+                MaxArea = 4,
+                SnapTolerance = snapTol
+            };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false, 1, locked: true));
+            var output = new QualityMesh2Candidate().Run(input);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Oracle.CheckFastPathForTests = true;
+            OracleReport fast;
+            try { fast = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M3, StatedArea = 256 }); }
+            finally { Oracle.CheckFastPathForTests = false; }
+            var reference = Oracle.Check(input, output, new OracleExpect { Milestone = Milestone.M3, StatedArea = 256, Reference = true });
+            Assert.True(fast.Ok, fast.ToString());
+            Assert.True(reference.Ok, reference.ToString());
+            Assert.Equal(reference.LockedAngleExcused, fast.LockedAngleExcused);
+        }
+
+        [Fact]
+        public void Fuzz_LockedRings_AreaOnlyAndSnapGrid_PassOracle()
+        {
+            // Review finding m5: fuzz locked outer rings (with interior points/holes), area-only (MinAngle=0), and snap-grid locked rings.
+            for (int seed = 0; seed < 20; ++seed) {
+                var rng = new Random(9000 + seed);
+                var xs = new List<double> { 0, 24, 24, 0 };
+                var ys = new List<double> { 0, 0, 20, 20 };
+                int extra = 3 + rng.Next(6);
+                for (int i = 0; i < extra; ++i) { xs.Add(2 + rng.Next(21)); ys.Add(2 + rng.Next(17)); }
+                var input = new Mesh2Input {
+                    X = xs.ToArray(), Y = ys.ToArray(),
+                    MinAngleDeg = seed % 3 == 0 ? 0 : 20,
+                    MaxArea = seed % 3 == 0 ? 3.5 : 5.0,
+                    SnapTolerance = seed % 4 == 0 ? 0.25 : 0.0,
+                    ConstrainedQuality = (seed & 1) != 0
+                };
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false, 1, locked: true));
+                var report = Judge(input, out var output, new OracleExpect { Milestone = Milestone.M3, StatedArea = 480 });
+                Assert.True(output.Status == Mesh2Status.Success, "seed " + seed + ": " + output.FailureKind);
+                Assert.False(output.SteinerLimitReached, "seed " + seed + ": SteinerLimitReached");
+                Assert.True(report.Ok, "seed " + seed + ": " + report);
+                Assert.Equal(4, output.Subsegments.Count);
+            }
         }
 
         [Fact]

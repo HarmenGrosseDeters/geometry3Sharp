@@ -581,8 +581,9 @@ namespace Meshing2Acceptance
                 return u;
             }
 
-            /// <summary> the segment from t's centroid to p crosses a subsegment (not one ending at vertex skip) for which unsplittable holds </summary>
-            bool Behind(int[] t, Pt p, int skip, Func<int, int, bool> unsplittable)
+            /// <summary> the segment from t's centroid to p crosses a subsegment (not one ending at vertex skip) for which unsplittable holds;
+            /// when includeOnSegment is true, p lying strictly on the open interior of such a subsegment also counts as blocked (O9) </summary>
+            bool Behind(int[] t, Pt p, int skip, Func<int, int, bool> unsplittable, bool includeOnSegment = false)
             {
                 Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
                 var g = new Pt((a.Qx + b.Qx + c.Qx) / 3, (a.Qy + b.Qy + c.Qy) / 3);
@@ -591,7 +592,8 @@ namespace Meshing2Acceptance
                     if (s.A == skip || s.B == skip) return false;
                     Pt sa = v[s.A], sb = v[s.B];
                     int o1 = Exact.Orient(sa, sb, g), o2 = Exact.Orient(sa, sb, p);
-                    return o1 * o2 < 0 && Exact.Orient(g, p, sa) * Exact.Orient(g, p, sb) <= 0;
+                    if (o1 * o2 < 0 && Exact.Orient(g, p, sa) * Exact.Orient(g, p, sb) <= 0) return true;
+                    return includeOnSegment && o2 == 0 && !p.Equals(sa) && !p.Equals(sb) && Exact.OnClosedSegment(sa, sb, p);
                 }
                 // p as an interval of doubles: exact for a vertex on the fast path, Pt.Bounds (containing the exact value) for a
                 // constructed point such as the circumcentre of the angle-bound exemptions (before, those scanned every subsegment
@@ -4041,7 +4043,7 @@ namespace Meshing2Acceptance
                 if (!anySize || o.SteinerLimitReached) return;
                 Q? maxArea = input.MaxArea == null ? (Q?)null : Q.FromDouble(input.MaxArea.Value);
                 Q? angleFloorSin2 = null;
-                if (input.MinAngleDeg != null && input.MinAngleDeg.Value > 0 && !e.InvalidAngle) {
+                if (input.MinAngleDeg != null && input.MinAngleDeg.Value > 0 && input.MinAngleDeg.Value < 60 && !e.InvalidAngle) {
                     double s = Math.Sin(input.MinAngleDeg.Value * Math.PI / 180);
                     angleFloorSin2 = Q.FromDouble(s * s);
                 }
@@ -4086,16 +4088,25 @@ namespace Meshing2Acceptance
                 if (!lockedSubMemo.TryGetValue(key, out bool locked)) {
                     Pt pa = v[a], pb = v[b];
                     locked = false;
-                    foreach (var s in lockedSources) if (WithinTube(s, pa) && WithinTube(s, pb)) { locked = true; break; }
+                    if (Fast && vKnown[a]) {
+                        if (sourceGridForZones == null) sourceGridForZones = new BoxGrid(sBox, sources.Count);
+                        var candidates = sourceGridForZones.Query(vxl[a], vxh[a], vyl[a], vyh[a]);
+                        if (CheckFastPathForTests) BoxGrid.CheckSuperset(sBox, sources.Count, vxl[a], vxh[a], vyl[a], vyh[a], candidates, "the locked sources near a subsegment");
+                        foreach (int k in candidates) if (sources[k].locked && WithinTube(sources[k], pa) && WithinTube(sources[k], pb)) { locked = true; break; }
+                        if (CheckFastPathForTests && locked != lockedSources.Any(s => WithinTube(s, pa) && WithinTube(s, pb)))
+                            FastPathDiffers("OnLockedSubsegment");
+                    } else {
+                        foreach (var s in lockedSources) if (WithinTube(s, pa) && WithinTube(s, pb)) { locked = true; break; }
+                    }
                     lockedSubMemo[key] = locked;
                 }
                 return locked;
             }
 
             /// <summary>
-            /// The angle bound near locked constraints (O8, O9): t's circumcentre (on the grid: its pixel's centre) lies behind a locked
-            /// subsegment (the segment from t's centroid to it crosses the subsegment). Replaces the broader TouchesLocked rule, which
-            /// excused even acute triangles on a locked edge whose circumcentre lies wide open in the interior (MESHING2D_PLAN section 9).
+            /// The angle bound near locked constraints (O8, O9): t's circumcentre (on the grid: its pixel's centre) lies behind or
+            /// strictly on the open interior of a locked subsegment. Replaces the broader TouchesLocked rule, which excused even acute
+            /// triangles on a locked edge whose circumcentre lies wide open in the interior (MESHING2D_PLAN section 9).
             /// </summary>
             bool CircumcentreBehindLocked(int[] t)
             {
@@ -4114,7 +4125,7 @@ namespace Meshing2Acceptance
                 } else {
                     p = new Pt(a.Qx + (cy * b2 - by * c2) / d, a.Qy + (bx * c2 - cx * b2) / d);
                 }
-                if (!Behind(t, p, -1, OnLockedSubsegment)) return false;
+                if (!Behind(t, p, -1, OnLockedSubsegment, includeOnSegment: true)) return false;
                 r.LockedAngleExcused++;
                 return true;
             }
