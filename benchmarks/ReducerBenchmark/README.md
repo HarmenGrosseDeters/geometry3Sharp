@@ -140,6 +140,19 @@ reports the bumpy sphere case. Each entry is triangles accepted, then µs per tr
 The stop rule was not met (within 5× of `IsWithin` and no fewer accepted than `MeshEnvelope`), so the work stopped (owner decision,
 ENVELOPE.md §6).
 
+**Fast exact filters and box-extrema pruning (November 2026):** `ContainsTriangle` now uses point-query C1 with
+single-polyhedron early exit, `TriangleBoxTree.Query` for `candidates_box`, exact `Orient2d`/`Orient3d` box-extrema
+plane pruning against both `boxes[p]` and `tbox n boxes[p1] n boxes[p2]`, single-pass facet classification shared with
+C2, delayed `exact_normal` (only for C3), and bitmask-filtered `in_closure_tpi`/`inside_tpi`. Paired before
+(`origin/master` `2959dfaa`, dll `0518d61f5cdc4d15`) vs after (`7699e69b04de0d6c`),
+`DOTNET_TieredPGO=0 dotnet run -c Release -f net10.0 --project benchmarks/ReducerBenchmark -- queries` (best of 3 for
+`PolyhedralEnvelope`, µs per triangle, identical `within` counts):
+
+| case | within | `IsWithin` (µs/tri) | before (µs/tri) | after (µs/tri) | speedup |
+|---|---|---|---|---|---|
+| terrain 40 × 40 (951 reduced tris) | 166 | 101–109 | 715 | 86 | 8.31× |
+| bumpy sphere (536 reduced tris) | 41 | 509–761 | 3597 | 333 | 10.80× |
+
 ## Reduction driven by the exact envelope (`envelope`, November 2026)
 
 Research spike for HP 10 ([docs/research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md](../../docs/research/ENVELOPE_GUARANTEED_SIMPLIFICATION_2026-11.md)):

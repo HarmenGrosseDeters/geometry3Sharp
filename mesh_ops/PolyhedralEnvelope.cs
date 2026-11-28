@@ -348,7 +348,9 @@ namespace gs
         public bool Contains(Vector3d q)
         {
             if (Status != EnvelopeStatus.Ready || q.IsFinite == false) return false;
-            foreach (int p in candidates(q, q))
+            var cand = new List<int>();
+            tree.Query(new AxisAlignedBox3d(q), cand);
+            foreach (int p in cand)
                 if (inside(p, q)) return true;
             return false;
         }
@@ -357,36 +359,45 @@ namespace gs
         public bool ContainsSegment(Vector3d a, Vector3d b)
         {
             if (Status != EnvelopeStatus.Ready || a.IsFinite == false || b.IsFinite == false) return false;
+            // C1: check endpoint a (and single-polyhedron convex early exit), then endpoint b
+            var ptCand = new List<int>();
+            tree.Query(new AxisAlignedBox3d(a), ptCand);
+            bool ia = false;
+            foreach (int p in ptCand) {
+                if (inside(p, a) == false) continue;
+                if (inside(p, b)) return true;
+                ia = true;
+            }
+            if (ia == false || Contains(b) == false) return false;
             List<int> cand = candidates(a, b);
-            // C1: the endpoints
-            bool ia = false, ib = false;
-            foreach (int p in cand) {
-                if (ia == false && inside(p, a)) ia = true;
-                if (ib == false && inside(p, b)) ib = true;
-            }
-            if (ia == false || ib == false) return false;
-            return a == b || crossings_covered(cand, a, b);
-        }
-
-        // C2: every crossing of a facet plane of a candidate, strictly between a and b, inside another candidate
-        bool crossings_covered(List<int> cand, Vector3d a, Vector3d b)
-        {
-            foreach (int p in cand) {
-                for (int f = 0; f < facetCount[p]; ++f) {
-                    int o = (p * MaxFacets + f) * 3;
-                    Vector3d r = facets[o], s = facets[o + 1], t = facets[o + 2];
-                    int sa = ExactPredicates.Orient3d(r, s, t, a), sb = ExactPredicates.Orient3d(r, s, t, b);
-                    if (sa * sb >= 0) continue;
-                    bool covered = false;
-                    // the crossing point's construction once, then against every facet of the others
-                    IndirectPredicates.Orient3dLPIPrepared lpi;
-                    IndirectPredicates.Orient3dLPIPrepare(a, b, r, s, t, out lpi);
-                    foreach (int p2 in cand)
-                        if (p2 != p && inside_lpi(p2, ref lpi)) { covered = true; break; }
-                    if (covered == false) return false;
+            int n = cand.Count;
+            var active = new int[n];
+            var cross = new byte[n];
+            var exit = new byte[n];
+            int m = 0;
+            // Classify facets: drop disjoint polyhedra (sa >= 0 && sb >= 0),
+            // keeping crossing (sa * sb < 0) and exit (sa < 0 < sb) facet bitmasks.
+            for (int ci = 0; ci < n; ++ci) {
+                int p = cand[ci];
+                bool disjoint = false;
+                byte cm = 0, em = 0;
+                int nf = facetCount[p], o = p * MaxFacets * 3;
+                for (int f = 0; f < nf; ++f, o += 3) {
+                    int sa = ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], a);
+                    int sb = ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], b);
+                    if (sa >= 0) {
+                        if (sb >= 0) { disjoint = true; break; }
+                        if (sa > 0) cm |= (byte)(1 << f);
+                    } else if (sb > 0) {
+                        byte bit = (byte)(1 << f);
+                        cm |= bit;
+                        em |= bit;
+                    }
                 }
+                if (disjoint) continue;
+                active[m] = p; cross[m] = cm; exit[m] = em; m++;
             }
-            return true;
+            return crossings_covered(active, cross, exit, m, a, b);
         }
 
         /// <summary>
@@ -397,69 +408,202 @@ namespace gs
         public bool ContainsTriangle(Vector3d a, Vector3d b, Vector3d c)
         {
             if (Status != EnvelopeStatus.Ready || a.IsFinite == false || b.IsFinite == false || c.IsFinite == false) return false;
-            Vector3d N;
-            if (exact_normal(a, b, c, out N) == false)
-                return ContainsSegment(a, b) && ContainsSegment(b, c) && ContainsSegment(c, a);
-            List<int> cand = candidates_box(a, b, c);
-            // C1, and one polyhedron with all three vertices contains the triangle (convex)
-            bool ia = false, ib = false, ic = false;
-            foreach (int p in cand) {
-                bool xa = inside(p, a), xb = inside(p, b), xc = inside(p, c);
-                if (xa && xb && xc) return true;
-                ia |= xa; ib |= xb; ic |= xc;
+            // C1: check vertex a first (and single-polyhedron convex early exit), then b and c
+            var ptCand = new List<int>();
+            tree.Query(new AxisAlignedBox3d(a), ptCand);
+            bool ia = false;
+            foreach (int p in ptCand) {
+                if (inside(p, a) == false) continue;
+                if (inside(p, b) && inside(p, c)) return true;
+                ia = true;
             }
-            if (ia == false || ib == false || ic == false) return false;
-            // C2
-            if (crossings_covered(cand, a, b) == false || crossings_covered(cand, b, c) == false || crossings_covered(cand, c, a) == false)
-                return false;
-            // C3: the facets whose plane crosses the open triangle (a vertex strictly on each side)
-            var rel = new List<int>();
-            foreach (int p in cand)
-                for (int f = 0; f < facetCount[p]; ++f) {
-                    int o = (p * MaxFacets + f) * 3;
-                    int sa = ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], a);
-                    int sb = ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], b);
-                    int sc = ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], c);
-                    if (Math.Max(sa, Math.Max(sb, sc)) > 0 && Math.Min(sa, Math.Min(sb, sc)) < 0) rel.Add(p * MaxFacets + f);
+            if (ia == false || Contains(b) == false || Contains(c) == false) return false;
+
+            List<int> cand = candidates_box(a, b, c);
+            int n = cand.Count;
+            var tbox = new AxisAlignedBox3d(a); tbox.Contain(b); tbox.Contain(c);
+            byte tSigns = normal_signs(a, b, c);
+            var active = new int[n];
+            var triMask = new byte[n];
+            var abP = new int[n]; var abC = new byte[n]; var abE = new byte[n]; int mAB = 0;
+            var bcP = new int[n]; var bcC = new byte[n]; var bcE = new byte[n]; int mBC = 0;
+            var caP = new int[n]; var caC = new byte[n]; var caE = new byte[n]; int mCA = 0;
+            int m = 0;
+            // single-pass facet classification for the triangle and its three edges
+            for (int ci = 0; ci < n; ++ci) {
+                int p = cand[ci];
+                AxisAlignedBox3d bp = boxes[p];
+                if (plane_misses_box(a, b, c, tSigns, bp.Min.x, bp.Min.y, bp.Min.z, bp.Max.x, bp.Max.y, bp.Max.z)) continue;
+                bool disjoint = false, dAB = false, dBC = false, dCA = false;
+                byte tm = 0, cAB = 0, eAB = 0, cBC = 0, eBC = 0, cCA = 0, eCA = 0;
+                int nf = facetCount[p], o = p * MaxFacets * 3;
+                for (int f = 0; f < nf; ++f, o += 3) {
+                    Vector3d r = facets[o], s = facets[o + 1], t = facets[o + 2];
+                    int sa = ExactPredicates.Orient3d(r, s, t, a);
+                    int sb = ExactPredicates.Orient3d(r, s, t, b);
+                    int sc = ExactPredicates.Orient3d(r, s, t, c);
+                    if (sa >= 0 && sb >= 0 && sc >= 0) { disjoint = true; break; }
+                    byte bit = (byte)(1 << f);
+                    if (sa > 0 || sb > 0 || sc > 0) tm |= bit;
+                    if (sa >= 0 && sb >= 0) dAB = true;
+                    else if (sa > 0) cAB |= bit;
+                    else if (sb > 0) { cAB |= bit; eAB |= bit; }
+                    if (sb >= 0 && sc >= 0) dBC = true;
+                    else if (sb > 0) cBC |= bit;
+                    else if (sc > 0) { cBC |= bit; eBC |= bit; }
+                    if (sc >= 0 && sa >= 0) dCA = true;
+                    else if (sc > 0) cCA |= bit;
+                    else if (sa > 0) { cCA |= bit; eCA |= bit; }
                 }
-            if (rel.Count < 2) return true;
+                if (disjoint) continue;
+                active[m] = p; triMask[m] = tm; m++;
+                if (dAB == false) { abP[mAB] = p; abC[mAB] = cAB; abE[mAB] = eAB; mAB++; }
+                if (dBC == false) { bcP[mBC] = p; bcC[mBC] = cBC; bcE[mBC] = eBC; mBC++; }
+                if (dCA == false) { caP[mCA] = p; caC[mCA] = cCA; caE[mCA] = eCA; mCA++; }
+            }
+            // C2: the three edges (reusing the signs classified above)
+            if (crossings_covered(abP, abC, abE, mAB, a, b) == false
+                || crossings_covered(bcP, bcC, bcE, mBC, b, c) == false
+                || crossings_covered(caP, caC, caE, mCA, c, a) == false)
+                return false;
+            // degenerate triangles are already decided by C1 and C2; exact_normal is only needed for C3's apex
+            Vector3d N;
+            if (exact_normal(a, b, c, out N) == false) return true;
             // a point off the triangle's plane: the planes through each edge and it bound the triangle
             Vector3d top = apex(a, b, c, N);
             int ea = ExactPredicates.Orient3d(b, c, top, a), eb = ExactPredicates.Orient3d(c, a, top, b), ec = ExactPredicates.Orient3d(a, b, top, c);
-            // the cover set (the paper's section 3.2.4): polyhedra that covered a point, tried first
+            // exact normal component signs of each active facet in triMask, for exact box-extrema pruning below
+            var fSigns = new byte[m * MaxFacets];
+            for (int i = 0; i < m; ++i) {
+                int p = active[i];
+                for (int f = 0, mm = triMask[i]; mm != 0; ++f, mm >>= 1) {
+                    if ((mm & 1) == 0) continue;
+                    int o = (p * MaxFacets + f) * 3;
+                    fSigns[i * MaxFacets + f] = normal_signs(facets[o], facets[o + 1], facets[o + 2]);
+                }
+            }
+            // C3: pairs of crossing facets of two different active polyhedra whose closures can meet in the triangle;
+            // the cover set (the paper's section 3.2.4) tries polyhedra that already covered a point first
             var cover = new List<int>();
-            for (int i = 0; i < rel.Count; ++i) {
-                int o1 = rel[i] * 3, p1 = rel[i] / MaxFacets;
-                for (int j = i + 1; j < rel.Count; ++j) {
-                    int o2 = rel[j] * 3, p2 = rel[j] / MaxFacets;
-                    // only pairs of two polyhedra (ENVELOPE.md 4.5: an uncovered region's extreme point lies on traces of
-                    // two different ones), whose closures, so whose closed search boxes, both hold the point.
-                    // (Dependent planes, no single point, need no test of their own: Orient3dTPI is 0 then, and the
-                    // strict inside test below drops the pair.)
-                    if (p2 == p1 || boxes_meet(boxes[p1], boxes[p2]) == false) continue;
-                    IndirectPredicates.Orient3dTPIPrepared tpi;
-                    IndirectPredicates.Orient3dTPIPrepare(a, b, c, facets[o1], facets[o1 + 1], facets[o1 + 2],
-                        facets[o2], facets[o2 + 1], facets[o2 + 2], out tpi);
-                    // strictly inside the triangle?
-                    if (IndirectPredicates.Orient3dTPI(ref tpi, b, c, top) != ea || IndirectPredicates.Orient3dTPI(ref tpi, c, a, top) != eb
-                        || IndirectPredicates.Orient3dTPI(ref tpi, a, b, top) != ec) continue;
-                    // only a vertex of the arrangement of the polyhedra's boundaries in the triangle matters: the point
-                    // on the closure of both polyhedra (ENVELOPE.md 4.5). An uncovered region's extreme point is one.
-                    if (in_closure_tpi(p1, ref tpi) == false || in_closure_tpi(p2, ref tpi) == false) continue;
-                    // (the point is on a facet plane of p1 and of p2, so in neither); the cover set first
-                    bool covered = false;
-                    foreach (int p in cover)
-                        if (inside_tpi(p, ref tpi)) { covered = true; break; }
-                    if (covered == false)
-                        foreach (int p in cand)
-                            if (p != p1 && p != p2 && inside_tpi(p, ref tpi)) { covered = true; cover.Add(p); break; }
-                    if (covered == false) return false;
+            for (int i1 = 0; i1 < m; ++i1) {
+                int tm1 = triMask[i1];
+                int p1 = active[i1];
+                AxisAlignedBox3d b1 = boxes[p1];
+                for (int i2 = i1 + 1; i2 < m; ++i2) {
+                    int tm2 = triMask[i2];
+                    int p2 = active[i2];
+                    AxisAlignedBox3d b2 = boxes[p2];
+                    // every point of closure(p1) n closure(p2) n T lies in the closed intersection box B
+                    if (pair_box_meets_plane(tbox, b1, b2, a, b, c, tSigns,
+                        out double x0, out double y0, out double z0, out double x1, out double y1, out double z1) == false) continue;
+                    int pm1 = filter_pair_facets(p1, tm1, fSigns, i1 * MaxFacets, x0, y0, z0, x1, y1, z1);
+                    if (pm1 == 0) continue;
+                    int pm2 = filter_pair_facets(p2, tm2, fSigns, i2 * MaxFacets, x0, y0, z0, x1, y1, z1);
+                    if (pm2 == 0) continue;
+                    var interBox = new AxisAlignedBox3d(x0, y0, z0, x1, y1, z1);
+                    for (int f1 = 0, m1 = pm1; m1 != 0; ++f1, m1 >>= 1) {
+                        if ((m1 & 1) == 0) continue;
+                        int o1 = (p1 * MaxFacets + f1) * 3;
+                        for (int f2 = 0, m2 = pm2; m2 != 0; ++f2, m2 >>= 1) {
+                            if ((m2 & 1) == 0) continue;
+                            int o2 = (p2 * MaxFacets + f2) * 3;
+                            // (Dependent planes, no single point, need no test of their own: Orient3dTPI is 0 then,
+                            // and the strict inside test below drops the pair.)
+                            IndirectPredicates.Orient3dTPIPrepared tpi;
+                            IndirectPredicates.Orient3dTPIPrepare(a, b, c, facets[o1], facets[o1 + 1], facets[o1 + 2],
+                                facets[o2], facets[o2 + 1], facets[o2 + 2], out tpi);
+                            // strictly inside the triangle?
+                            if (IndirectPredicates.Orient3dTPI(ref tpi, b, c, top) != ea || IndirectPredicates.Orient3dTPI(ref tpi, c, a, top) != eb
+                                || IndirectPredicates.Orient3dTPI(ref tpi, a, b, top) != ec) continue;
+                            // only a vertex of the arrangement of the polyhedra's boundaries in the triangle matters:
+                            // the point on the closure of both polyhedra (ENVELOPE.md 4.5)
+                            if (in_closure_tpi(p1, tm1 & ~(1 << f1), ref tpi) == false
+                                || in_closure_tpi(p2, tm2 & ~(1 << f2), ref tpi) == false) continue;
+                            // (the point is on a facet plane of p1 and of p2, so in neither); the cover set first
+                            bool covered = false;
+                            foreach (int j in cover) {
+                                int p = active[j];
+                                if (p != p1 && p != p2 && boxes_meet(boxes[p], interBox)
+                                    && inside_tpi(p, triMask[j], ref tpi)) { covered = true; break; }
+                            }
+                            if (covered == false) {
+                                for (int j = 0; j < m; ++j) {
+                                    int p = active[j];
+                                    if (p != p1 && p != p2 && boxes_meet(boxes[p], interBox)
+                                        && inside_tpi(p, triMask[j], ref tpi)) { covered = true; cover.Add(j); break; }
+                                }
+                            }
+                            if (covered == false) return false;
+                        }
+                    }
                 }
             }
             return true;
         }
 
-        static bool boxes_meet(AxisAlignedBox3d x, AxisAlignedBox3d y)
+        // closed intersection box of tbox, b1 and b2; returns false if empty or strictly on one side of plane (a, b, c)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool pair_box_meets_plane(AxisAlignedBox3d tbox, AxisAlignedBox3d b1, AxisAlignedBox3d b2,
+            Vector3d a, Vector3d b, Vector3d c, byte tSigns,
+            out double x0, out double y0, out double z0, out double x1, out double y1, out double z1)
+        {
+            x0 = Math.Max(tbox.Min.x, Math.Max(b1.Min.x, b2.Min.x));
+            x1 = Math.Min(tbox.Max.x, Math.Min(b1.Max.x, b2.Max.x));
+            if (x0 > x1) { y0 = y1 = z0 = z1 = 0; return false; }
+            y0 = Math.Max(tbox.Min.y, Math.Max(b1.Min.y, b2.Min.y));
+            y1 = Math.Min(tbox.Max.y, Math.Min(b1.Max.y, b2.Max.y));
+            if (y0 > y1) { z0 = z1 = 0; return false; }
+            z0 = Math.Max(tbox.Min.z, Math.Max(b1.Min.z, b2.Min.z));
+            z1 = Math.Min(tbox.Max.z, Math.Min(b1.Max.z, b2.Max.z));
+            if (z0 > z1) return false;
+            return plane_misses_box(a, b, c, tSigns, x0, y0, z0, x1, y1, z1) == false;
+        }
+
+        // exact signs of the three components of (b - a) x (c - a), the gradient of Orient3d(a, b, c, x) in x:
+        // bit 0/1/2 set iff the x/y/z component is strictly positive
+        internal static byte normal_signs(Vector3d a, Vector3d b, Vector3d c)
+        {
+            byte m = 0;
+            if (ExactPredicates.Orient2d(new Vector2d(a.y, a.z), new Vector2d(b.y, b.z), new Vector2d(c.y, c.z)) > 0) m |= 1;
+            if (ExactPredicates.Orient2d(new Vector2d(a.z, a.x), new Vector2d(b.z, b.x), new Vector2d(c.z, c.x)) > 0) m |= 2;
+            if (ExactPredicates.Orient2d(new Vector2d(a.x, a.y), new Vector2d(b.x, b.y), new Vector2d(c.x, c.y)) > 0) m |= 4;
+            return m;
+        }
+
+        // exact corners of [x0, x1] x [y0, y1] x [z0, z1] minimizing and maximizing Orient3d(a, b, c, x)
+        internal static void box_extrema(byte signs, double x0, double y0, double z0, double x1, double y1, double z1,
+            out Vector3d cmin, out Vector3d cmax)
+        {
+            if ((signs & 1) != 0) { cmin.x = x0; cmax.x = x1; } else { cmin.x = x1; cmax.x = x0; }
+            if ((signs & 2) != 0) { cmin.y = y0; cmax.y = y1; } else { cmin.y = y1; cmax.y = y0; }
+            if ((signs & 4) != 0) { cmin.z = z0; cmax.z = z1; } else { cmin.z = z1; cmax.z = z0; }
+        }
+
+        // does the closed box lie strictly on one side of the plane (a, b, c)?
+        internal static bool plane_misses_box(Vector3d a, Vector3d b, Vector3d c, byte signs,
+            double x0, double y0, double z0, double x1, double y1, double z1)
+        {
+            box_extrema(signs, x0, y0, z0, x1, y1, z1, out Vector3d cmin, out Vector3d cmax);
+            return ExactPredicates.Orient3d(a, b, c, cmin) > 0 || ExactPredicates.Orient3d(a, b, c, cmax) < 0;
+        }
+
+        // subset of facets in mask whose planes meet the closed box B; returns 0 if B lies strictly outside any facet
+        // of polyhedron p (so closure(p) n B is empty) or if no facet plane in mask touches B
+        internal int filter_pair_facets(int p, int mask, byte[] fSigns, int signBase,
+            double x0, double y0, double z0, double x1, double y1, double z1)
+        {
+            int kept = 0;
+            for (int f = 0, mm = mask; mm != 0; ++f, mm >>= 1) {
+                if ((mm & 1) == 0) continue;
+                int o = (p * MaxFacets + f) * 3;
+                box_extrema(fSigns[signBase + f], x0, y0, z0, x1, y1, z1, out Vector3d cmin, out Vector3d cmax);
+                if (ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], cmin) > 0) return 0;
+                if (ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], cmax) >= 0) kept |= 1 << f;
+            }
+            return kept;
+        }
+
+        internal static bool boxes_meet(AxisAlignedBox3d x, AxisAlignedBox3d y)
         {
             return x.Min.x <= y.Max.x && y.Min.x <= x.Max.x && x.Min.y <= y.Max.y && y.Min.y <= x.Max.y
                 && x.Min.z <= y.Max.z && y.Min.z <= x.Max.z;
@@ -479,30 +623,31 @@ namespace gs
             }
         }
 
-        // is the prepared point in the closure of polyhedron p (no facet strictly below it)?
-        bool in_closure_tpi(int p, ref IndirectPredicates.Orient3dTPIPrepared tpi)
+        // is the prepared point in the closure of active polyhedron p? Facets absent from mask are strictly negative on
+        // the open triangle (or equal to the defining facet plane), so only facets in mask need checking.
+        bool in_closure_tpi(int p, int mask, ref IndirectPredicates.Orient3dTPIPrepared tpi)
         {
             int o = p * MaxFacets * 3;
-            for (int f = 0; f < facetCount[p]; ++f, o += 3)
-                if (IndirectPredicates.Orient3dTPI(ref tpi, facets[o], facets[o + 1], facets[o + 2]) > 0) return false;
+            for (int f = 0; mask != 0; ++f, o += 3, mask >>= 1)
+                if ((mask & 1) != 0 && IndirectPredicates.Orient3dTPI(ref tpi, facets[o], facets[o + 1], facets[o + 2]) > 0) return false;
             return true;
         }
 
-        bool inside_tpi(int p, ref IndirectPredicates.Orient3dTPIPrepared tpi)
+        bool inside_tpi(int p, int mask, ref IndirectPredicates.Orient3dTPIPrepared tpi)
         {
             int o = p * MaxFacets * 3;
-            for (int f = 0; f < facetCount[p]; ++f, o += 3)
-                if (IndirectPredicates.Orient3dTPI(ref tpi, facets[o], facets[o + 1], facets[o + 2]) >= 0) return false;
+            for (int f = 0; mask != 0; ++f, o += 3, mask >>= 1)
+                if ((mask & 1) != 0 && IndirectPredicates.Orient3dTPI(ref tpi, facets[o], facets[o + 1], facets[o + 2]) >= 0) return false;
             return true;
         }
 
-        // the polyhedra whose search box meets the triangle's box (a linear scan)
+        // the polyhedra whose search box meets the triangle's box
         List<int> candidates_box(Vector3d a, Vector3d b, Vector3d c)
         {
             var box = new AxisAlignedBox3d(a); box.Contain(b); box.Contain(c);
             var list = new List<int>();
-            for (int p = 0; p < count; ++p)
-                if (boxes[p].Intersects(box)) list.Add(p);
+            tree.Query(box, list);
+            list.Sort();        // a deterministic order of the work
             return list;
         }
 
@@ -522,12 +667,55 @@ namespace gs
             return true;
         }
 
-        // is the prepared point (line ab and plane rst) strictly inside polyhedron p?
-        bool inside_lpi(int p, ref IndirectPredicates.Orient3dLPIPrepared lpi)
+        // C2: every exit crossing of a facet plane of an active polyhedron (in its closure, strictly between a and b)
+        // lies strictly inside another active polyhedron. A polyhedron with a facet >= 0 at both endpoints has empty
+        // intersection with the segment and is already dropped; if the segment leaves the union, its first uncovered
+        // point is an exit crossing (sa < 0 < sb) in the closure of the polyhedron it leaves.
+        bool crossings_covered(int[] active, byte[] cross, byte[] exit, int m, Vector3d a, Vector3d b)
+        {
+            var cover = new List<int>();
+            for (int i = 0; i < m; ++i) {
+                int em = exit[i];
+                if (em == 0) continue;
+                int p = active[i], cm = cross[i];
+                for (int f = 0; em != 0; ++f, em >>= 1) {
+                    if ((em & 1) == 0) continue;
+                    int o = (p * MaxFacets + f) * 3;
+                    IndirectPredicates.Orient3dLPIPrepared lpi;
+                    IndirectPredicates.Orient3dLPIPrepare(a, b, facets[o], facets[o + 1], facets[o + 2], out lpi);
+                    if (in_closure_lpi(p, cm & ~(1 << f), ref lpi) == false) continue;
+                    bool covered = false;
+                    foreach (int j in cover) {
+                        int p2 = active[j];
+                        if (p2 != p && boxes_meet(boxes[p], boxes[p2]) && inside_lpi(p2, cross[j], ref lpi)) { covered = true; break; }
+                    }
+                    if (covered == false) {
+                        for (int j = 0; j < m; ++j) {
+                            int p2 = active[j];
+                            if (p2 != p && boxes_meet(boxes[p], boxes[p2]) && inside_lpi(p2, cross[j], ref lpi)) { covered = true; cover.Add(j); break; }
+                        }
+                    }
+                    if (covered == false) return false;
+                }
+            }
+            return true;
+        }
+
+        // is the prepared point (line ab and plane rst) in the closure of active polyhedron p?
+        bool in_closure_lpi(int p, int mask, ref IndirectPredicates.Orient3dLPIPrepared lpi)
         {
             int o = p * MaxFacets * 3;
-            for (int f = 0; f < facetCount[p]; ++f, o += 3)
-                if (IndirectPredicates.Orient3dLPI(ref lpi, facets[o], facets[o + 1], facets[o + 2]) >= 0) return false;
+            for (int f = 0; mask != 0; ++f, o += 3, mask >>= 1)
+                if ((mask & 1) != 0 && IndirectPredicates.Orient3dLPI(ref lpi, facets[o], facets[o + 1], facets[o + 2]) > 0) return false;
+            return true;
+        }
+
+        // is the prepared point (line ab and plane rst) strictly inside active polyhedron p?
+        bool inside_lpi(int p, int mask, ref IndirectPredicates.Orient3dLPIPrepared lpi)
+        {
+            int o = p * MaxFacets * 3;
+            for (int f = 0; mask != 0; ++f, o += 3, mask >>= 1)
+                if ((mask & 1) != 0 && IndirectPredicates.Orient3dLPI(ref lpi, facets[o], facets[o + 1], facets[o + 2]) >= 0) return false;
             return true;
         }
 
