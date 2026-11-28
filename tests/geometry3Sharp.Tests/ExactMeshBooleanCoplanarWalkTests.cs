@@ -100,7 +100,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Run(IEnumerable<DMesh3> meshes, ExactMeshBoolean.Operations op, Mode mode, bool serial = true)
         {
-            var b = new ExactMeshBoolean(meshes, op) { RecordStacks = true, RecordCertificate = true };
+            var b = new ExactMeshBoolean(meshes, op) { RecordStacks = true, RecordCertificate = true, RegionClipping = false };
             if (mode == Mode.Scan) b.CoplanarWalk = false;
             if (mode == Mode.Forced) { b.CoplanarWalkMinCoplanar = 0; b.CoplanarWalkMinPieces = 0; }
             gParallel.SerialOnThisThread = serial;
@@ -243,7 +243,7 @@ namespace geometry3Sharp.Tests
         public void ComputingTwiceOnOneInstance_GivesTheSameResult()
         {
             DMesh3 a = Cylinder(6);
-            var b = new ExactMeshBoolean(new[] { a, Shifted(a, 0) }, ExactMeshBoolean.Operations.Union) { RecordStacks = true, RecordCertificate = true, CoplanarWalkMinCoplanar = 0, CoplanarWalkMinPieces = 0 };
+            var b = new ExactMeshBoolean(new[] { a, Shifted(a, 0) }, ExactMeshBoolean.Operations.Union) { RecordStacks = true, RecordCertificate = true, RegionClipping = false, CoplanarWalkMinCoplanar = 0, CoplanarWalkMinPieces = 0 };
             gParallel.SerialOnThisThread = true;
             try {
                 Assert.True(b.Compute(), b.Error);

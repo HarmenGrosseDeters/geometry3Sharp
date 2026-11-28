@@ -48,7 +48,7 @@ static class Program
         return b;
     }
 
-    struct Run { public double Ms; public int Pieces, Pairs, Intersecting, Triangles; }
+    struct Run { public double Ms; public int Pieces, Pairs, Intersecting, Triangles; public Dictionary<string, long> Phases; }
 
     static Run Measure(IList<DMesh3> meshes, bool regions, int reps)
     {
@@ -60,11 +60,26 @@ static class Program
             if (b.Compute() == false) throw new Exception(b.Error);
             double ms = sw.Elapsed.TotalMilliseconds;
             if (rep > 0) times.Add(ms);
-            last = new Run { Pieces = b.Arrangement.Output.Count, Pairs = b.Arrangement.CandidatePairs, Intersecting = b.Arrangement.IntersectingPairs, Triangles = b.Result.TriangleCount };
+            last = new Run { Pieces = b.Arrangement.Output.Count, Pairs = b.Arrangement.CandidatePairs, Intersecting = b.Arrangement.IntersectingPairs, Triangles = b.Result.TriangleCount, Phases = new Dictionary<string, long>(b.PhaseMilliseconds) };
         }
         times.Sort();
         last.Ms = times[times.Count / 2];
         return last;
+    }
+
+    // the sizes of the Thingi10K contact cases (5k to 100k triangles): no cluster at all (spheres), flat contact of large coplanar faces (grid boxes), a fan pair
+    static IEnumerable<(string, IList<DMesh3>)> SizeCases()
+    {
+        DMesh3 Sphere(int n, Vector3d c) { var m = new Sphere3Generator_NormalizedCube() { Radius = 0.5, EdgeVertices = n }.Generate().MakeDMesh(); MeshTransforms.Translate(m, c); return m; }
+        DMesh3 GridBox(int n, Vector3d c) => new GridBox3Generator() { Box = new Box3d(c, new Vector3d(0.5, 0.5, 0.5)), EdgeVertices = n }.Generate().MakeDMesh();
+        foreach (int n in new[] { 30, 60, 120 })
+            yield return ($"two spheres crossing (no coplanar face), {n} per edge", new[] { Sphere(n, Vector3d.Zero), Sphere(n, new Vector3d(0.3, 0.1, 0.05)) });
+        foreach (int n in new[] { 30, 60, 120 })
+            yield return ($"two grid boxes, face contact, {n} per edge", new[] { GridBox(n, Vector3d.Zero), GridBox(n, new Vector3d(1.0, 0.125, 0.0625)) });
+        foreach (int n in new[] { 30, 60, 120 })
+            yield return ($"two grid boxes overlapping, faces flush, {n} per edge", new[] { GridBox(n, Vector3d.Zero), GridBox(n, new Vector3d(0.25, 0.125, 0.0)) });
+        DMesh3 c = Cylinder(60);
+        yield return ("two capped cylinders, shifted by 0.25 (fans)", new[] { c, Shifted(c, 0.25) });
     }
 
     static void Main(string[] args)
@@ -91,6 +106,15 @@ static class Program
                 Console.WriteLine($"| {ring} | {(haveOld ? old.Pieces.ToString() : "-")} | {neu.Pieces} | {(haveOld ? old.Ms.ToString("F0") : "-")} | {neu.Ms:F0} | {(prev > 0 ? "x" + (neu.Ms / prev).ToString("F1") : "-")} | {neu.Pairs} | {neu.Intersecting} |");
                 prev = neu.Ms;
             }
+        }
+        Console.WriteLine("\nthe cost of the switch on inputs of the sizes of the corpus (E' stage 4: RegionClipping as the default): median of " + reps + " runs, ms; phases of the last run: planes (planeRep and the regions), intersect (the pair loop), merge, classification, assembly");
+        Console.WriteLine("| case | triangles | ms off | ms on | on / off | planes off / on | intersect off / on | merge off / on | classification off / on | assembly off / on |");
+        Console.WriteLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+        foreach (var (name, meshes) in SizeCases()) {
+            Run off = Measure(meshes, false, reps), on = Measure(meshes, true, reps);
+            string P(Run r, string k) => r.Phases != null && r.Phases.TryGetValue(k, out long v) ? v.ToString() : "-";
+            string Pair(string k) => P(off, k) + " / " + P(on, k);
+            Console.WriteLine($"| {name} | {meshes.Sum(m => m.TriangleCount)} | {off.Ms:F0} | {on.Ms:F0} | x{on.Ms / Math.Max(off.Ms, 0.01):F2} | {Pair("intersections.planes")} | {Pair("intersections.intersect")} | {Pair("merge")} | {Pair("classification")} | {Pair("assembly")} |");
         }
         // no coplanar cluster: two crossing capped cylinders (no face of one in a plane of the other's): the switch costs nothing
         Console.WriteLine("\nno coplanar cluster: two perpendicular capped cylinders, 128 slices");

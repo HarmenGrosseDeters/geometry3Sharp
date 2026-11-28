@@ -824,7 +824,7 @@ namespace g3
         /// meshes. A piece is output from the stack's first triangle as before: the members of a stack are triangles of other meshes, so the region of the lowest rank is that of the lowest mesh.
         /// The result is the same surface; the triangulation of coplanar clusters differs. The stack walk is not used with it.
         /// </summary>
-        internal bool RegionClipping;
+        internal bool RegionClipping = true;
 
         // the arrangement of Compute() with this instance's settings (also the one-mesh arrangement of nest_input)
         ExactMeshArrangement new_arrangement(List<DMesh3> inputs)
@@ -5361,6 +5361,10 @@ namespace g3
                     continue;
                 Index3i t = m.GetTriangle(U.Tid);
                 w -= MathUtil.TriSolidAngle(m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c), ref pv) / MathUtil.FourPI;
+                // (RegionClipping: a centroid on a flat edge of a region lies in two of its triangles: one sheet, one -1/2 or +1/2; the solid angles
+                // above stay per triangle, the tree evaluates each of them)
+                if (stack != null && RegionClipping && region_listed_before(stack, ti))
+                    continue;
                 int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
                 w -= (dot > 0) ? 0.5 : -0.5;
             }

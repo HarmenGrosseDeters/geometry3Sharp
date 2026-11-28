@@ -375,6 +375,18 @@ The area of the result is not covered:
 
 See the research note for details.
 
+### Coplanar Clusters: One Region, Fewer Cuts (Release Note, #1630)
+
+Since the switch of `RegionClipping` to on (default), the pieces of a mesh that lie in one exact plane and join along flat edges are one *region*, and another
+triangle's clip against a region no longer cuts along the flat edges inside it. **The triangulation of coplanar clusters differs; the surface is the same**:
+the result has the same exact surface (the same oriented faces and outlines, on the whole corpus run of #1742: every differing row `[exact equal]`), and
+the same `Status` and `NotCleanReason`; the vertices of the rounded result inside a coplanar face can be other points, and the triangle count differs (two fine boxes with
+flush faces and grids that do not line up: 312 triangles with regions, 324 without; fine boxes offset by (0.3, 0.1) with 7 vertices per edge: 596 against 676 for the union; none of the
+measured cases has more triangles with regions, but the coplanar walk that merged pieces is off with them, so a case with more is not excluded). A caller that compares results triangle by triangle against a result from an earlier version must compare the surface instead (the exact
+oriented faces, or `NotCleanReason`, volume, area). Regions whose triangles overlap inside one mesh (the same triangle twice, or two triangles of one mesh that
+meet in one plane without being neighbours) and regions with a culled triangle keep the old clips. The switch can be turned off per instance
+(`RegionClipping = false`, internal) for a comparison.
+
 ### By-Design Behavior (Not Defects)
 
 - **Open inputs yield open results:** The region where generalized winding number `> 0.5` is generally not closed; boundary edges remain where pieces of the open input survive. Open inputs are refused by default; this applies with `AllowOpenMeshes = true`. Close inputs first (`MeshRobustRepair`, `MeshAlphaWrap`) if a closed solid is required.
