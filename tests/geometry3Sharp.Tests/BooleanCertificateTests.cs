@@ -184,6 +184,8 @@ namespace geometry3Sharp.Tests
             BooleanCertificate cs = Certify(a, b, op, out _, cfg), ce = Certify(a, b, op, out _, cfg);
             Assert.Equal("", cs.CheckInputs()); Assert.Equal("", cs.CheckPieces());
             Assert.Equal("", ce.CheckInputs()); Assert.Equal("", ce.CheckPieces());
+            // (disable multiset cancellation so every plane reaches the #1683 AreaSkip path under test here)
+            cs.DisableChainCancellation = ce.DisableChainCancellation = true;
             ce.ForceExactAreas = true;
             return (cs.CheckResult(), ce.CheckResult(), cs, ce);
         }
@@ -227,6 +229,7 @@ namespace geometry3Sharp.Tests
                 // (a triangle and its reverse on top of the result before rounding: the chains are equal, the areas are not, and the
                 // plane has both orientations)
                 BooleanCertificate sheet = BooleanCertificate.From(eb);
+                sheet.DisableChainCancellation = true;
                 sheet.ForceExactAreas = force;
                 sheet.Assembled = Copy(sheet.Assembled);
                 Index3i t = sheet.Assembled.GetTriangle(sheet.Assembled.TriangleIndices().First());
@@ -1295,6 +1298,90 @@ namespace geometry3Sharp.Tests
             double maxAbs = eb.Result.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
             Assert.True(c.CoverageSlack >= maxAbs / (1L << 40), $"slack {c.CoverageSlack:R}, coordinates up to {maxAbs:R}");
             Assert.True(c.CoverageSlack <= 4 * (maxAbs + 4) / (1L << 40), $"slack {c.CoverageSlack:R}: not the coordinates' (too large)");
+        }
+
+        [Fact]
+        public void CheckSameChain_MultisetCancellation_MatchesUncanceledAndCatchesMutants()
+        {
+            DMesh3 a = new Sphere3Generator_NormalizedCube() { Radius = 1.0, EdgeVertices = 4 }.Generate().MakeDMesh();
+            DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 1.0, EdgeVertices = 4 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(b, new Vector3d(0.6, 0.25, 0.125));
+            foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
+                BooleanCertificate on = BooleanCertificate.Run(a, b, op, out ExactMeshBoolean eb, x => {
+                    if (op == Ops.Intersection) x.CullOutsideA = false;
+                });
+                Assert.Equal("", on.Check());
+                Assert.True(on.CanceledTriangles > 0, $"{op}: expected untouched sphere triangles to cancel");
+
+                BooleanCertificate off = BooleanCertificate.From(eb);
+                off.DisableChainCancellation = true;
+                Assert.Equal("", off.Check());
+                Assert.Equal(0, off.CanceledTriangles);
+
+                // Seeded mutant 1: opposite-orientation double sheet injected into Assembled must NOT cancel and MUST be rejected
+                BooleanCertificate dbl = BooleanCertificate.From(eb);
+                dbl.Assembled = new DMesh3(dbl.Assembled, false, MeshComponents.None);
+                int t0 = dbl.Assembled.TriangleIndices().First();
+                Index3i tri0 = dbl.Assembled.GetTriangle(t0);
+                // append fresh vertices at identical exact positions so DMesh3 accepts opposing duplicate sheet
+                var exList = dbl.AssembledExact.ToList();
+                int AddCopy(int vid) {
+                    int nv = dbl.Assembled.AppendVertex(dbl.Assembled.GetVertex(vid));
+                    while (exList.Count <= nv) exList.Add(default(ExactPoint3));
+                    exList[nv] = dbl.AssembledExact[vid];
+                    return nv;
+                }
+                int u0 = AddCopy(tri0.a), u1 = AddCopy(tri0.b), u2 = AddCopy(tri0.c);
+                int w0 = AddCopy(tri0.a), w1 = AddCopy(tri0.b), w2 = AddCopy(tri0.c);
+                dbl.AssembledExact = exList.ToArray();
+                dbl.Assembled.AppendTriangle(u0, u1, u2);
+                dbl.Assembled.AppendTriangle(w0, w2, w1);
+                Assert.Contains("another area", dbl.Check(false));
+
+                // Seeded mutant 2: reversed triangle in Assembled must NOT cancel with kept piece
+                BooleanCertificate rev = BooleanCertificate.From(eb);
+                rev.Assembled = new DMesh3(rev.Assembled, false, MeshComponents.None);
+                rev.Assembled.ReverseTriOrientation(t0);
+                Assert.NotEqual("", rev.Check(false));
+
+                // Seeded mutant 3: duplicate kept piece (multiplicity 2 in E vs 1 in E_s) must NOT cancel cleanly
+                BooleanCertificate dup = BooleanCertificate.From(eb);
+                int keptIdx = Array.IndexOf(dup.Keep, true);
+                dup.PieceMesh = dup.PieceMesh.Concat(new[] { dup.PieceMesh[keptIdx] }).ToArray();
+                dup.PieceSource = dup.PieceSource.Concat(new[] { dup.PieceSource[keptIdx] }).ToArray();
+                dup.PieceCorners = dup.PieceCorners.Concat(new[] { dup.PieceCorners[keptIdx] }).ToArray();
+                dup.Front = dup.Front.Concat(new[] { dup.Front[keptIdx] }).ToArray();
+                dup.Keep = dup.Keep.Concat(new[] { true }).ToArray();
+                dup.Flip = dup.Flip.Concat(new[] { dup.Flip[keptIdx] }).ToArray();
+                Assert.NotEqual("", dup.CheckResult());
+
+                // Seeded mutant 4: 3-distinct-vertex collinear degenerate triangle injected identically into both E and E_s must NOT cancel silently
+                BooleanCertificate col = BooleanCertificate.From(eb);
+                col.Assembled = new DMesh3(col.Assembled, false, MeshComponents.None);
+                ExactPoint3 g0 = ExactPoint3.FromInteger(0, 0, 0), g1 = ExactPoint3.FromInteger(1, 0, 0), g2 = ExactPoint3.FromInteger(2, 0, 0);
+                // Convert grid collinear points to input coords via the same Center / ScaleExp
+                ExactPoint3 GridToIn(ExactPoint3 g) {
+                    BigInteger x = g.X + col.Center[0] * g.W, y = g.Y + col.Center[1] * g.W, z = g.Z + col.Center[2] * g.W, w = g.W;
+                    if (col.ScaleExp >= 0) { x <<= col.ScaleExp; y <<= col.ScaleExp; z <<= col.ScaleExp; }
+                    else w <<= -col.ScaleExp;
+                    return ExactPoint3.Create(x, y, z, w);
+                }
+                col.PieceMesh = col.PieceMesh.Concat(new[] { col.PieceMesh[keptIdx] }).ToArray();
+                col.PieceSource = col.PieceSource.Concat(new[] { col.PieceSource[keptIdx] }).ToArray();
+                col.PieceCorners = col.PieceCorners.Concat(new[] { new[] { g0, g1, g2 } }).ToArray();
+                col.Front = col.Front.Concat(new[] { col.Front[keptIdx] }).ToArray();
+                col.Keep = col.Keep.Concat(new[] { true }).ToArray();
+                col.Flip = col.Flip.Concat(new[] { false }).ToArray();
+                int c0 = col.Assembled.AppendVertex(Vector3d.Zero);
+                int c1 = col.Assembled.AppendVertex(new Vector3d(1, 0, 0));
+                int c2 = col.Assembled.AppendVertex(new Vector3d(2, 0, 0));
+                var colEx = col.AssembledExact.ToList();
+                while (colEx.Count <= c2) colEx.Add(default(ExactPoint3));
+                colEx[c0] = GridToIn(g0); colEx[c1] = GridToIn(g1); colEx[c2] = GridToIn(g2);
+                col.AssembledExact = colEx.ToArray();
+                col.Assembled.AppendTriangle(c0, c1, c2);
+                Assert.Contains("is degenerate", col.CheckResult());
+            }
         }
 
         static readonly System.Numerics.BigInteger BigIntegerOne = System.Numerics.BigInteger.One;

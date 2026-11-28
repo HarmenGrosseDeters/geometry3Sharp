@@ -365,6 +365,8 @@ namespace geometry3Sharp.Tests
                         if (InteriorsDisjointInPlane(triCorners[u], triCorners[v]) == false) { notEmbedded.Add(regionOf[u]); notEmbedded.Add(regionOf[v]); }
                     }
                 }
+            for (int t = 0; t < nt; ++t)
+                if (TriCulled[t]) notEmbedded.Add(regionOf[t]);
             if (notEmbedded.Count > 0) {
                 var single = new List<int>();
                 for (int t = 0; t < nt; ++t) if (notEmbedded.Contains(regionOf[t])) single.Add(t);
@@ -1745,10 +1747,44 @@ namespace geometry3Sharp.Tests
             return "";
         }
 
+        static int CompareExactPoint(ExactPoint3 a, ExactPoint3 b)
+        {
+            int c = a.X.CompareTo(b.X); if (c != 0) return c;
+            c = a.Y.CompareTo(b.Y); if (c != 0) return c;
+            c = a.Z.CompareTo(b.Z); if (c != 0) return c;
+            return a.W.CompareTo(b.W);
+        }
+
+        // canonical cyclic key of an oriented triangle of reduced ExactPoint3 corners: (a,b,c), (b,c,a), (c,a,b) share one key;
+        // the opposite orientation (a,c,b) has a distinct key (so opposite triangles never cancel each other).
+        struct OrientedTriKey : IEquatable<OrientedTriKey>
+        {
+            public readonly ExactPoint3 A, B, C;
+            public readonly int Hash;
+
+            public OrientedTriKey(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c)
+            {
+                if (CompareExactPoint(b, a) < 0 && CompareExactPoint(b, c) <= 0) { A = b; B = c; C = a; }
+                else if (CompareExactPoint(c, a) < 0 && CompareExactPoint(c, b) < 0) { A = c; B = a; C = b; }
+                else { A = a; B = b; C = c; }
+                unchecked {
+                    int h = 17;
+                    h = h * 31 + A.GetHashCode();
+                    h = h * 31 + B.GetHashCode();
+                    h = h * 31 + C.GetHashCode();
+                    Hash = h;
+                }
+            }
+
+            public bool Equals(OrientedTriKey other) => A.Equals(other.A) && B.Equals(other.B) && C.Equals(other.C);
+            public override bool Equals(object obj) => obj is OrientedTriKey o && Equals(o);
+            public override int GetHashCode() => Hash;
+        }
+
         // per plane, the boundary of (kept pieces) - (result before rounding) is zero
         string CheckSameChain()
         {
-            AreaPlanesExact = AreaPlanesSkipped = 0;
+            AreaPlanesExact = AreaPlanesSkipped = CanceledTriangles = 0;
             // (plane, line) -> events (position along the line, weight)
             var lines = new Dictionary<string, List<(ExactPoint3 p, BigInteger[] dir, int w, bool start)>>();
             // per plane: the unsigned projected area of each side (num, den), on the axis of the normal's largest component
@@ -1787,15 +1823,68 @@ namespace geometry3Sharp.Tests
                 }
                 return true;
             }
-            for (int i = 0; i < PieceCorners.Length; ++i) {
-                if (Keep[i] == false) continue;
-                ExactPoint3[] c = PieceCorners[i].Select(ToInput).ToArray();
-                if ((Flip[i] ? AddTriangle(c[0], c[2], c[1], 1) : AddTriangle(c[0], c[1], c[2], 1)) == false) return $"kept piece {i} is degenerate";
-            }
-            foreach (int t in Assembled.TriangleIndices()) {
-                Index3i tri = Assembled.GetTriangle(t);
-                if (AddTriangle(AssembledExact[tri.a], AssembledExact[tri.b], AssembledExact[tri.c], -1) == false)
-                    return $"triangle {t} of the result before rounding is degenerate";
+            if (DisableChainCancellation) {
+                for (int i = 0; i < PieceCorners.Length; ++i) {
+                    if (Keep[i] == false) continue;
+                    ExactPoint3[] c = PieceCorners[i].Select(ToInput).ToArray();
+                    if ((Flip[i] ? AddTriangle(c[0], c[2], c[1], 1) : AddTriangle(c[0], c[1], c[2], 1)) == false) return $"kept piece {i} is degenerate";
+                }
+                foreach (int t in Assembled.TriangleIndices()) {
+                    Index3i tri = Assembled.GetTriangle(t);
+                    if (AddTriangle(AssembledExact[tri.a], AssembledExact[tri.b], AssembledExact[tri.c], -1) == false)
+                        return $"triangle {t} of the result before rounding is degenerate";
+                }
+            } else {
+                // exact multiset cancellation of identical oriented triangles (a,b,c) in E and E_s:
+                // subtracting the same multiset C of non-degenerate oriented triangles from both E and E_s leaves both
+                // the oriented chain [E]-[E_s] and the per-plane unsigned area difference Area(E_P)-Area(E_s,P) identical.
+                var entries = new List<(OrientedTriKey key, int pieceIdx, int triId, int count, bool nonDegenVerified)>();
+                var map = new Dictionary<OrientedTriKey, int>();
+                for (int i = 0; i < PieceCorners.Length; ++i) {
+                    if (Keep[i] == false) continue;
+                    ExactPoint3[] c = PieceCorners[i].Select(ToInput).ToArray();
+                    ExactPoint3 a = c[0], b = Flip[i] ? c[2] : c[1], d = Flip[i] ? c[1] : c[2];
+                    if (a.Equals(b) || b.Equals(d) || d.Equals(a)) return $"kept piece {i} is degenerate";
+                    var k = new OrientedTriKey(a, b, d);
+                    if (map.TryGetValue(k, out int idx) == false) {
+                        map[k] = entries.Count;
+                        entries.Add((k, i, -1, 1, false));
+                    } else {
+                        var cur = entries[idx];
+                        entries[idx] = (cur.key, cur.pieceIdx, cur.triId, cur.count + 1, cur.nonDegenVerified);
+                    }
+                }
+                foreach (int t in Assembled.TriangleIndices()) {
+                    Index3i tri = Assembled.GetTriangle(t);
+                    ExactPoint3 a = AssembledExact[tri.a], b = AssembledExact[tri.b], d = AssembledExact[tri.c];
+                    if (a.Equals(b) || b.Equals(d) || d.Equals(a)) return $"triangle {t} of the result before rounding is degenerate";
+                    var k = new OrientedTriKey(a, b, d);
+                    if (map.TryGetValue(k, out int idx) == false) {
+                        map[k] = entries.Count;
+                        entries.Add((k, -1, t, -1, false));
+                    } else {
+                        var cur = entries[idx];
+                        bool verified = cur.nonDegenVerified;
+                        if (cur.count > 0) {
+                            // cancelling a pair: verify non-degeneracy once per unique key so collinear degenerates never cancel
+                            if (verified == false) {
+                                if (IsZero(Normal(cur.key.A, cur.key.B, cur.key.C))) return $"kept piece {cur.pieceIdx} is degenerate";
+                                verified = true;
+                            }
+                            CanceledTriangles++;
+                        }
+                        entries[idx] = (cur.key, cur.pieceIdx, cur.triId < 0 ? t : cur.triId, cur.count - 1, verified);
+                    }
+                }
+                for (int e = 0; e < entries.Count; ++e) {
+                    var cur = entries[e];
+                    if (cur.count == 0) continue;
+                    int sign = cur.count > 0 ? 1 : -1;
+                    int mult = Math.Abs(cur.count);
+                    for (int m = 0; m < mult; ++m)
+                        if (AddTriangle(cur.key.A, cur.key.B, cur.key.C, sign) == false)
+                            return sign > 0 ? $"kept piece {cur.pieceIdx} is degenerate" : $"triangle {cur.triId} of the result before rounding is degenerate";
+                }
             }
             foreach (var kv in lines) {
                 // position along dir: (p . dir) / p.W; an interval from its start to its end adds w (start < end) or -w
@@ -1847,6 +1936,10 @@ namespace geometry3Sharp.Tests
 
         /// <summary> for tests: take the exact sums of the plane areas in every plane (the path before the skip of single-orientation planes, #1683 follow-up) </summary>
         public bool ForceExactAreas;
+        /// <summary> for tests: disable exact multiset oriented-triangle cancellation in CheckSameChain </summary>
+        public bool DisableChainCancellation;
+        /// <summary> identical oriented (E, E_s) triangle pairs cancelled before the boundary/area sweep of the last C5 </summary>
+        public int CanceledTriangles;
         /// <summary> the planes of the last C5 whose areas needed the exact sums (both orientations, or forced) and those that did not (0 and 0 where an earlier check of C5 failed: counted once the boundary check passed) </summary>
         public int AreaPlanesExact, AreaPlanesSkipped;
 

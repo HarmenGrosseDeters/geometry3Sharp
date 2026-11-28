@@ -237,6 +237,16 @@ namespace gs
         public int InventedTriangles;
         /// <summary> Verification RoundingVolume: |RoundingVolumeAfter - RoundingVolumeBefore| / |RoundingVolumeBefore| (0 when that is 0, or no rounding repair ran), the value MaxRoundingVolumeChange is compared with </summary>
         public double RoundingVolumeChange;
+        /// <summary> Verification ExactQuantities: certified interval [ExactVolumeMin, ExactVolumeMax] enclosing the exact unrounded boolean result's signed volume in input units (0 when ExactQuantities is off or empty) </summary>
+        public double ExactVolumeMin, ExactVolumeMax;
+        /// <summary> Verification ExactQuantities: certified interval [ExactAreaMin, ExactAreaMax] enclosing the exact unrounded boolean result's surface area in input units (0 when ExactQuantities is off or empty) </summary>
+        public double ExactAreaMin, ExactAreaMax;
+        /// <summary> Verification TopologyPreservation: connected-component count and Euler characteristic (V - E + F) of the exact unrounded result E_s (0 when TopologyPreservation is off) </summary>
+        public int ExactComponents, ExactEulerCharacteristic;
+        /// <summary> Verification TopologyPreservation: connected-component count and Euler characteristic (V - E + F) after rounding, before MinThickness and reduction (0 when TopologyPreservation is off) </summary>
+        public int RoundedComponents, RoundedEulerCharacteristic;
+        /// <summary> Verification TopologyPreservation: connected-component count and Euler characteristic (V - E + F) of the final post-reduction result (0 when TopologyPreservation is off) </summary>
+        public int ReducedComponents, ReducedEulerCharacteristic;
         /// <summary> the time of the Verification checks (0 without them) </summary>
         public long VerificationMilliseconds;
         /// <summary> the solids of the boolean result that MinThickness removed (empty without it) </summary>
@@ -470,8 +480,8 @@ namespace gs
             /// </summary>
             InsideOutInput = 8,
             /// <summary>
-            /// Verification measured a result that exceeds a limit (MaxInventedSurfaceShare or MaxRoundingVolumeChange); Result is null, Error names the check,
-            /// the measured value and the limit, and Report keeps the run (the route with its Verification step, the measurements)
+            /// Verification refused the result (NoInventedSurface, RoundingVolume, ExactQuantities, TopologyPreservation, or InputIntentGuard);
+            /// Result is null, Error names the check(s), measured values and limits, and Report keeps the run (the route with its Verification step and measurements)
             /// </summary>
             VerificationFailed = 9
         }
@@ -493,7 +503,27 @@ namespace gs
             /// the volume that the rounding repair moved (Report.RoundingVolumeBefore, RoundingVolumeAfter) stays within MaxRoundingVolumeChange of the
             /// volume before it, unless the change is below a floor for slivers (see Verification)
             /// </summary>
-            RoundingVolume = 2
+            RoundingVolume = 2,
+            /// <summary>
+            /// computes certified double interval enclosures [Report.ExactVolumeMin, ExactVolumeMax] and [ExactAreaMin, ExactAreaMax]
+            /// directly from the exact unrounded surface E_s (before rounding and before reduction), and checks the per-component shifted
+            /// post-rounding volume against that interval plus MaxRoundingVolumeChange (immune to UTM / distant-component cancellation)
+            /// </summary>
+            ExactQuantities = 4,
+            /// <summary>
+            /// compares connected-component counts, Euler characteristics (V - E + F), closedness, and per-component ExactPredicates.VolumeSign
+            /// between the pre-rounding assembled mesh E_s (exact topology, double-rounded coordinates for VolumeSign), the post-rounding result
+            /// (accounting for documented RoundingRemoved drops), and the post-reduction result (accounting for MinThickness removed shells).
+            /// Reports topological invariants honestly; does not claim ambient isotopy below the rounding bound
+            /// </summary>
+            TopologyPreservation = 8,
+            /// <summary>
+            /// fails closed (VerificationFailed) when any closed input has winding number outside {0, 1} (Report.InputsWithWindingOutsideZeroOne,
+            /// eg an outward-pointing cavity wall or self-overlapping input) or when a non-empty exact result becomes EmptyAfterRounding
+            /// </summary>
+            InputIntentGuard = 16,
+            /// <summary> convenience preset combining NoInventedSurface, RoundingVolume, ExactQuantities, and TopologyPreservation </summary>
+            Standard = NoInventedSurface | RoundingVolume | ExactQuantities | TopologyPreservation
         }
 
         /// <summary>
@@ -690,7 +720,13 @@ namespace gs
         /// the volume of a component of area A by at most length * A, so a slab thinner than the length may lose or gain all of its volume legitimately (the
         /// repair removes such a component), which a purely relative rule would refuse. The parts that are thicker are judged by their own change alone, so a
         /// thin part never hides a loss of a thick one. A volume or floor that is not finite fails. Report.RoundingVolumeChange is
-        /// dV / |RoundingVolumeBefore| of the whole result (0 when that is 0, or when no rounding repair ran)
+        /// dV / |RoundingVolumeBefore| of the whole result (0 when that is 0, or when no rounding repair ran).
+        /// ExactQuantities: encloses the exact unrounded surface E_s in certified intervals [ExactVolumeMin, ExactVolumeMax] and
+        /// [ExactAreaMin, ExactAreaMax] and checks the per-component shifted post-rounding volume against MaxRoundingVolumeChange and the floor.
+        /// TopologyPreservation: verifies connected components, Euler characteristic (V - E + F), closedness, and per-component VolumeSign across
+        /// exact E_s, post-rounding (accounting for RoundingRemoved), post-MinThickness (accounting for RemovedThinSolids shells), and post-reduction.
+        /// InputIntentGuard: refuses (VerificationFailed) when InputsWithWindingOutsideZeroOne is non-empty or ResultKind would be EmptyAfterRounding.
+        /// Standard combines NoInventedSurface | RoundingVolume | ExactQuantities | TopologyPreservation
         /// </summary>
         public VerificationModes Verification = VerificationModes.None;
         /// <summary> NoInventedSurface: the share of the result's area that may be invented (default 0: a tolerance that is a real bound makes the share of a correct result exactly 0, so any invented triangle is evidence); PositiveInfinity measures and reports only. Negative or NaN: InvalidInput </summary>
@@ -1178,6 +1214,15 @@ namespace gs
             roundingThinParts = 0;
             roundingMeasureMs = 0;
             roundingBound = 0;
+            exactQtyMeasured = false;
+            exactRoundedVolume = 0;
+            exactQtyMeasureMs = 0;
+            topoMeasured = false;
+            topoMeasureMs = 0;
+            exactTopo = default(TopologySnapshot);
+            roundedTopo = default(TopologySnapshot);
+            preReduceTopo = default(TopologySnapshot);
+            reducedTopo = default(TopologySnapshot);
             VerificationSamples = 0;
             VerificationFallbacks = 0;
 
@@ -1196,7 +1241,9 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "InputGrid must be 0 or a positive power of two", total);
             if ((AutomaticSteps & ~(AutomaticStepModes.Grid | AutomaticStepModes.GridBeforeFallback | AutomaticStepModes.GridAfterRoundingNotClean)) != 0)
                 return fail(PipelineStatus.InvalidInput, "AutomaticSteps is not a defined value", total);
-            if ((Verification & ~(VerificationModes.NoInventedSurface | VerificationModes.RoundingVolume)) != 0)
+            const VerificationModes allVerification = VerificationModes.NoInventedSurface | VerificationModes.RoundingVolume
+                | VerificationModes.ExactQuantities | VerificationModes.TopologyPreservation | VerificationModes.InputIntentGuard;
+            if ((Verification & ~allVerification) != 0)
                 return fail(PipelineStatus.InvalidInput, "Verification is not a defined value", total);
             if (!(MaxInventedSurfaceShare >= 0) || !(MaxRoundingVolumeChange >= 0))
                 return fail(PipelineStatus.InvalidInput, "MaxInventedSurfaceShare and MaxRoundingVolumeChange must not be negative or NaN", total);
@@ -1413,15 +1460,37 @@ namespace gs
             DMesh3 mesh = thinOnly ? op.Rounding.Mesh : op.Result;
             BooleanStatus = op.Status;
             Report.BooleanTriangles = mesh.TriangleCount;
-            // Verification RoundingVolume: the change of the parts that the rounding may move without a relative reading (RoundingVolumeThinChangeOf), of this
+            // Verification RoundingVolume / ExactQuantities: the change of the parts that the rounding may move without a relative reading (RoundingVolumeThinChangeOf), of this
             // run's boolean result (a later run, the retry or the fallback, replaces it; its time is counted only if it is the run that is the result)
             roundingExplained = 0;
             roundingThinParts = 0;
             roundingMeasureMs = 0;
-            if ((Verification & VerificationModes.RoundingVolume) != 0 && roundingRan && op.Rounding != null) {
+            if ((Verification & (VerificationModes.RoundingVolume | VerificationModes.ExactQuantities)) != 0 && roundingRan && op.Rounding != null) {
                 var partsClock = Stopwatch.StartNew();
                 roundingExplained = RoundingVolumeThinChangeOf(op.Rounding, mesh, out roundingThinParts);
                 roundingMeasureMs = partsClock.ElapsedMilliseconds;
+            }
+            if ((Verification & VerificationModes.ExactQuantities) != 0) {
+                var qtyClock = Stopwatch.StartNew();
+                double vMin, vMax, aMin, aMax;
+                exactQtyMeasured = ComputeExactQuantities(op, out vMin, out vMax, out aMin, out aMax);
+                Report.ExactVolumeMin = vMin;
+                Report.ExactVolumeMax = vMax;
+                Report.ExactAreaMin = aMin;
+                Report.ExactAreaMax = aMax;
+                exactRoundedVolume = ComponentShiftedVolume(mesh);
+                exactQtyMeasureMs = qtyClock.ElapsedMilliseconds;
+            }
+            if ((Verification & VerificationModes.TopologyPreservation) != 0) {
+                var topoClock = Stopwatch.StartNew();
+                exactTopo = MeasureTopology(op.CertificateAssembled);
+                roundedTopo = MeasureTopology(mesh);
+                Report.ExactComponents = exactTopo.Components;
+                Report.ExactEulerCharacteristic = exactTopo.Euler;
+                Report.RoundedComponents = roundedTopo.Components;
+                Report.RoundedEulerCharacteristic = roundedTopo.Euler;
+                topoMeasured = true;
+                topoMeasureMs = topoClock.ElapsedMilliseconds;
             }
             // the sheet route followed the orientation of the sheets as given: the share of the first input that the Difference removed goes
             // into the steps, so that a sheet oriented the other way than meant shows (the volumes in doubles: a number for the reader)
@@ -1445,6 +1514,14 @@ namespace gs
                 // (the contacts of what is left: the pair pass of PairContactsMode Auto depends on them; BooleanTriangles stays the boolean's count)
                 if (Report.RemovedThinSolids.Count > 0)
                     Report.ContactsBoolean = countContacts(mesh, null);
+            }
+            if ((Verification & VerificationModes.TopologyPreservation) != 0) {
+                if (Report.RemovedThinSolids.Count > 0) {
+                    var topoClock = Stopwatch.StartNew();
+                    preReduceTopo = MeasureTopology(mesh);
+                    topoMeasureMs += topoClock.ElapsedMilliseconds;
+                } else
+                    preReduceTopo = roundedTopo;
             }
 
             // Verification NoInventedSurface: the boolean's result against the inputs as passed (before the reduction, see Verification)
@@ -1510,6 +1587,14 @@ namespace gs
                 if (Cancellation.IsCancellationRequested)
                     return fail(PipelineStatus.Cancelled, "cancelled", total);
                 Report.FinalCheckMilliseconds += clock.ElapsedMilliseconds;
+            }
+
+            if ((Verification & VerificationModes.TopologyPreservation) != 0) {
+                var topoClock = Stopwatch.StartNew();
+                reducedTopo = MeasureTopology(result);
+                Report.ReducedComponents = reducedTopo.Components;
+                Report.ReducedEulerCharacteristic = reducedTopo.Euler;
+                topoMeasureMs += topoClock.ElapsedMilliseconds;
             }
 
             Result = result;
@@ -2480,8 +2565,9 @@ namespace gs
             op.AllowOpenMeshes = false;
             op.StrictRounding = true;
             op.Cancellation = Cancellation;
-            // (the rounding repair that this boolean creates records the components it found, for RoundingVolume)
-            MeshRoundingRepair.RecordComponentsOfNewRepairs = (Verification & VerificationModes.RoundingVolume) != 0;
+            op.RecordCertificate = (Verification & (VerificationModes.ExactQuantities | VerificationModes.TopologyPreservation)) != 0;
+            // (the rounding repair that this boolean creates records the components it found, for RoundingVolume / ExactQuantities)
+            MeshRoundingRepair.RecordComponentsOfNewRepairs = (Verification & (VerificationModes.RoundingVolume | VerificationModes.ExactQuantities)) != 0;
             try {
                 op.Compute();
             } finally {
@@ -2500,6 +2586,14 @@ namespace gs
         double roundingExplained;
         int roundingThinParts;
         long roundingMeasureMs;
+        // ExactQuantities: whether the exact surface E_s was measured, the local-shifted rounded volume before MinThickness/reduction, and time taken
+        bool exactQtyMeasured;
+        double exactRoundedVolume;
+        long exactQtyMeasureMs;
+        // TopologyPreservation: snapshots of exact E_s, post-rounding, pre-reduction (post-MinThickness), and final post-reduction meshes
+        bool topoMeasured;
+        long topoMeasureMs;
+        TopologySnapshot exactTopo, roundedTopo, preReduceTopo, reducedTopo;
         // the bound that the rounding repair of the run's last boolean applied (MeshRoundingRepair.MaxLength: the largest over the components of the mesh before
         // the repair), 0 if it did not run
         double roundingBound;
@@ -2756,6 +2850,69 @@ namespace gs
                             + r(MaxRoundingVolumeChange) + " and the floor " + r(floor));
                 }
             }
+            if ((Verification & VerificationModes.ExactQuantities) != 0) {
+                Report.VerificationMilliseconds += exactQtyMeasureMs;
+                if ((Verification & VerificationModes.RoundingVolume) == 0)
+                    Report.VerificationMilliseconds += roundingMeasureMs;
+                if (!exactQtyMeasured) {
+                    if (Result.TriangleCount > 0)
+                        failures.Add("ExactQuantities: exact boolean surface was not recorded for a non-empty result");
+                    else
+                        text.Add("ExactQuantities: no boolean surface, volume [0, 0], area [0, 0]");
+                } else {
+                    double vLo = Report.ExactVolumeMin, vHi = Report.ExactVolumeMax;
+                    double aLo = Report.ExactAreaMin, aHi = Report.ExactAreaMax;
+                    double floor = RoundingVolumeFloor();
+                    double adjusted = exactRoundedVolume - roundingExplained;
+                    double dV = adjusted < vLo ? vLo - adjusted : (adjusted > vHi ? adjusted - vHi : 0.0);
+                    double basis = Math.Max(Math.Abs(vLo), Math.Abs(vHi));
+                    text.Add("ExactQuantities: exact volume [" + r(vLo) + ", " + r(vHi) + "], exact area [" + r(aLo) + ", " + r(aHi)
+                        + "], rounded volume " + r(exactRoundedVolume) + ", distance to interval " + r(dV) + " (limit " + r(MaxRoundingVolumeChange) + ", floor " + r(floor) + ")");
+                    if (!IsFinite(vLo) || !IsFinite(vHi) || !IsFinite(aLo) || !IsFinite(aHi) || !IsFinite(exactRoundedVolume) || !IsFinite(roundingExplained) || !IsFinite(dV) || !IsFinite(floor))
+                        failures.Add("ExactQuantities: exact or rounded quantity is not finite (volume [" + r(vLo) + ", " + r(vHi) + "], area [" + r(aLo) + ", " + r(aHi) + "], rounded " + r(exactRoundedVolume) + ")");
+                    else if (!double.IsPositiveInfinity(MaxRoundingVolumeChange) && (basis > 0 ? dV > MaxRoundingVolumeChange * basis : dV > 0) && dV > floor)
+                        failures.Add("ExactQuantities: rounded volume " + r(exactRoundedVolume) + " (adjusted " + r(adjusted) + ") differs from exact volume interval [" + r(vLo) + ", " + r(vHi)
+                            + "] by " + r(dV) + ", more than MaxRoundingVolumeChange " + r(MaxRoundingVolumeChange) + " and floor " + r(floor));
+                }
+            }
+            if ((Verification & VerificationModes.TopologyPreservation) != 0) {
+                Report.VerificationMilliseconds += topoMeasureMs;
+                if (!topoMeasured) {
+                    if (Result.TriangleCount > 0)
+                        failures.Add("TopologyPreservation: exact boolean surface was not recorded for a non-empty result");
+                    else
+                        text.Add("TopologyPreservation: no boolean surface (0 components, Euler 0)");
+                } else {
+                    text.Add("TopologyPreservation: exact (" + Report.ExactComponents + " comp, Euler " + Report.ExactEulerCharacteristic
+                        + ") -> rounded (" + Report.RoundedComponents + " comp, Euler " + Report.RoundedEulerCharacteristic
+                        + ") -> reduced (" + Report.ReducedComponents + " comp, Euler " + Report.ReducedEulerCharacteristic + ")");
+                    string why;
+                    if (!TopologyMatches(exactTopo, roundedTopo, Report.RoundingRemoved.Count, out why))
+                        failures.Add("TopologyPreservation (exact -> rounded): " + why);
+                    if (Report.RemovedThinSolids.Count > 0) {
+                        int removedShells = 0;
+                        foreach (SolidBooleanThinSolid s in Report.RemovedThinSolids)
+                            removedShells += s.Shells;
+                        if (!TopologyMatches(roundedTopo, preReduceTopo, removedShells, out why))
+                            failures.Add("TopologyPreservation (rounded -> post-MinThickness): " + why);
+                    }
+                    if (!TopologyMatches(preReduceTopo, reducedTopo, 0, out why))
+                        failures.Add("TopologyPreservation (pre-reduction -> reduced): " + why);
+                }
+            }
+            if ((Verification & VerificationModes.InputIntentGuard) != 0) {
+                bool intentFail = false;
+                if (Report.InputsWithWindingOutsideZeroOne.Count > 0) {
+                    intentFail = true;
+                    failures.Add("InputIntentGuard: closed input(s) [" + string.Join(", ", Report.InputsWithWindingOutsideZeroOne)
+                        + "] have winding number outside {0, 1} (outward cavity wall or self-overlapping input)");
+                }
+                if (KindOf(Status, Result, Report, ThinInputs, Operation) == SolidBooleanResultKind.EmptyAfterRounding) {
+                    intentFail = true;
+                    failures.Add("InputIntentGuard: result is EmptyAfterRounding (non-empty exact boolean result was emptied by rounding, thin-solid removal, or ThinInputs.TreatAsEmpty)");
+                }
+                text.Add(intentFail ? "InputIntentGuard: refused" : "InputIntentGuard: ok");
+            }
             step("Verification", -1, "Verification = " + Verification, string.Join("; ", text) + (failures.Count > 0 ? "; refused" : "; passed"));
             Report.VerificationMilliseconds += clock.ElapsedMilliseconds;
             if (failures.Count == 0) {
@@ -2763,6 +2920,476 @@ namespace gs
                 return true;
             }
             return fail(PipelineStatus.VerificationFailed, string.Join("; ", failures), total);
+        }
+
+        // ---- ExactQuantities (sound ExactInterval volume & area enclosure on exact E_s) ----
+
+        struct ExactInterval3
+        {
+            public readonly ExactInterval X, Y, Z;
+            public ExactInterval3(ExactInterval x, ExactInterval y, ExactInterval z) { X = x; Y = y; Z = z; }
+            public static ExactInterval3 operator -(ExactInterval3 a, ExactInterval3 b) => new ExactInterval3(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
+            public ExactInterval3 Cross(ExactInterval3 b) => new ExactInterval3(Y * b.Z - Z * b.Y, Z * b.X - X * b.Z, X * b.Y - Y * b.X);
+            public ExactInterval Dot(ExactInterval3 b) => X * b.X + Y * b.Y + Z * b.Z;
+        }
+
+        // Power-of-two exponent S with 2^S >= x for strictly positive finite double x (so ScaleB(x, -S) lies in [0.5, 1) for normal x)
+        internal static int CeilLog2(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int rawExp = (int)((bits >> 52) & 0x7FF);
+            if (rawExp == 0) {
+                // subnormal: scale up by 2^54 into the normal range
+                double scaled = ExactPoint3.ScaleB(x, 54);
+                int sExp = (int)((BitConverter.DoubleToInt64Bits(scaled) >> 52) & 0x7FF) - 1023;
+                return sExp - 54 + 1;
+            }
+            return rawExp - 1023 + 1;
+        }
+
+        internal static int ClampExp(long exp) => exp < -4096 ? -4096 : (exp > 4096 ? 4096 : (int)exp);
+
+        /// <summary>
+        /// Signed volume of a mesh computed per connected component shifted to each component's first triangle-referenced vertex
+        /// using (p - o) . ((q - p) x (r - p)) / 6. Ignores unreferenced vertices and avoids catastrophic cancellation on
+        /// UTM / distant multi-component results.
+        /// </summary>
+        internal static double ComponentShiftedVolume(DMesh3 mesh)
+        {
+            if (mesh == null || mesh.TriangleCount == 0)
+                return 0;
+            var visited = new bool[mesh.MaxTriangleID];
+            var queue = new Queue<int>();
+            double total = 0;
+            foreach (int seed in mesh.TriangleIndices()) {
+                if (visited[seed]) continue;
+                visited[seed] = true;
+                queue.Enqueue(seed);
+                Vector3d o = mesh.GetVertex(mesh.GetTriangle(seed).a);
+                double compV6 = 0;
+                while (queue.Count > 0) {
+                    int t = queue.Dequeue();
+                    Index3i tv = mesh.GetTriangle(t);
+                    Vector3d p = mesh.GetVertex(tv.a), q = mesh.GetVertex(tv.b), r = mesh.GetVertex(tv.c);
+                    compV6 += (p - o).Dot((q - p).Cross(r - p));
+                    Index3i nbrs = mesh.GetTriNeighbourTris(t);
+                    for (int k = 0; k < 3; ++k) {
+                        int nt = nbrs[k];
+                        if (nt != DMesh3.InvalidID && !visited[nt]) {
+                            visited[nt] = true;
+                            queue.Enqueue(nt);
+                        }
+                    }
+                }
+                total += compV6 / 6.0;
+            }
+            return total;
+        }
+
+        static bool isClosedMesh(DMesh3 m)
+        {
+            if (m == null || m.TriangleCount == 0)
+                return false;
+            foreach (int eid in m.EdgeIndices())
+                if (m.GetEdgeT(eid).b == DMesh3.InvalidID)
+                    return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Computes sound double interval enclosures [volMin, volMax] and [areaMin, areaMax] of the exact unrounded surface E_s
+        /// (op.Arrangement kept pieces, before rounding and before reduction), in caller input units. Arrangement grid points are
+        /// already relative to arr.Center; for closed surfaces an additional local shift is applied (per component in the exact
+        /// fallback). Input vertices use deterministic Approx ± ApproxError (zero BigInteger work); implicit seam vertices use
+        /// deterministic ExactPoint3 enclosures so interval endpoints are independent of parallel thread schedules. Falls back to
+        /// per-component exact BigInteger enclosures whenever any point overflows double range or relative width exceeds 1e-11.
+        /// Serial, deterministic, scales bit-for-bit under exact 2^k coordinate scaling.
+        /// </summary>
+        internal static bool ComputeExactQuantities(ExactMeshBoolean op, out double volMin, out double volMax, out double areaMin, out double areaMax, bool forceExactFallback = false)
+        {
+            volMin = volMax = areaMin = areaMax = 0;
+            ExactMeshArrangement arr = op != null ? op.Arrangement : null;
+            bool[] keep = op != null ? op.CertificateKeep : null;
+            bool[] flip = op != null ? op.CertificateFlip : null;
+            if (arr == null || keep == null || flip == null || keep.Length != arr.Output.Count)
+                return false;
+            List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+            int firstKeptPoint = -1;
+            for (int i = 0; i < output.Count; ++i)
+                if (keep[i]) { firstKeptPoint = output[i].A; break; }
+            if (firstKeptPoint < 0)
+                return true;
+            bool canShift = isClosedMesh(op.CertificateAssembled);
+            if (!forceExactFallback && tryFastExactQuantities(arr, keep, flip, firstKeptPoint, canShift, out volMin, out volMax, out areaMin, out areaMax)) {
+                double vMag = Math.Max(Math.Abs(volMin), Math.Abs(volMax));
+                double aMag = Math.Max(Math.Abs(areaMin), Math.Abs(areaMax));
+                bool tightV = IsFinite(volMin) && IsFinite(volMax) && (vMag == 0 ? (volMax - volMin) == 0 : (volMax - volMin) <= 1e-11 * vMag);
+                bool tightA = IsFinite(areaMin) && IsFinite(areaMax) && (aMag == 0 ? (areaMax - areaMin) == 0 : (areaMax - areaMin) <= 1e-11 * aMag);
+                if (tightV && tightA)
+                    return true;
+            }
+            exactFallbackQuantities(arr, keep, flip, canShift, out volMin, out volMax, out areaMin, out areaMax);
+            return true;
+        }
+
+        static bool tryFastExactQuantities(ExactMeshArrangement arr, bool[] keep, bool[] flip, int firstKeptPoint, bool canShift,
+            out double volMin, out double volMax, out double areaMin, out double areaMax)
+        {
+            volMin = volMax = areaMin = areaMax = 0;
+            List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+            var exactImpl = new Dictionary<int, ExactPoint3>();
+            double maxAbs = 0;
+            for (int i = 0; i < output.Count; ++i) {
+                if (!keep[i]) continue;
+                var ot = output[i];
+                for (int k = 0; k < 3; ++k) {
+                    int id = k == 0 ? ot.A : k == 1 ? ot.B : ot.C;
+                    if (arr.KindOf(id) == ExactMeshArrangement.PointKind.Input) {
+                        Vector3d a = arr.Approx(id);
+                        double err = arr.ApproxError(id);
+                        if (!IsFinite(a.x) || !IsFinite(a.y) || !IsFinite(a.z) || !IsFinite(err) || err < 0)
+                            return false;
+                        // include err so maxAbs == 0 strictly implies exact (0,0,0) with zero error
+                        double m = Math.Max(err, Math.Max(Math.Abs(a.x), Math.Max(Math.Abs(a.y), Math.Abs(a.z))));
+                        if (m > maxAbs) maxAbs = m;
+                    } else {
+                        ExactPoint3 ep;
+                        if (!exactImpl.TryGetValue(id, out ep))
+                            exactImpl[id] = ep = arr.Exact(id);
+                        double dx = ExactPoint3.ToDouble(ep.X, ep.W, 0);
+                        double dy = ExactPoint3.ToDouble(ep.Y, ep.W, 0);
+                        double dz = ExactPoint3.ToDouble(ep.Z, ep.W, 0);
+                        if (!IsFinite(dx) || !IsFinite(dy) || !IsFinite(dz))
+                            return false;
+                        double m = Math.Max(Math.Abs(dx), Math.Max(Math.Abs(dy), Math.Abs(dz)));
+                        if (m == 0 && (!ep.X.IsZero || !ep.Y.IsZero || !ep.Z.IsZero))
+                            return false; // sub-double non-zero rational: use exact fallback
+                        if (m > maxAbs) maxAbs = m;
+                    }
+                }
+            }
+            if (maxAbs == 0)
+                return true;
+            int S = CeilLog2(maxAbs);
+            Vector3d shift = Vector3d.Zero;
+            if (canShift) {
+                if (arr.KindOf(firstKeptPoint) == ExactMeshArrangement.PointKind.Input) {
+                    Vector3d a0 = arr.Approx(firstKeptPoint);
+                    shift = new Vector3d(ExactPoint3.ScaleB(a0.x, -S), ExactPoint3.ScaleB(a0.y, -S), ExactPoint3.ScaleB(a0.z, -S));
+                } else {
+                    ExactPoint3 ep0 = exactImpl[firstKeptPoint];
+                    shift = new Vector3d(ExactPoint3.ToDouble(ep0.X, ep0.W, -S), ExactPoint3.ToDouble(ep0.Y, ep0.W, -S), ExactPoint3.ToDouble(ep0.Z, ep0.W, -S));
+                }
+            }
+            var cache = new ExactInterval3[arr.PointCount];
+            var hasCache = new bool[arr.PointCount];
+            ExactInterval v6 = ExactInterval.Of(0), a2 = ExactInterval.Of(0);
+            for (int i = 0; i < output.Count; ++i) {
+                if (!keep[i]) continue;
+                var ot = output[i];
+                int i0 = ot.A, i1 = flip[i] ? ot.C : ot.B, i2 = flip[i] ? ot.B : ot.C;
+                if (!hasCache[i0]) { cache[i0] = makeFastInterval3(arr, exactImpl, i0, S, canShift, shift); hasCache[i0] = true; }
+                if (!hasCache[i1]) { cache[i1] = makeFastInterval3(arr, exactImpl, i1, S, canShift, shift); hasCache[i1] = true; }
+                if (!hasCache[i2]) { cache[i2] = makeFastInterval3(arr, exactImpl, i2, S, canShift, shift); hasCache[i2] = true; }
+                ExactInterval3 p0 = cache[i0], p1 = cache[i1], p2 = cache[i2];
+                ExactInterval3 cross = (p1 - p0).Cross(p2 - p0);
+                v6 = v6 + p0.Dot(cross);
+                a2 = a2 + ExactInterval.Sqrt(ExactInterval.Square(cross.X) + ExactInterval.Square(cross.Y) + ExactInterval.Square(cross.Z));
+            }
+            ExactInterval vol = BooleanVolumeGradient.scale(v6 / ExactInterval.Of(6.0), ClampExp(3L * ((long)S + arr.ScaleExp)));
+            ExactInterval area = BooleanVolumeGradient.scale(a2 * ExactInterval.Of(0.5), ClampExp(2L * ((long)S + arr.ScaleExp)));
+            volMin = vol.Lo;
+            volMax = vol.Hi;
+            areaMin = Math.Max(0.0, area.Lo);
+            areaMax = area.Hi;
+            return true;
+        }
+
+        static ExactInterval3 makeFastInterval3(ExactMeshArrangement arr, Dictionary<int, ExactPoint3> exactImpl, int id, int S, bool canShift, Vector3d shift)
+        {
+            ExactInterval sx, sy, sz;
+            ExactPoint3 ep;
+            if (exactImpl.TryGetValue(id, out ep)) {
+                sx = BooleanVolumeGradient.enclose(ep.X, ep.W, -S);
+                sy = BooleanVolumeGradient.enclose(ep.Y, ep.W, -S);
+                sz = BooleanVolumeGradient.enclose(ep.Z, ep.W, -S);
+            } else {
+                Vector3d a = arr.Approx(id);
+                double err = arr.ApproxError(id);
+                sx = BooleanVolumeGradient.scale(ExactInterval.Of(a.x), -S);
+                sy = BooleanVolumeGradient.scale(ExactInterval.Of(a.y), -S);
+                sz = BooleanVolumeGradient.scale(ExactInterval.Of(a.z), -S);
+                if (err > 0) {
+                    ExactInterval se = BooleanVolumeGradient.scale(ExactInterval.Of(err), -S);
+                    ExactInterval eIv = new ExactInterval(-se.Hi, se.Hi);
+                    sx = sx + eIv; sy = sy + eIv; sz = sz + eIv;
+                }
+            }
+            if (canShift) {
+                sx = sx - ExactInterval.Of(shift.x);
+                sy = sy - ExactInterval.Of(shift.y);
+                sz = sz - ExactInterval.Of(shift.z);
+            }
+            return new ExactInterval3(sx, sy, sz);
+        }
+
+        static int ufFind(int[] parent, int x)
+        {
+            while (parent[x] != x) x = parent[x] = parent[parent[x]];
+            return x;
+        }
+
+        static void ufUnion(int[] parent, int a, int b)
+        {
+            a = ufFind(parent, a); b = ufFind(parent, b);
+            if (a < b) parent[b] = a;
+            else if (b < a) parent[a] = b;
+        }
+
+        static void exactFallbackQuantities(ExactMeshArrangement arr, bool[] keep, bool[] flip, bool canShift,
+            out double volMin, out double volMax, out double areaMin, out double areaMax)
+        {
+            List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+            // Group kept pieces by shared arrangement points so distant disconnected closed components each get their own exact local origin
+            var parent = new int[arr.PointCount];
+            for (int p = 0; p < parent.Length; ++p) parent[p] = p;
+            if (canShift) {
+                for (int i = 0; i < output.Count; ++i) {
+                    if (!keep[i]) continue;
+                    var ot = output[i];
+                    ufUnion(parent, ot.A, ot.B);
+                    ufUnion(parent, ot.A, ot.C);
+                }
+            }
+            var compIndices = new Dictionary<int, List<int>>();
+            var compOrder = new List<int>();
+            for (int i = 0; i < output.Count; ++i) {
+                if (!keep[i]) continue;
+                int root = canShift ? ufFind(parent, output[i].A) : 0;
+                List<int> list;
+                if (!compIndices.TryGetValue(root, out list)) {
+                    compIndices[root] = list = new List<int>();
+                    compOrder.Add(root);
+                }
+                list.Add(i);
+            }
+            var exactPts = new Dictionary<int, ExactPoint3>();
+            Func<int, ExactPoint3> getExact = id => {
+                ExactPoint3 p;
+                if (!exactPts.TryGetValue(id, out p))
+                    exactPts[id] = p = arr.Exact(id);
+                return p;
+            };
+            ExactPoint3 zeroPt = ExactPoint3.FromInteger(BigInteger.Zero, BigInteger.Zero, BigInteger.Zero);
+            ExactInterval totalVol = ExactInterval.Of(0), totalArea = ExactInterval.Of(0);
+            for (int c = 0; c < compOrder.Count; ++c) {
+                List<int> tris = compIndices[compOrder[c]];
+                ExactPoint3 origin = canShift ? getExact(output[tris[0]].A) : zeroPt;
+                long top = long.MinValue;
+                for (int ti = 0; ti < tris.Count; ++ti) {
+                    var ot = output[tris[ti]];
+                    for (int k = 0; k < 3; ++k) {
+                        ExactPoint3 p = getExact(k == 0 ? ot.A : k == 1 ? ot.B : ot.C);
+                        BigInteger dx = p.X * origin.W - origin.X * p.W;
+                        BigInteger dy = p.Y * origin.W - origin.Y * p.W;
+                        BigInteger dz = p.Z * origin.W - origin.Z * p.W;
+                        if (!dx.IsZero || !dy.IsZero || !dz.IsZero) {
+                            long mag = Math.Max(ExactPoint3.BitLength(BigInteger.Abs(dx)),
+                                Math.Max(ExactPoint3.BitLength(BigInteger.Abs(dy)), ExactPoint3.BitLength(BigInteger.Abs(dz))))
+                                - ExactPoint3.BitLength(BigInteger.Abs(p.W * origin.W)) + 1;
+                            if (mag > top) top = mag;
+                        }
+                    }
+                }
+                if (top == long.MinValue)
+                    continue;
+                int S = (int)Math.Max(int.MinValue / 4, Math.Min(int.MaxValue / 4, top));
+                var cache = new Dictionary<int, ExactInterval3>();
+                Func<int, ExactInterval3> getPt = id => {
+                    ExactInterval3 iv;
+                    if (cache.TryGetValue(id, out iv)) return iv;
+                    ExactPoint3 p = getExact(id);
+                    BigInteger den = p.W * origin.W;
+                    iv = new ExactInterval3(
+                        BooleanVolumeGradient.enclose(p.X * origin.W - origin.X * p.W, den, -S),
+                        BooleanVolumeGradient.enclose(p.Y * origin.W - origin.Y * p.W, den, -S),
+                        BooleanVolumeGradient.enclose(p.Z * origin.W - origin.Z * p.W, den, -S));
+                    cache[id] = iv;
+                    return iv;
+                };
+                ExactInterval v6 = ExactInterval.Of(0), a2 = ExactInterval.Of(0);
+                for (int ti = 0; ti < tris.Count; ++ti) {
+                    int i = tris[ti];
+                    var ot = output[i];
+                    ExactInterval3 p0 = getPt(ot.A);
+                    ExactInterval3 p1 = getPt(flip[i] ? ot.C : ot.B);
+                    ExactInterval3 p2 = getPt(flip[i] ? ot.B : ot.C);
+                    ExactInterval3 cross = (p1 - p0).Cross(p2 - p0);
+                    v6 = v6 + p0.Dot(cross);
+                    a2 = a2 + ExactInterval.Sqrt(ExactInterval.Square(cross.X) + ExactInterval.Square(cross.Y) + ExactInterval.Square(cross.Z));
+                }
+                totalVol = totalVol + BooleanVolumeGradient.scale(v6 / ExactInterval.Of(6.0), ClampExp(3L * ((long)S + arr.ScaleExp)));
+                totalArea = totalArea + BooleanVolumeGradient.scale(a2 * ExactInterval.Of(0.5), ClampExp(2L * ((long)S + arr.ScaleExp)));
+            }
+            volMin = totalVol.Lo;
+            volMax = totalVol.Hi;
+            areaMin = Math.Max(0.0, totalArea.Lo);
+            areaMax = totalArea.Hi;
+        }
+
+        // ---- TopologyPreservation (components, Euler characteristic V - E + F, per-component exact VolumeSign) ----
+
+        internal struct TopologyComponent : IComparable<TopologyComponent>
+        {
+            public int Vertices, Edges, Triangles, Euler, VolumeSign;
+            public bool Closed;
+
+            public int CompareTo(TopologyComponent other)
+            {
+                int c = Closed.CompareTo(other.Closed); if (c != 0) return c;
+                c = Euler.CompareTo(other.Euler); if (c != 0) return c;
+                return VolumeSign.CompareTo(other.VolumeSign);
+            }
+        }
+
+        internal struct TopologySnapshot
+        {
+            public int Components, Euler;
+            public TopologyComponent[] Parts;
+        }
+
+        /// <summary>
+        /// Connected components (triangle edge adjacency), per-component Euler characteristic (V - E + F), closedness, and
+        /// exact VolumeSign (ExactPredicates.VolumeSign). Serial and deterministic.
+        /// </summary>
+        internal static TopologySnapshot MeasureTopology(DMesh3 mesh)
+        {
+            if (mesh == null || mesh.TriangleCount == 0)
+                return new TopologySnapshot { Components = 0, Euler = 0, Parts = new TopologyComponent[0] };
+            var visited = new bool[mesh.MaxTriangleID];
+            var vertStamp = new int[mesh.MaxVertexID];
+            var vertLocal = new int[mesh.MaxVertexID];
+            var edgeStamp = new int[mesh.MaxEdgeID];
+            var queue = new Queue<int>();
+            var compTris = new List<int>();
+            var compVerts = new List<int>();
+            var parts = new List<TopologyComponent>();
+            int totalEuler = 0, stamp = 0;
+            foreach (int seed in mesh.TriangleIndices()) {
+                if (visited[seed]) continue;
+                stamp++;
+                visited[seed] = true;
+                queue.Enqueue(seed);
+                compTris.Clear();
+                while (queue.Count > 0) {
+                    int t = queue.Dequeue();
+                    compTris.Add(t);
+                    Index3i nbrs = mesh.GetTriNeighbourTris(t);
+                    for (int k = 0; k < 3; ++k) {
+                        int nt = nbrs[k];
+                        if (nt != DMesh3.InvalidID && !visited[nt]) {
+                            visited[nt] = true;
+                            queue.Enqueue(nt);
+                        }
+                    }
+                }
+                compVerts.Clear();
+                int edgeCount = 0;
+                bool closed = true;
+                bool allFinite = true;
+                var corners = new int[3 * compTris.Count];
+                for (int i = 0; i < compTris.Count; ++i) {
+                    int t = compTris[i];
+                    Index3i tv = mesh.GetTriangle(t);
+                    for (int k = 0; k < 3; ++k) {
+                        int v = tv[k];
+                        if (vertStamp[v] != stamp) {
+                            vertStamp[v] = stamp;
+                            vertLocal[v] = compVerts.Count;
+                            compVerts.Add(v);
+                            Vector3d p = mesh.GetVertex(v);
+                            if (!IsFinite(p.x) || !IsFinite(p.y) || !IsFinite(p.z))
+                                allFinite = false;
+                        }
+                        corners[3 * i + k] = vertLocal[v];
+                    }
+                    Index3i te = mesh.GetTriEdges(t);
+                    for (int k = 0; k < 3; ++k) {
+                        int eid = te[k];
+                        if (edgeStamp[eid] != stamp) {
+                            edgeStamp[eid] = stamp;
+                            edgeCount++;
+                            if (mesh.GetEdgeT(eid).b == DMesh3.InvalidID)
+                                closed = false;
+                        }
+                    }
+                }
+                int volSign = 0;
+                if (closed && allFinite) {
+                    var xyz = new double[3 * compVerts.Count];
+                    for (int i = 0; i < compVerts.Count; ++i) {
+                        Vector3d p = mesh.GetVertex(compVerts[i]);
+                        int o = 3 * i;
+                        xyz[o] = p.x; xyz[o + 1] = p.y; xyz[o + 2] = p.z;
+                    }
+                    volSign = ExactPredicates.VolumeSign(xyz, corners);
+                }
+                int euler = compVerts.Count - edgeCount + compTris.Count;
+                totalEuler += euler;
+                parts.Add(new TopologyComponent {
+                    Vertices = compVerts.Count, Edges = edgeCount, Triangles = compTris.Count,
+                    Euler = euler, VolumeSign = volSign, Closed = closed
+                });
+            }
+            return new TopologySnapshot { Components = parts.Count, Euler = totalEuler, Parts = parts.ToArray() };
+        }
+
+        /// <summary>
+        /// Checks whether topology snapshot <paramref name="after"/> preserves <paramref name="before"/> up to
+        /// <paramref name="allowedRemoved"/> documented removed components: exact component count, Euler characteristic,
+        /// closedness, and per-component exact VolumeSign multiset (or sub-multiset when allowedRemoved > 0).
+        /// </summary>
+        internal static bool TopologyMatches(TopologySnapshot before, TopologySnapshot after, int allowedRemoved, out string reason)
+        {
+            reason = "";
+            int expectedCount = before.Components - allowedRemoved;
+            if (after.Components != expectedCount) {
+                reason = "component count changed from " + before.Components + " to " + after.Components
+                    + (allowedRemoved > 0 ? " (expected " + expectedCount + " after " + allowedRemoved + " documented removal(s))" : "");
+                return false;
+            }
+            if (allowedRemoved == 0 && before.Euler != after.Euler) {
+                reason = "Euler characteristic changed from " + before.Euler + " to " + after.Euler;
+                return false;
+            }
+            var bSorted = before.Parts != null ? (TopologyComponent[])before.Parts.Clone() : new TopologyComponent[0];
+            var aSorted = after.Parts != null ? (TopologyComponent[])after.Parts.Clone() : new TopologyComponent[0];
+            Array.Sort(bSorted);
+            Array.Sort(aSorted);
+            if (allowedRemoved == 0) {
+                for (int i = 0; i < bSorted.Length; ++i) {
+                    if (bSorted[i].CompareTo(aSorted[i]) != 0) {
+                        reason = "component topology changed: expected (closed=" + bSorted[i].Closed + ", Euler=" + bSorted[i].Euler
+                            + ", volumeSign=" + bSorted[i].VolumeSign + "), got (closed=" + aSorted[i].Closed + ", Euler=" + aSorted[i].Euler
+                            + ", volumeSign=" + aSorted[i].VolumeSign + ")";
+                        return false;
+                    }
+                }
+                return true;
+            }
+            // sub-multiset check: every surviving component in aSorted must match an unmatched component in bSorted
+            int bi = 0;
+            for (int ai = 0; ai < aSorted.Length; ++ai) {
+                while (bi < bSorted.Length && bSorted[bi].CompareTo(aSorted[ai]) < 0)
+                    bi++;
+                if (bi >= bSorted.Length || bSorted[bi].CompareTo(aSorted[ai]) != 0) {
+                    reason = "surviving component (closed=" + aSorted[ai].Closed + ", Euler=" + aSorted[ai].Euler
+                        + ", volumeSign=" + aSorted[ai].VolumeSign + ") does not match any pre-removal component";
+                    return false;
+                }
+                bi++;
+            }
+            return true;
         }
 
         /// <summary>

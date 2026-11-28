@@ -53,19 +53,34 @@ namespace geometry3Sharp.Tests
         /// same), reading and writing again gives the same bytes, and the stand-alone checker returns the in-process verdict
         /// word for word (certified, or the same reason, as for the sliver families it documents).
         /// </summary>
-                [Fact]
-        public void ARegionClippedCertificate_HasNoFile()
+        [Fact]
+        public void RegionClippedCertificate_RoundTrips_AndTamperingFlagIsRejected()
         {
-            // two boxes with a flush face: the default clips regions, the file has none, so the writer refuses instead of a stand-alone verdict that rejects a correct result
-            DMesh3 a = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1))) }.Generate().MakeDMesh();
-            DMesh3 b = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(0.5, 0, 0), new Vector3d(1.5, 1, 1))) }.Generate().MakeDMesh();
-            BooleanCertificate c = BooleanCertificate.Run(a, b, Ops.Union, out ExactMeshBoolean eb, null);
-            Assert.True(eb.RegionClipping && c.RegionClipping);
-            Assert.Throws<NotSupportedException>(() => CertificateFile.Write(c));
-            // the old rule has a file
-            BooleanCertificate old = BooleanCertificate.Run(a, b, Ops.Union, out _, x => x.RegionClipping = false);
+            // two grid boxes with a flush coplanar face: the default clips regions, and CertificateFile v2 preserves RegionClipping
+            DMesh3 a = new GridBox3Generator() { Box = new Box3d(new Vector3d(0.5, 0.5, 0.5), new Vector3d(0.5, 0.5, 0.5)), EdgeVertices = 4 }.Generate().MakeDMesh();
+            DMesh3 b = new GridBox3Generator() { Box = new Box3d(new Vector3d(0.8, 0.7, 0.5), new Vector3d(0.5, 0.5, 0.5)), EdgeVertices = 4 }.Generate().MakeDMesh();
+            foreach (Ops op in new[] { Ops.Union, Ops.Difference }) {
+                BooleanCertificate c = BooleanCertificate.Run(a, b, op, out ExactMeshBoolean eb, null);
+                Assert.True(eb.RegionClipping && c.RegionClipping);
+                byte[] bytes = CertificateFile.Write(c);
+                Assert.Equal(bytes, CertificateFile.Write(c));
+                var inputs = new List<DMesh3> { a, b };
+                BooleanCertificate back = CertificateFile.Read(bytes, inputs, eb.Result);
+                Assert.True(back.RegionClipping);
+                Assert.Equal(bytes, CertificateFile.Write(back));
+                Assert.Equal("", CertificateFile.Check(bytes, inputs, eb.Result));
+                Assert.Equal(InProcess(BooleanCertificate.From(eb)), CertificateFile.Check(bytes, inputs, eb.Result));
+                // tampering the RegionClipping flag off on a region-clipped certificate must be rejected (C2 straddle)
+                back.RegionClipping = false;
+                Assert.NotEqual("", CertificateFile.Check(CertificateFile.Write(back), inputs, eb.Result));
+            }
+            // RegionClipping = false still round-trips cleanly with RegionClipping == false
+            BooleanCertificate old = BooleanCertificate.Run(a, b, Ops.Union, out ExactMeshBoolean ebOld, x => x.RegionClipping = false);
             Assert.False(old.RegionClipping);
-            Assert.NotEmpty(CertificateFile.Write(old));
+            byte[] oldBytes = CertificateFile.Write(old);
+            BooleanCertificate oldBack = CertificateFile.Read(oldBytes, new List<DMesh3> { a, b }, ebOld.Result);
+            Assert.False(oldBack.RegionClipping);
+            Assert.Equal("", CertificateFile.Check(oldBytes, new List<DMesh3> { a, b }, ebOld.Result));
         }
 
 [Theory, MemberData(nameof(Families))]
@@ -481,13 +496,21 @@ namespace geometry3Sharp.Tests
         public void Format_IsVersionedAndStrict()
         {
             Setup s = Spheres();
-            Assert.Equal(new byte[] { (byte)'G', (byte)'3', (byte)'B', (byte)'C', 1, 1 }, s.Bytes.Take(6).ToArray());
+            Assert.Equal(new byte[] { (byte)'G', (byte)'3', (byte)'B', (byte)'C', 2, 1 }, s.Bytes.Take(6).ToArray());
             string V(byte[] b) => CertificateFile.Check(b, s.Inputs, s.Boolean.Result);
             Assert.StartsWith("malformed", V(new byte[0]));
             Assert.StartsWith("malformed", V(s.Bytes.Take(s.Bytes.Length - 1).ToArray()));
             Assert.StartsWith("malformed", V(s.Bytes.Concat(new byte[] { 0 }).ToArray()));
-            var v2 = (byte[])s.Bytes.Clone(); v2[4] = 2;
-            Assert.StartsWith("malformed: an unknown version", V(v2));
+            // version 1 (RegionClipping = false, flags <= 1) remains readable for backward compatibility; flags = 2 is rejected in v1
+            var v1 = (byte[])s.Bytes.Clone(); v1[4] = 1;
+            Assert.Equal("", V(v1));
+            Assert.False(CertificateFile.Read(v1, s.Inputs, s.Boolean.Result).RegionClipping);
+            var v1BadFlag = (byte[])v1.Clone(); v1BadFlag[8] |= 2;
+            Assert.StartsWith("malformed: a flag out of range", V(v1BadFlag));
+            var v2BadFlag = (byte[])s.Bytes.Clone(); v2BadFlag[8] = 4;
+            Assert.StartsWith("malformed: a flag out of range", V(v2BadFlag));
+            var v3 = (byte[])s.Bytes.Clone(); v3[4] = 3;
+            Assert.StartsWith("malformed: an unknown version", V(v3));
             var f2 = (byte[])s.Bytes.Clone(); f2[5] = 2;
             Assert.StartsWith("malformed: an unknown format", V(f2));
             var m = (byte[])s.Bytes.Clone(); m[0] = (byte)'X';
