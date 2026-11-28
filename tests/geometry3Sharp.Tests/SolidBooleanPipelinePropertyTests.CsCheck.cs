@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        public enum Second { Overlapping, SharedFace, SharedFaceNoisy, ThinLayer }
+        public enum Second { Overlapping, SharedFace, SharedFaceNoisy, ThinLayer, Pinch }
 
         public sealed class Case
         {
@@ -65,7 +65,8 @@ namespace geometry3Sharp.Tests
 
             public override string ToString()
             {
-                string second = Kind == Second.Overlapping ? "B=" + B : Kind == Second.ThinLayer ? $"layer {LayerE4}e-4 thick" : $"{Kind} side {Face} depth {Depth}/64";
+                string second = Kind == Second.Overlapping ? "B=" + B : Kind == Second.ThinLayer ? $"layer {LayerE4}e-4 thick"
+                    : Kind == Second.Pinch ? $"two through-holes of {Depth}/64 touching at an edge" : $"{Kind} side {Face} depth {Depth}/64";
                 return $"Case({Op}: A={A}, {second}{(C != null ? ", C=" + C : "")}, rotation {Rotation}deg, 2^{ScaleK}{(Utm ? ", UTM" : "")}, noise seed {NoiseSeed})";
             }
 
@@ -93,6 +94,16 @@ namespace geometry3Sharp.Tests
                         var quad = new List<Vector3d> { q, p, p + outward, q + outward };
                         var rnd = Kind == Second.SharedFaceNoisy ? new Random((int)NoiseSeed) : null;
                         list.Add(PrismMesh(quad, az0, az1, place, rnd, 1e-8 * s));
+                        break;
+                    }
+                    case Second.Pinch: {
+                        // two square through-holes in A that touch each other along a vertical edge at A's centre: a
+                        // difference leaves A touching itself there (the corner is the same expression for both, so it coincides)
+                        double w = Math.Min(Depth, A.R / 2) / 64.0, cx = A.Cx / 64.0, cy = A.Cy / 64.0, lo = az0 - 1, hi = az1 + 1;
+                        var q1 = new List<Vector3d> { new Vector3d(cx - w, cy - w, 0), new Vector3d(cx, cy - w, 0), new Vector3d(cx, cy, 0), new Vector3d(cx - w, cy, 0) };
+                        var q2 = new List<Vector3d> { new Vector3d(cx, cy, 0), new Vector3d(cx + w, cy, 0), new Vector3d(cx + w, cy + w, 0), new Vector3d(cx, cy + w, 0) };
+                        list.Add(PrismMesh(q1, lo, hi, place, null));
+                        list.Add(PrismMesh(q2, lo, hi, place, null));
                         break;
                     }
                     case Second.ThinLayer: {
@@ -143,12 +154,17 @@ namespace geometry3Sharp.Tests
             Gen.Select(Gen.Int[-128, 128], Gen.Int[-128, 128], Gen.Int[32, 256], Gen.Int[3, 6], Gen.Int[0, 119], Gen.Int[-64, 64], Gen.Int[16, 256],
                 (cx, cy, r, n, start, z0, h) => new Prism { Cx = cx, Cy = cy, R = r, N = n, Start = start, Z0 = z0, H = h });
 
-        static readonly Gen<Case> GenCase =
-            Gen.Select(GenPrism, GenPrism, Gen.Int[0, 3], Gen.Int[0, 5], Gen.Int[8, 128], Gen.Int[1, 100], Gen.Int[0, 359])
+        // (the kinds are drawn from 0..maxKind: GenCase keeps its draws, so the fixed seeds of the campaigns that use it replay as before;
+        // the Pinch kind, the last one, is only in GenCaseWithPinch)
+        static Gen<Case> GenCaseOf(int maxKind) =>
+            Gen.Select(GenPrism, GenPrism, Gen.Int[0, maxKind], Gen.Int[0, 5], Gen.Int[8, 128], Gen.Int[1, 100], Gen.Int[0, 359])
                 .SelectMany(t => Gen.Select(Gen.Int[-3, 3], Gen.Bool, Gen.UInt, Gen.Int[0, 2], Gen.Bool, GenPrism, (k, utm, seed, op, third, c) => new Case {
                     A = t.Item1, B = t.Item2, Kind = (Second)t.Item3, Face = t.Item4, Depth = t.Item5, LayerE4 = t.Item6, Rotation = t.Item7,
                     ScaleK = k, Utm = utm, NoiseSeed = seed, Op = (Ops)op, C = third ? c : null
                 }));
+
+        static readonly Gen<Case> GenCase = GenCaseOf(3);
+        static readonly Gen<Case> GenCaseWithPinch = GenCaseOf(4);
 
         // two inputs only (for the inclusion-exclusion of the volumes)
         static readonly Gen<Case> GenPair = GenCase.Select(c => { c.C = null; return c; });
@@ -279,7 +295,7 @@ namespace geometry3Sharp.Tests
                 log.WriteLine("  " + kv.Value + "  " + kv.Key);
             // every kind of case reaches a solid result at least once (the campaign is not vacuous for any of them)
             if (Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY") == null)
-                foreach (Second kind in Enum.GetValues(typeof(Second)))
+                foreach (Second kind in Enum.GetValues(typeof(Second)).Cast<Second>().Where(k => k != Second.Pinch))       // (Pinch: only in GenCaseWithPinch)
                     Assert.True(seen.Any(kv => kv.Key.StartsWith(kind + " ") && (kv.Key.EndsWith("-> solid") || kv.Key.EndsWith("-> contacts"))),
                         kind + " never gave a solid: " + string.Join(", ", seen.Keys));
         }
@@ -366,6 +382,82 @@ namespace geometry3Sharp.Tests
                     return "a second instance gives a different result";
                 return "";
             }, 25, 9103);
+        }
+
+        static int Rank(SolidBooleanResultKind kind) => kind == SolidBooleanResultKind.Solid ? 2 : kind == SolidBooleanResultKind.SolidWithContacts ? 1 : 0;
+
+        [Fact]
+        public void SeparateSelfContacts_KeepsTheContract_AndTheVolume()
+        {
+            // with InputGrid (which makes nearly touching faces touch) and SeparateSelfContacts 2^-20 of the case's unit: the
+            // contract of Valid holds, the counts of the report agree with the results (the self-contacts only go down), the
+            // moves stay within the distance, the triangle count stays, the volume moves at most the distance times the area,
+            // no triangle crosses that did not before, and the cleanliness is no worse (MeshRobustRepair, independent)
+            int withSelfContacts = 0, separated = 0;
+            Campaign("SeparateSelfContacts", GenCaseWithPinch, c => {
+                List<DMesh3> inputs = c.Build();
+                var before = inputs.Select(Fingerprint).ToList();
+                double grid = Math.Pow(2, -20 + c.ScaleK);
+                var plain = new SolidBooleanPipeline(inputs, c.Op) { InputGrid = grid };
+                plain.Compute();
+                var p = new SolidBooleanPipeline(inputs, c.Op) { InputGrid = grid, SeparateSelfContacts = grid };
+                p.Compute();
+                if (p.Status != plain.Status)
+                    return "status " + p.Status + " with the option, " + plain.Status + " without";
+                string contract = Contract(p, inputs, before);
+                if (contract != "")
+                    return contract;
+                if (p.Status != SolidBooleanPipeline.PipelineStatus.Success || p.Result.TriangleCount == 0)
+                    return "";
+                int found = SolidBooleanPipeline.SelfContacts(plain.Result).Count;
+                if (found > 0) withSelfContacts++;
+                if (found > 0 && p.Report.SelfContactsLeft == 0) separated++;
+                // the kind with the option is never worse than without it (Solid > SolidWithContacts > SolidNotClean)
+                if (Rank(p.Report.ResultKind) < Rank(plain.Report.ResultKind))
+                    return $"ResultKind {p.Report.ResultKind} with the option, {plain.Report.ResultKind} without";
+                if (found == 0) {
+                    // nothing to separate: the result and the report are the plain ones, bit for bit
+                    string same = Invariance.Difference(plain.Result, p.Result);
+                    if (same != "" || p.Report.NotCleanReason != plain.Report.NotCleanReason || p.Report.ResultKind != plain.Report.ResultKind)
+                        return "no self-contact, but the result differs from the plain run: " + same;
+                }
+                if (p.Report.SelfContactsFound != found)
+                    return $"SelfContactsFound {p.Report.SelfContactsFound}, the result without the option has {found}";
+                if (p.Report.SelfContactsLeft > found || p.Report.SelfContactsLeft != SolidBooleanPipeline.SelfContacts(p.Result).Count)
+                    return $"SelfContactsLeft {p.Report.SelfContactsLeft} of {found}";
+                // (up to the distance plus the rounding of the new coordinates: a few units in the last place of the largest one)
+                var bounds = p.Result.GetBounds();
+                double ulp = Math.Max(bounds.Min.Abs.MaxAbs, bounds.Max.Abs.MaxAbs) * 2.220446049250313e-16;
+                if (p.Report.SelfContactMaxMove > grid * (1 + 1e-12) + 4 * ulp)
+                    return $"a move of {p.Report.SelfContactMaxMove:R} beyond the distance {grid:R} (and 4 ulps, {4 * ulp:G3})";
+                if (p.Result.TriangleCount != plain.Result.TriangleCount)
+                    return "the separation changed the triangle count";
+                double tol = grid * Area(plain.Result) + 1e-12 * Math.Abs(Volume(plain.Result));
+                if (Math.Abs(Volume(p.Result) - Volume(plain.Result)) > tol)
+                    return $"volume {Volume(p.Result):R} against {Volume(plain.Result):R} (tolerance {tol:G3})";
+                // no new crossing: a move that would cross is put back (vertices at one position count as one; the moves keep
+                // the triangle ids, so the sets compare triangle by triangle)
+                var crossingBefore = SolidBooleanPipeline.CrossingTriangles(plain.Result, plain.Result.VertexIndices());
+                var crossingAfter = SolidBooleanPipeline.CrossingTriangles(p.Result, p.Result.VertexIndices());
+                if (!crossingAfter.IsSubsetOf(crossingBefore))
+                    return $"{crossingAfter.Count(t => !crossingBefore.Contains(t))} triangles cross after the separation that did not before";
+                // an oracle independent of the code under test: the report says what MeshRobustRepair.NotCleanReason says of
+                // the result, and a clean result stays clean
+                string reasonAfter = MeshRobustRepair.NotCleanReason(p.Result);
+                if (reasonAfter != p.Report.NotCleanReason)
+                    return $"Report.NotCleanReason '{p.Report.NotCleanReason}', the result's '{reasonAfter}'";
+                if (p.Report.SelfContactsLeft == 0 && reasonAfter == "" && p.Report.ResultKind != SolidBooleanResultKind.Solid)
+                    return $"all separated and clean, but ResultKind {p.Report.ResultKind}";
+                if (plain.Report.Clean && reasonAfter != "")
+                    return $"clean without the option, '{reasonAfter}' with it";
+                return "";
+            }, 40, 9106);
+            log.WriteLine($"  results with self-contacts: {withSelfContacts}, all separated: {separated}");
+            if (Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY") == null)
+            {
+                Assert.True(withSelfContacts > 0, "no case of the campaign had a self-contact (the property would be vacuous)");
+                Assert.True(separated > 0, "no self-contact of the campaign was separated (the property would not check a move)");
+            }
         }
 
         [Fact]
