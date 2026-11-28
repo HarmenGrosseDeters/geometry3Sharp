@@ -1534,6 +1534,14 @@ python3 data/certify_thingi.py run <cases> <dir> <out> --command region-compare 
 python3 data/certify_thingi.py summary --region <rows>...           the counts by verdict, the differences, the time with and without by size
 ```
 
+Contact cases without an exact placement (2026-11-27): the first corpus run had 9 contact cases that were never compared (`inexact transform`: translation not exact 6, contact shift not exact 2,
+embedding depth not exact 1; a placement is exact only if every sum is: two plane coordinates of 53 significant bits, or a coordinate far below the shift, break it). In `region-compare thingi` (and
+only there: `ContactTransforms.Build(..., snapOnInexact: true)`; the other tools keep the error row) a face-contact or partial-overlap case with no exact placement is retried with both
+normalized meshes snapped to the grid 2^-46 (the coordinates are below 1, so every sum, shift and depth is then exact: multiples of 2^-46, of 2^-48 for the embedded B). The coordinates of a
+planar face are equal before and after, so the faces stay in one plane and keep their contact (the semantics: face, embedded, depth); the row carries `snapped` and `inexact_before`, and the
+summary counts the snapped cases. A case that still has no exact placement after the snap stays an error row. Unit tests: `ThingiContactTransformTests` (one per kind, the opt-in, the
+grid).
+
 Re-run controls and the log (2026-11-27): the workflow prints the whole report and every row that is not `same` (with `exact`, `exact_tris`, `min_edge`, `round_res`, `repair_tol`,
 the message and, for a failing case, the last 20 lines of the tool's stderr) to the job log as well as the step summary; `run` keeps those stderr lines in the row (`stderr_tail`) and prints
 them; the inputs `procedural` (on/off), `thingi_kinds` (a comma list of self, pairs, contact) and `contact_variants` (a comma list; plan `--variants`) make a re-run cheaper.

@@ -49,6 +49,12 @@ class SummaryTests(unittest.TestCase):
             self.assertIn("contact-0001-mirror - " + verdict + ": boom", text)
             self.assertIn("stderr| line2", text)
 
+    def test_snapped_contact_cases_are_counted(self):
+        code, text = summary([SAME, dict(SAME, case="contact-0002-face-contact", snapped=2.0 ** -46, inexact_before="translation not exact"),
+                              dict(SAME, case="contact-0002-face-contact", op="intersection", snapped=2.0 ** -46, inexact_before="translation not exact")])
+        self.assertEqual(code, 0)
+        self.assertIn("placed after a snap of both meshes to 2^-46 (no exact placement before; the planar faces keep their contact): 1", text)
+
     def test_no_rows_is_red(self):
         self.assertEqual(summary([])[0], 1)
 

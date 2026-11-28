@@ -176,6 +176,9 @@ def summary_region(paths):
     for c in sorted({cls(r) for r in rs}) + ["all"]:
         sel = [r for r in rs if c == "all" or cls(r) == c]
         print(f"| {c} | {len(sel)} | " + " | ".join(str(sum(1 for r in sel if r["verdict"] == v)) for v in verdicts) + " |")
+    snapped = {r["case"] for r in rs if "snapped" in r}
+    if snapped:
+        print(f"\ncontact cases placed after a snap of both meshes to 2^-46 (no exact placement before; the planar faces keep their contact): {len(snapped)}")
     certs = {}
     for r in rs:
         if "cert" in r: certs[r["cert"]] = certs.get(r["cert"], 0) + 1

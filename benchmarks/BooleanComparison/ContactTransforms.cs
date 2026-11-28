@@ -157,19 +157,52 @@ namespace BoolCmp
         /// try the six directions starting at the given one and take the first with a planar face on both sides and an exact placement, else
         /// the first exact one (kind "bbox": contact through vertices or edges only).
         /// </summary>
-        public static ContactResult Build(DMesh3 a0, DMesh3 b0, ContactVariant variant, int axis, int sign, int param)
+        public static ContactResult Build(DMesh3 a0, DMesh3 b0, ContactVariant variant, int axis, int sign, int param, bool snapOnInexact = false)
+        {
+            ContactResult first = Build(a0, b0, variant, axis, sign, param, 0);
+            if (first.Error == null || snapOnInexact == false || (variant != ContactVariant.FaceContact && variant != ContactVariant.PartialOverlap) || first.Error.Contains("cannot be normalized"))
+                return first;
+            // (the region-clipping corpus gate, #1630: no exact placement of the face contacts for these coordinates, eg two planes of 53 significant bits whose difference needs 54, or a
+            // coordinate far below the shift. The contact semantics survive a snap of the normalized meshes to a grid of powers of two: the coordinates of a planar face are equal before and
+            // after, so the faces stay in one plane, and every sum is then exact: the coordinates are multiples of 2^-46 below 2, the shift and the depth too.)
+            ContactResult snapped = Build(a0, b0, variant, axis, sign, param, SnapGrid);
+            if (snapped.Error == null) {
+                snapped.Info["snapped"] = SnapGrid;
+                snapped.Info["inexact_before"] = first.Error;
+                return snapped;
+            }
+            first.Error += "; after the snap to 2^-46: " + snapped.Error;
+            return first;
+        }
+
+        /// <summary> the grid of the snap of Build(..., snapOnInexact): 2^-46 (the normalized meshes have coordinates below 1 in absolute value) </summary>
+        public static readonly double SnapGrid = Pow2(-46);
+
+        /// <summary> every coordinate rounded to a multiple of the power of two g (exact) </summary>
+        public static void SnapToGrid(DMesh3 m, double g)
+        {
+            foreach (int vid in m.VertexIndices()) {
+                Vector3d v = m.GetVertex(vid);
+                m.SetVertex(vid, new Vector3d(RoundToGrid(v.x, g), RoundToGrid(v.y, g), RoundToGrid(v.z, g)));
+            }
+        }
+
+        // snap > 0: the normalized meshes are snapped to that grid first (see the overload above)
+        static ContactResult Build(DMesh3 a0, DMesh3 b0, ContactVariant variant, int axis, int sign, int param, double snap)
         {
             var r = new ContactResult { A = new DMesh3(a0, false, true, false, false) };
             if (!NormalizeExact(r.A)) {
                 r.Error = "A cannot be normalized exactly";
                 return r;
             }
+            if (snap > 0)
+                SnapToGrid(r.A, snap);
             r.Info["variant"] = VariantNames[(int)variant];
             r.Info["axis"] = axis; r.Info["sign"] = sign; r.Info["param"] = param;
             switch (variant) {
                 case ContactVariant.FaceContact:
                 case ContactVariant.PartialOverlap:
-                    return Contact(r, b0, variant == ContactVariant.PartialOverlap, axis, sign, param);
+                    return Contact(r, b0, variant == ContactVariant.PartialOverlap, axis, sign, param, snap);
                 case ContactVariant.UlpShift:
                     return Ulps(r, axis, sign, 1);
                 case ContactVariant.UlpShiftFew:
@@ -179,13 +212,15 @@ namespace BoolCmp
             }
         }
 
-        static ContactResult Contact(ContactResult r, DMesh3 b0, bool embed, int axis, int sign, int param)
+        static ContactResult Contact(ContactResult r, DMesh3 b0, bool embed, int axis, int sign, int param, double snap)
         {
             DMesh3 b = new DMesh3(b0, false, true, false, false);
             if (!NormalizeExact(b)) {
                 r.Error = "B cannot be normalized exactly";
                 return r;
             }
+            if (snap > 0)
+                SnapToGrid(b, snap);
             DMesh3 a = r.A;
             AxisAlignedBox3d boxA = a.GetBounds(), boxB = b.GetBounds();
             int depth = embed ? Math.Abs(param) % 3 : -1;           // B is embedded by 2^-depth of its extent along the axis (depth 0: flush)

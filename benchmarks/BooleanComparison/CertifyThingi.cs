@@ -68,8 +68,9 @@ static class CertifyThingi
                 break;
             }
             case "contact": {
-                ContactResult r = ContactTransforms.Build(a, b, ContactTransforms.ParseVariant(args[3]), int.Parse(args[4], ci), int.Parse(args[5], ci), int.Parse(args[6], ci));
+                ContactResult r = ContactTransforms.Build(a, b, ContactTransforms.ParseVariant(args[3]), int.Parse(args[4], ci), int.Parse(args[5], ci), int.Parse(args[6], ci), region);      // (region: a snap to a grid where no exact placement exists, so that the case is compared)
                 row["variant"] = args[3];
+                if (r.Info.ContainsKey("snapped")) { row["snapped"] = r.Info["snapped"]; row["inexact_before"] = r.Info["inexact_before"]; }
                 if (r.Error != null) { Emit(row, "error", "inexact transform: " + r.Error); return 0; }
                 a = r.A; b = r.B;
                 break;
