@@ -1517,8 +1517,9 @@ namespace geometry3Sharp.Tests
                 unit, pa, pb, pc, pSigns, out ix0, out iy0, out iz0, out ix1, out iy1, out iz1));
             Assert.Equal(0.0, ix0); Assert.Equal(0.0, ix1);
 
-            // 5. boxes_meet: all 6 separating faces + touching boundary.
-            Assert.True(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(1, -1, -1), new Vector3d(2, 1, 1))));
+            // 5. boxes_meet: all 6 separating faces + all 6 touching-boundary equalities (two opposite corners).
+            Assert.True(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(1, 1, 1), new Vector3d(2, 2, 2))));
+            Assert.True(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-2, -2, -2), new Vector3d(-1, -1, -1))));
             Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(1.1, -1, -1), new Vector3d(2, 1, 1))));
             Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-2, -1, -1), new Vector3d(-1.1, 1, 1))));
             Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-1, 1.1, -1), new Vector3d(1, 2, 1))));
@@ -1526,9 +1527,12 @@ namespace geometry3Sharp.Tests
             Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-1, -1, 1.1), new Vector3d(1, 1, 2))));
             Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-1, -1, -2), new Vector3d(1, 1, -1.1))));
 
-            // 6. filter_pair_facets on a point-triangle cube polyhedron (6 axis-aligned facets).
+            // 6. filter_pair_facets on a 2-cube polyhedron envelope (p = 0 at origin, p = 1 at x = 2).
             double eps = 0.2;
-            var cubeEnv = new PolyhedralEnvelope(Soup(new[] { new[] { Vector3d.Zero, Vector3d.Zero, Vector3d.Zero } }), eps);
+            var cubeEnv = new PolyhedralEnvelope(Soup(new[] {
+                new[] { Vector3d.Zero, Vector3d.Zero, Vector3d.Zero },
+                new[] { new Vector3d(2, 0, 0), new Vector3d(2, 0, 0), new Vector3d(2, 0, 0) }
+            }), eps);
             Assert.Equal(EnvelopeStatus.Ready, cubeEnv.Status);
             int nf = cubeEnv.FacetCount(0);
             Assert.Equal(6, nf);
@@ -1547,12 +1551,27 @@ namespace geometry3Sharp.Tests
             int bothMask = plusXBit | plusYBit;
             // Box strictly outside +x facet -> returns 0 immediately (closure(p) n B empty)
             Assert.Equal(0, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, xFace + 0.01, -0.01, -0.01, xFace + 0.05, 0.01, 0.01));
+            // Box straddling +x facet (sets kept = plusXBit) while strictly outside +y facet (cmin > 0) -> must still return 0
+            Assert.Equal(0, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, xFace - 0.01, yFace + 0.01, -0.01, xFace + 0.01, yFace + 0.05, 0.01));
             // Box strictly inside +x and +y facets -> returns 0 (neither plane touches B)
             Assert.Equal(0, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, -0.01, -0.01, -0.01, 0.01, 0.01, 0.01));
             // Box straddling +x facet but strictly inside +y facet -> keeps ONLY plusXBit
             Assert.Equal(plusXBit, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, xFace - 0.01, -0.01, -0.01, xFace + 0.01, 0.01, 0.01));
             // Box touching +x facet from outside (cmin == 0) and touching +y facet from inside (cmax == 0) -> keeps both bits
             Assert.Equal(bothMask, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, xFace, yFace - 0.02, -0.01, xFace + 0.02, yFace, 0.01));
+            // Polyhedron p = 1 (centered at x = 2) tests non-zero p * MaxFacets indexing
+            var fSigns1 = new byte[signBase + nf];
+            int plusXBit1 = 0;
+            double xFace1 = 0;
+            for (int f = 0; f < nf; ++f) {
+                cubeEnv.GetFacet(1, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
+                byte sg = PolyhedralEnvelope.normal_signs(q0, q1, q2);
+                fSigns1[signBase + f] = sg;
+                if (sg == 1 && q0.x > 2.0) { plusXBit1 = 1 << f; xFace1 = q0.x; }
+            }
+            Assert.True(plusXBit1 != 0);
+            Assert.Equal(plusXBit1, cubeEnv.filter_pair_facets(1, plusXBit1, fSigns1, signBase, xFace1 - 0.01, -0.01, -0.01, xFace1 + 0.01, 0.01, 0.01));
+            Assert.Equal(0, cubeEnv.filter_pair_facets(1, plusXBit1, fSigns1, signBase, xFace - 0.01, -0.01, -0.01, xFace + 0.01, 0.01, 0.01));
         }
     }
 }

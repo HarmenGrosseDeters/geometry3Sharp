@@ -542,6 +542,7 @@ namespace gs
         }
 
         // closed intersection box of tbox, b1 and b2; returns false if empty or strictly on one side of plane (a, b, c)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static bool pair_box_meets_plane(AxisAlignedBox3d tbox, AxisAlignedBox3d b1, AxisAlignedBox3d b2,
             Vector3d a, Vector3d b, Vector3d c, byte tSigns,
             out double x0, out double y0, out double z0, out double x1, out double y1, out double z1)
