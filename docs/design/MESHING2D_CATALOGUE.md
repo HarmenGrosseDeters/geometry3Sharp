@@ -1,6 +1,6 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 110 covered, 8 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 111 covered, 7 pending, 8 deferred by the owner's scope, 3 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
 - **covered**: runs now through the oracle (or the named test), on the registered production mesher.
@@ -60,7 +60,7 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-17/b | A hole marker inside a hole smaller than the tolerance | covered | f-17/b | the contour collapses into one pixel; its marker must not empty the domain (area 100, at most 5 vertices); from the clean-room Q&A, MESHING2D_SNAP_QA.md answer 6 |
 | F-18/a | Building wall 4 mm along a parcel border, tolerance merges it | covered | f-18/a | dyadic analog: 2^-8 instead of 5 mm; band case (D14, w = tol): the wall at exactly tol/2, merged or not both pass |
 | F-18/b | Wall 62 mm away is kept | covered | f-18/b |  |
-| F-19 | Thin wedges, wedge tolerance | pending | m4.wedge | O13: beyond this brief; the fixture is the first of the spec's five |
+| F-19 | Thin wedges, wedge tolerance | covered | f-19 | O13: dyadic analog (o=1/32, snap=1/128, wedge=5/128); the fixture is the first of the spec's five |
 | F-20 | Long edges cross a dense polyline at tiny angles, procedural analog | covered | f-20 | the public input CDT issue-211 is not fetched here; this is an analog built from its description |
 | F-21 | Long parallel stripes: scaling check | covered | f-21 | the time target needs 20 000 stripes, run by the benchmark, not in the oracle's quadratic segment check |
 | F-22/a | Back-and-forth border, no snapping: limit stops it | covered | f-22/a |  |

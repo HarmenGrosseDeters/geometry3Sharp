@@ -46,9 +46,8 @@ namespace g3
         /// in input order; -1 for a hull edge that refinement constrained. Null when not known (snap rounding, whose mesh is of the
         /// snapped input) and for an empty result. Internal: the acceptance oracle reads it (#870) </summary>
         internal int[][] SubsegmentSources;
-        /// <summary> per vertex: it existed before quality refinement (an input point or a crossing of constraints), which is where
-        /// refinement puts concentric shells; true for every vertex without refinement. Null when not known (snap rounding) and for an
-        /// empty result. Internal:
+        /// <summary> per vertex: it existed before quality refinement (an input point, a wedge-collapse foot, or a crossing of constraints),
+        /// which is where refinement puts concentric shells; true for every vertex without refinement. Null for an empty result. Internal:
         /// the acceptance oracle reads it (#870) </summary>
         internal bool[] ExistedBeforeRefinement;
         /// <summary> Heights per vertex if the input had heights, otherwise null. </summary>
@@ -102,7 +101,8 @@ namespace g3
 
         /// <summary>
         /// The same mesh with fewer input points: the points appended by snap rounding (crossing and restore pixels, SnapRounding2)
-        /// become vertices made by the mesher, so ids at or above <paramref name="inputCount"/> are no input points
+        /// or wedge collapse (foot vertices, WedgeCollapse2) become vertices made by the mesher, so ids at or above
+        /// <paramref name="inputCount"/> are no input points
         /// </summary>
         internal ConstrainedMesh2 WithInputCount(int inputCount)
         {
@@ -120,17 +120,18 @@ namespace g3
             for (int v = 0; v < vertices.Length; ++v) newId[v] = keep[v] ? count++ : -1;
             if (count == vertices.Length)
                 return new ConstrainedMesh2(vertices, inputCount, map, triangles, neighbours, TriangleLabels.ToArray(), Subsegments.ToArray(),
-                    Heights?.ToArray(), fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached, DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments };
+                    Heights?.ToArray(), fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached, DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments, ExistedBeforeRefinement = ExistedBeforeRefinement?.ToArray() };
             var kept = new Vector2d[count];
             double[] keptHeights = Heights == null ? null : new double[count];
-            for (int v = 0; v < vertices.Length; ++v) if (keep[v]) { kept[newId[v]] = vertices[v]; if (keptHeights != null) keptHeights[newId[v]] = Heights[v]; }
+            bool[] keptBefore = ExistedBeforeRefinement == null ? null : new bool[count];
+            for (int v = 0; v < vertices.Length; ++v) if (keep[v]) { kept[newId[v]] = vertices[v]; if (keptHeights != null) keptHeights[newId[v]] = Heights[v]; if (keptBefore != null) keptBefore[newId[v]] = ExistedBeforeRefinement[v]; }
             for (int i = 0; i < inputCount; ++i) if (map[i] >= 0) map[i] = newId[map[i]];
             var tris = new Index3i[triangles.Length];
             for (int i = 0; i < tris.Length; ++i) tris[i] = new Index3i(newId[triangles[i].a], newId[triangles[i].b], newId[triangles[i].c]);
             var subs = Subsegments.ToArray();
             for (int i = 0; i < subs.Length; ++i) { subs[i].A = newId[subs[i].A]; subs[i].B = newId[subs[i].B]; }
             return new ConstrainedMesh2(kept, inputCount, map, tris, neighbours, TriangleLabels.ToArray(), subs,
-                keptHeights, fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached, DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments };
+                keptHeights, fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached, DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments, ExistedBeforeRefinement = keptBefore };
         }
 
         static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;

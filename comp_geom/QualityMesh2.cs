@@ -69,16 +69,34 @@ namespace g3
         /// </summary>
         public double SnapTolerance;
 
-        /// <exception cref="ArgumentException">An option or the input is invalid (an angle outside [0, 60), a non-positive area).</exception>
+        /// <summary>
+        /// Thin-wedge collapse tolerance in coordinate units (spec O13, F-19), as <see cref="ConstrainedDelaunayMesh2.WedgeTolerance"/>;
+        /// 0 (default): off. Typical production value: <c>3 * SnapTolerance</c>.
+        /// </summary>
+        public double WedgeTolerance;
+
+        /// <exception cref="ArgumentException">An option or the input is invalid (an angle outside [0, 60), a non-positive area, or an invalid tolerance).</exception>
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (double.IsNaN(MinAngle) || MinAngle < 0 || MinAngle >= 60) throw new ArgumentException("MinAngle must be at least 0 and below 60 degrees (decision D12)");
             if (MaxArea != null && !(MaxArea.Value > 0) || MaxArea != null && double.IsInfinity(MaxArea.Value)) throw new ArgumentException("MaxArea must be positive and finite");
             if (SteinerLimit != null && SteinerLimit.Value < 0) throw new ArgumentException("SteinerLimit must not be negative");
+            if (WedgeTolerance != 0 && (double.IsNaN(WedgeTolerance) || !(WedgeTolerance > 0) || double.IsInfinity(WedgeTolerance)))
+                throw new ArgumentException("WedgeTolerance must be zero or positive and finite (spec O13)");
             if (input.Regions != null)
                 foreach (var r in input.Regions)
                     if (r != null && r.MaxArea != null && !(r.MaxArea.Value > 0)) throw new ArgumentException("a region's MaxArea must be positive");
+
+            int origInputCount = input.Points?.Count ?? 0;
+            int mergedV = 0, reroutedE = 0;
+            if (WedgeTolerance > 0) {
+                new ConstrainedDelaunayMesh2.Builder(input, true, cancellationToken).Validate();
+                if (!ConstrainedDelaunayMesh2.HullHasNoArea(input))
+                    input = WedgeCollapse2.Apply(input, WedgeTolerance, cancellationToken, out mergedV, out reroutedE);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
             // On the grid, a hull domain's hull edges are snap-rounded with the segments (owner decision 2026-11-02, option C of
             // MESHING2D_HULL_GRID.md): appended as segments, their chains through hot pixels become the hull sources, so refinement
             // splits them in the envelopes of the true hull edges, as it splits segments
@@ -95,7 +113,7 @@ namespace g3
                         Regions = input.Regions, Heights = input.Heights };
                 }
             }
-            return ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => {
+            var result = ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => {
                 var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false, SnapRounded = snap != null };
                 if (hullFrom >= 0) { builder.HullSegmentsFrom = snap.SegmentChainStart[hullFrom]; builder.HullSegmentsTo = snap.SegmentChainStart[input.Segments.Count]; }
                 var refiner = new Refiner(this, builder, snap);
@@ -103,6 +121,15 @@ namespace g3
                 builder.IsBad = refiner.BelowAngle;
                 return builder.Run();
             });
+            if (mergedV == 0 && reroutedE == 0) return result;
+
+            var diagnostics = new List<string> {
+                "wedge: tolerance " + WedgeTolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                + ", merged " + mergedV + " vertices, rerouted " + reroutedE + " edges"
+            };
+            if (result.Diagnostics != null) diagnostics.AddRange(result.Diagnostics);
+            return new ConstrainedTriangulation2Result(result.Status, result.FailureKind, result.Mesh?.WithInputCount(origInputCount), diagnostics,
+                result.ProblemCoordinate, result.FailureDetail);
         }
 
         /// <summary> refinement runs: an angle, an area, a size, a region area, or conforming (as Refiner.Run decides) </summary>

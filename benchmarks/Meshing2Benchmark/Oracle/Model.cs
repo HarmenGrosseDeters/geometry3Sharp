@@ -38,6 +38,7 @@ namespace Meshing2Acceptance
         public double? MinAngleDeg, MaxArea;
         public int? SteinerLimit;
         public double SnapTolerance;     // 0 = automatic
+        public double WedgeTolerance;    // O13: 0 = off; written to text format only when positive
         public bool ResolveCrossings = true;
         public bool Conforming;          // O2: empty circumcircles against all vertices, also across segments
         /// <summary>

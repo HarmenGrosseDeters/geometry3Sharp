@@ -262,7 +262,9 @@ namespace Meshing2Acceptance
                 domain = new Domain(input, !e.Reference);
                 Lap("domain");
                 bool degenerate = domain.Area.Sign == 0;
-                tube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.AutoTolerance(input), Q.FromDouble(input.SnapTolerance)));
+                Q baseTube = Q.Max(Oracle.AutoTolerance(input), Q.FromDouble(input.SnapTolerance));
+                if (input.WedgeTolerance > 0) baseTube = Q.Max(baseTube, Q.FromDouble(input.WedgeTolerance) + Q.FromDouble(input.SnapTolerance));
+                tube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : baseTube);
                 tube2 = tube * tube;
                 // the mesher's tolerance (O11 rule) is half of this one without the subnormal floor: the mesher's own has none
                 Q relativeTube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.RelativeTolerance(input), Q.FromDouble(input.SnapTolerance)));
@@ -378,11 +380,12 @@ namespace Meshing2Acceptance
                             if (o.InputToVertex[other] != m) r.Add(Violation.MappingWrong, "inputs " + other + " and " + i + " coincide but map differently");
                         } else byCoordinate.Add(inPts[i], i);
                         bool same = v[m].Equals(inPts[i]);
-                        if (m == i && !e.MayMoveVertices && !snapped && !same) r.Add(Violation.InputMoved, "input " + i + " moved to " + v[i]);
+                        bool wedged = input.WedgeTolerance > 0;
+                        if (m == i && !e.MayMoveVertices && !snapped && !wedged && !same) r.Add(Violation.InputMoved, "input " + i + " moved to " + v[i]);
                         Q off = same ? Q.Zero : Exact.Len2(inPts[i], v[m]);
                         if (off.Sign > 0) moved2 = Q.Max(moved2, off);
                         if (off > e_Tube2()) r.Add(Violation.SnapTooFar, "input " + i + " merged too far, into " + m);
-                        else if (snapped && !AtPixelCentre(inPts[i], v[m], pixel))
+                        else if (snapped && !(wedged ? AtPixelCentre(v[m], v[m], pixel) : AtPixelCentre(inPts[i], v[m], pixel)))
                             r.Add(Violation.SnapTooFar, "input " + i + " is at " + v[m] + ", not at the centre of its pixel (D14)");
                     }
                     r.ConstructedVertices = v.Length - input.Count;
@@ -2818,7 +2821,10 @@ namespace Meshing2Acceptance
                         }
                     }
                     r.MaxImageDriftPixels = worstImage;
-                    if (o.IdentityRules && !(worstImage <= 2.5)) r.Add(Violation.BoundaryOutsideTube, "the iterated image of an input edge drifts " + worstImage.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " pixels from it, more than the guard of 2.5");
+                    double imageGuard = input.WedgeTolerance > 0 && input.SnapTolerance > 0
+                        ? 2.5 + input.WedgeTolerance / input.SnapTolerance
+                        : 2.5;
+                    if (o.IdentityRules && !(worstImage <= imageGuard)) r.Add(Violation.BoundaryOutsideTube, "the iterated image of an input edge drifts " + worstImage.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " pixels from it, more than the guard of " + imageGuard.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
                 }
                 // a boundary point at distance d2 (squared) from the exact input boundary is accepted within the pixel tube, or, farther but
                 // within the drift guard, if it lies within the pixel tube of an image link; false: outside (BoundaryOutsideTube)
@@ -3493,12 +3499,77 @@ namespace Meshing2Acceptance
                 }
                 int coincidences = 0, pinches = 0;
                 foreach (var pair in degree.OrderBy(p => p.Key)) {
-                    if (pair.Value < 3 || snapHot.Contains(PixelOf(v[pair.Key], snapPixel))) continue;
+                    if (pair.Value < 3 || snapHot.Contains(PixelOf(v[pair.Key], snapPixel)) || WedgeJunction(pair.Key)) continue;
                     if (pair.Value == 3) {
                         if (coincidences++ < 8) r.Add(Violation.RefinementCoincidence, "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has 3 subsegments: two chains share a link from there, which the input's own rounding keeps apart");
                     } else if (pinches++ < 8)
                         r.Add(Violation.RefinementPinch, "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has " + pair.Value + " subsegments: two chains meet there, which the input's own rounding keeps apart");
                 }
+            }
+
+            /// <summary>
+            /// With O13 wedge collapse active, a pre-refinement Case II foot vertex lies on a host constraint segment
+            /// (so within snapPixel after rounding) and within WedgeTolerance + snapPixel of its projected input vertex,
+            /// so two chains legitimately branch there without the pixel being a hot pixel of the un-collapsed input.
+            /// Fails closed when ExistedBeforeRefinement is absent or false, or when the vertex is not both near an
+            /// input vertex and within snapPixel of an input constraint segment.
+            /// </summary>
+            bool WedgeJunction(int id)
+            {
+                if (!(input.WedgeTolerance > 0)) return false;
+                if (o.ExistedBeforeRefinement == null || id >= o.ExistedBeforeRefinement.Length || !o.ExistedBeforeRefinement[id])
+                    return false;
+                Q tol = Q.FromDouble(input.WedgeTolerance) + snapPixel;
+                Q tol2 = tol * tol;
+                Pt q = v[id];
+                bool nearInput = false;
+                bool useDoubleFilter = o.VX != null && id < o.VX.Length
+                    && FilterRange(Math.Max(Math.Abs(o.VX[id]), Math.Abs(o.VY[id])))
+                    && FilterRange(input.WedgeTolerance + input.SnapTolerance);
+                double qx = useDoubleFilter ? o.VX[id] : 0, qy = useDoubleFilter ? o.VY[id] : 0;
+                double tolD = useDoubleFilter ? (input.WedgeTolerance + input.SnapTolerance) * 1.0001 + Math.Max(Math.Abs(qx), Math.Abs(qy)) * 1e-12 : 0;
+                for (int i = 0; i < inPts.Length; ++i) {
+                    if (useDoubleFilter && (Math.Abs(qx - input.X[i]) > tolD || Math.Abs(qy - input.Y[i]) > tolD))
+                        continue;
+                    if (Q.Abs(q.Qx - inPts[i].Qx) <= tol && Q.Abs(q.Qy - inPts[i].Qy) <= tol && Exact.Len2(q, inPts[i]) <= tol2) {
+                        nearInput = true;
+                        break;
+                    }
+                }
+                if (!nearInput) return false;
+                Q px2 = snapPixel * snapPixel;
+                for (int k = 0; k < sources.Count; ++k) {
+                    var s = sources[k];
+                    if (Q.Min(s.a.Qx, s.b.Qx) - snapPixel > q.Qx || Q.Max(s.a.Qx, s.b.Qx) + snapPixel < q.Qx
+                        || Q.Min(s.a.Qy, s.b.Qy) - snapPixel > q.Qy || Q.Max(s.a.Qy, s.b.Qy) + snapPixel < q.Qy)
+                        continue;
+                    if (Exact.Dist2ToSegmentAtMost(s.a, s.b, q, px2))
+                        return true;
+                }
+                return false;
+            }
+
+            /// <summary>
+            /// True when O13 wedge collapse is active and pixel centre <paramref name="hc"/> lies within
+            /// WedgeTolerance + snapPixel of some input constraint distinct from (a, b), so wedge collapse
+            /// may have rerouted a chain away from that hot pixel. Distant segments and isolated hot pixels
+            /// remain strictly checked by ChainThroughContactedPixels.
+            /// </summary>
+            bool WedgeNearOtherConstraint(Pt a, Pt b, Pt hc)
+            {
+                if (!(input.WedgeTolerance > 0)) return false;
+                Q near = Q.FromDouble(input.WedgeTolerance) + snapPixel;
+                Q near2 = near * near;
+                for (int k = 0; k < sources.Count; ++k) {
+                    var s = sources[k];
+                    if ((s.a.Equals(a) && s.b.Equals(b)) || (s.a.Equals(b) && s.b.Equals(a))) continue;
+                    if (Q.Min(s.a.Qx, s.b.Qx) - near > hc.Qx || Q.Max(s.a.Qx, s.b.Qx) + near < hc.Qx
+                        || Q.Min(s.a.Qy, s.b.Qy) - near > hc.Qy || Q.Max(s.a.Qy, s.b.Qy) + near < hc.Qy)
+                        continue;
+                    if (Exact.Dist2ToSegmentAtMost(s.a, s.b, hc, near2))
+                        return true;
+                }
+                return false;
             }
 
             Dictionary<(BigInteger x, BigInteger y), List<int>> verticesInPixel;
@@ -3552,7 +3623,8 @@ namespace Meshing2Acceptance
                     // on the piece's chain: a vertex in the pixel with subsegments to vertices in the edge's envelope on both sides of the
                     // pixel's centre along the edge, both at the same vertex; a side also holds where the edge's own link of the image on
                     // that side collapses (O-H5's rule (ii'), B: the input's own rounding collapses it, refinement may open area there)
-                    Q along = Along(Centre(h, snapPixel));
+                    Pt hc = Centre(h, snapPixel);
+                    Q along = Along(hc);
                     if (!index.TryGetValue(h, out int k)) k = -1;
                     bool? goneBefore = null, goneAfter = null;
                     bool onChain = false;
@@ -3575,8 +3647,8 @@ namespace Meshing2Acceptance
                         Snap();
                         onChain = (goneBefore ?? (goneBefore = k == 0 || Gone(image[k - 1], h)).Value) && (goneAfter ?? (goneAfter = k == image.Count - 1 || Gone(h, image[k + 1])).Value);
                     }
-                    if (onChain) continue;
-                    r.Add(Violation.ChainSkipsHotPixel, "the chain of " + a + " - " + b + " does not run through the hot pixel of " + Centre(h, snapPixel) + " that the input contacts");
+                    if (onChain || WedgeNearOtherConstraint(a, b, hc)) continue;
+                    r.Add(Violation.ChainSkipsHotPixel, "the chain of " + a + " - " + b + " does not run through the hot pixel of " + hc + " that the input contacts");
                 }
                 // a subsegment between two pixels of the piece's image that skips image pixels between them is no link of this edge; it
                 // must be another edge's link (or a hull link) of the input's rounding, or the edge's links it spans collapse in both
@@ -3594,6 +3666,12 @@ namespace Meshing2Acceptance
                             bool spanGone = true;
                             for (int t = k; t < m && spanGone; ++t) spanGone = Gone(image[t], image[t + 1]);
                             if (spanGone) continue;
+                            if (input.WedgeTolerance > 0) {
+                                bool allNearWedge = true;
+                                for (int t = k + 1; t < m && allNearWedge; ++t)
+                                    allNearWedge = WedgeNearOtherConstraint(a, b, Centre(image[t], snapPixel));
+                                if (allNearWedge) continue;
+                            }
                             r.Add(Violation.ChainSkipsHotPixel, "subsegment " + i + "-" + j + " of the chain of " + a + " - " + b + " skips the hot pixel of " + Centre(image[k + 1], snapPixel)
                                 + " that the input contacts, and is no link of the input's rounding");
                         }

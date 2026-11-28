@@ -49,7 +49,7 @@ namespace Meshing2Acceptance
 
         public Mesh2Output Run(Mesh2Input input)
         {
-            var mesher = new ConstrainedDelaunayMesh2 { ResolveCrossings = input.ResolveCrossings, SnapTolerance = input.SnapTolerance };
+            var mesher = new ConstrainedDelaunayMesh2 { ResolveCrossings = input.ResolveCrossings, SnapTolerance = input.SnapTolerance, WedgeTolerance = input.WedgeTolerance };
             return Output(mesher.Compute(Convert(input)));
         }
     }
