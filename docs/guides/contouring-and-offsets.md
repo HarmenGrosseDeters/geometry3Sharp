@@ -86,7 +86,7 @@ Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero valu
   - Keeps planar faces strictly planar and extends convex creases/corners to the intersection of the shifted planes (clamped by `MiterLimit` in `[1, 1e4]`, default `4.0`, via exact bevel half-spaces on acute edges and corners of arbitrary valence).
   - Welds vertices by exact position (unwelded STL soups work identically), orients open manifold sheet components consistently in `DoubleSided` mode, and runs in a centered power-of-two working frame (`2^k` scalings are bit-for-bit identical).
   - With `SafeRounding = true` (default), verifies the world-coordinate result is closed, 2-manifold, positively oriented, and free of degenerate triangles and crossing self-intersections (exact touching contacts where offset walls meet are split into manifold pairs and counted in `Contacts`).
-  - Limits: `Distance` must lie within `[1e-12, 1e6 / MiterLimit]` of the mesh extent (extent in `[2^-900, 2^900]`). Not a hole-filler for broken solids with missing faces: use `MeshRobustRepair` or `MeshAlphaWrap` when gaps must be sealed instead of thickened.
+  - Limits: `Distance` must lie within `[1e-12, 1e6 / MiterLimit]` of the mesh extent (extent in `[2^-900, 2^900]`) and above world floating-point resolution (`>= 1024 * ulp(maxCoord)`, preventing silent zero-offset quantization at UTM-scale origins). Not a hole-filler for broken solids with missing faces: use `MeshRobustRepair` or `MeshAlphaWrap` when gaps must be sealed instead of thickened.
 
 ---
 

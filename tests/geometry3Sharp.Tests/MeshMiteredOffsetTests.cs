@@ -771,6 +771,7 @@ namespace geometry3Sharp.Tests
             Assert.True(contactOp.RoundingClean);
             Assert.True(contactOp.Contacts > 0, $"expected exact edge contact Contacts > 0, got {contactOp.Contacts}");
             Assert.Equal(2.0 * 3.375, Volume(contactOp.Result), 6);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(contactOp.Result, checkSelfIntersections: false));
             Assert.Empty(SolidBooleanPipeline.CrossingTrianglesOfAll(contactOp.Result));
         }
 
@@ -1006,6 +1007,95 @@ namespace geometry3Sharp.Tests
             AssertClean(hemiOp.Result, "open hemisphere");
             Assert.True(hemiOp.Result.CachedBounds.Min.z >= -0.05 - 1e-3,
                 $"open hemisphere rim spike below z=-0.05: Min.z={hemiOp.Result.CachedBounds.Min.z}");
+        }
+
+        [Fact]
+        public void Round4EdgeCases_BevelledHipRoof_UltraAcutePyramid_SignedZero_HighValenceSaddle_And_ReflexRim()
+        {
+            // 1. Bevelled oblique asymmetric corner: ConvexHipRoof at MiterLimit = 2.2 (nAvg . p = 1.553 <= 2.2 < |p| = 2.479)
+            //    must bevel cleanly without slicing the corner at edgePlanes rhs = 0.05.
+            double dRoof = 0.1;
+            DMesh3 roof = ConvexHipRoof();
+            var roofBevel = new MeshMiteredOffset { Mesh = roof, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = dRoof, MiterLimit = 2.2 };
+            Assert.True(roofBevel.Compute(), roofBevel.Error);
+            AssertClean(roofBevel.Result, "bevelled hip roof");
+            Vector3d nLeftHip = new Vector3d(-0.5, 0, 0.5 * Math.Sqrt(3.0));
+            Vector3d nRightHip = new Vector3d(0.5, 0, 0.5 * Math.Sqrt(3.0));
+            foreach (int vid in roofBevel.Result.VertexIndices()) {
+                Vector3d p = roofBevel.Result.GetVertex(vid);
+                Assert.True(nLeftHip.Dot(p) <= dRoof + 1e-5, $"bevelled hip roof protrusion above left hip: {nLeftHip.Dot(p)}");
+                Assert.True(nRightHip.Dot(p - new Vector3d(2, 0, 0)) <= dRoof + 1e-5, "bevelled hip roof protrusion above right hip");
+            }
+            Assert.Equal(2.0 * dRoof, roofBevel.Result.CachedBounds.Max.z, 4);
+
+            // 2. Ultra-acute 0.05-deg 4-sided pyramid (sin(0.05 deg) = 8.7e-4 < 1e-3): must bevel-clamp apex, never drop corner!
+            DMesh3 ultraAcute = AcuteCone(4, 0.05, height: 2.0);
+            var ultraOp = new MeshMiteredOffset { Mesh = ultraAcute, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.05, MiterLimit = 2.0 };
+            Assert.True(ultraOp.Compute(), ultraOp.Error);
+            AssertClean(ultraOp.Result, "0.05-deg ultra-acute pyramid");
+            Assert.Equal(2.0 + 2.0 * 0.05, ultraOp.Result.CachedBounds.Max.z, 3);
+
+            // 3. Unwelded STL soup with mixed IEEE-754 -0.0 and +0.0 coordinates welds identically to +0.0 box
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            var negZeroSoup = new DMesh3();
+            int triIdx = 0;
+            foreach (int tid in box.TriangleIndices()) {
+                Index3i t = box.GetTriangle(tid);
+                bool flipZero = (triIdx++ & 1) == 1;
+                Vector3d[] pts = { box.GetVertex(t.a), box.GetVertex(t.b), box.GetVertex(t.c) };
+                if (flipZero) {
+                    for (int k = 0; k < 3; ++k) {
+                        pts[k] = new Vector3d(
+                            pts[k].x == 0.0 ? -0.0 : pts[k].x,
+                            pts[k].y == 0.0 ? -0.0 : pts[k].y,
+                            pts[k].z == 0.0 ? -0.0 : pts[k].z);
+                    }
+                }
+                int ia = negZeroSoup.AppendVertex(pts[0]);
+                int ib = negZeroSoup.AppendVertex(pts[1]);
+                int ic = negZeroSoup.AppendVertex(pts[2]);
+                negZeroSoup.AppendTriangle(ia, ib, ic);
+            }
+            var boxRef = new MeshMiteredOffset { Mesh = box, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            var negZeroOp = new MeshMiteredOffset { Mesh = negZeroSoup, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            Assert.True(boxRef.Compute(), boxRef.Error);
+            Assert.True(negZeroOp.Compute(), negZeroOp.Error);
+            AssertClean(negZeroOp.Result, "signed-zero soup");
+            Assert.Equal(3.375, Volume(negZeroOp.Result), 7);
+            Assert.Equal("", Invariance.Difference(boxRef.Result, negZeroOp.Result));
+
+            // 4. Non-convex star/saddle sheet (12 alternating pleats, no strict cone axis) exercises the dual-cone fallback cleanly & fast
+            var saddle = new DMesh3();
+            int center = saddle.AppendVertex(Vector3d.Zero);
+            int nPleats = 12;
+            var ring = new int[nPleats];
+            for (int i = 0; i < nPleats; ++i) {
+                double ang = 2.0 * Math.PI * i / nPleats;
+                double z = (i % 2 == 0) ? 0.15 : -0.15;
+                ring[i] = saddle.AppendVertex(new Vector3d(Math.Cos(ang), Math.Sin(ang), z));
+            }
+            for (int i = 0; i < nPleats; ++i)
+                saddle.AppendTriangle(center, ring[i], ring[(i + 1) % nPleats]);
+            var saddleOp = new MeshMiteredOffset { Mesh = saddle, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.02 };
+            Assert.True(saddleOp.Compute(), saddleOp.Error);
+            AssertClean(saddleOp.Result, "12-valence saddle sheet");
+
+            // 5. Open reflex boundary corner (3 of 4 faces of a 4-sided pyramid meeting at apex (0,0,1)):
+            //    must stay clean and preserve sharp apex height 1 + sqrt(2) * d without a V-cleft from rim planes.
+            var openPyr = new DMesh3();
+            int ap = openPyr.AppendVertex(new Vector3d(0, 0, 1));
+            int c0 = openPyr.AppendVertex(new Vector3d(-1, -1, 0));
+            int c1 = openPyr.AppendVertex(new Vector3d( 1, -1, 0));
+            int c2 = openPyr.AppendVertex(new Vector3d( 1,  1, 0));
+            int c3 = openPyr.AppendVertex(new Vector3d(-1,  1, 0));
+            openPyr.AppendTriangle(c0, c1, ap);
+            openPyr.AppendTriangle(c1, c2, ap);
+            openPyr.AppendTriangle(c2, c3, ap);
+            double dPyr = 0.05;
+            var openPyrOp = new MeshMiteredOffset { Mesh = openPyr, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = dPyr };
+            Assert.True(openPyrOp.Compute(), openPyrOp.Error);
+            AssertClean(openPyrOp.Result, "reflex open pyramid apex");
+            Assert.Equal(1.0 + Math.Sqrt(2.0) * dPyr, openPyrOp.Result.CachedBounds.Max.z, 4);
         }
 
         static double MaxSurfaceDistance(DMesh3 a, DMesh3 b)

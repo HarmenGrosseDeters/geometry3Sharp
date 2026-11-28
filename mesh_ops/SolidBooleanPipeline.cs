@@ -2955,15 +2955,7 @@ namespace gs
             var clock = Stopwatch.StartNew();
             if (InputRepair == InputRepairModes.ThickenOpenSheet) {
                 double halfThick = OpenSheetHalfThickness;
-                if (double.IsNaN(halfThick) || double.IsInfinity(halfThick) || halfThick < 0) {
-                    robustRefusal = "OpenSheetHalfThickness must be finite and >= 0";
-                    return null;
-                }
                 if (halfThick == 0) {
-                    if (double.IsNaN(RelativeOpenSheetHalfThickness) || double.IsInfinity(RelativeOpenSheetHalfThickness) || !(RelativeOpenSheetHalfThickness > 0)) {
-                        robustRefusal = "RelativeOpenSheetHalfThickness must be finite and > 0";
-                        return null;
-                    }
                     AxisAlignedBox3d b = AxisAlignedBox3d.Empty;
                     bool hasTri = false;
                     foreach (int tid in input.TriangleIndices()) {
@@ -2971,10 +2963,6 @@ namespace gs
                         Vector3d va = input.GetVertex(t.a);
                         Vector3d vb = input.GetVertex(t.b);
                         Vector3d vc = input.GetVertex(t.c);
-                        if (!va.IsFinite || !vb.IsFinite || !vc.IsFinite) {
-                            robustRefusal = "open input contains non-finite vertex coordinates";
-                            return null;
-                        }
                         if (va == vb || vb == vc || vc == va)
                             continue;
                         b.Contain(va);
