@@ -18,7 +18,7 @@ RO = sorted("rounding-%d" % i for i in range(1, 16))  # (in the order of the con
 BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
-                                                "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells",
+                                                "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline-1", "solid-pipeline-2", "solid-pipeline-3", "solid-pipeline-4", "solid-pipeline-5", "exact-winding", "cells",
                                                 "predicates-1", "predicates-2", "adaptive", "box3", "ray-triangle", "snaprounding", "separating-axes", "bisector-1", "bisector-2"}
 
 
