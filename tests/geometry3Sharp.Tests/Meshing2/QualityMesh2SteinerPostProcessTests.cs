@@ -216,11 +216,50 @@ namespace geometry3Sharp.Tests
                 Assert.True(MinAngleDegrees(smooth.Mesh) >= MinAngleDegrees(raw.Mesh) - 1e-12);
                 Assert.True(smooth.Mesh.BadTriangles.Count <= raw.Mesh.BadTriangles.Count);
 
+                int moved = 0;
+                for (int i = raw.Mesh.InputCount; i < raw.Mesh.Vertices.Count; ++i)
+                    if (raw.Mesh.Vertices[i] != smooth.Mesh.Vertices[i]) ++moved;
+                Assert.True(moved > 0, "Expected snap-grid smoothing to relocate at least one Steiner point (conforming=" + conforming + ")");
+
                 foreach (var p in smooth.Mesh.Vertices) {
                     Assert.Equal(Math.Round(p.x * 32.0), p.x * 32.0);
                     Assert.Equal(Math.Round(p.y * 32.0), p.y * 32.0);
                 }
             }
+
+            // Non-dyadic 0.01 snap grid with dense interior segments near free Steiner points (regression for TrianglesNear star seed)
+            var denseBench = new B()
+                .Square(10)
+                .Segs(1, 2, 9, 2.25, 1, 4, 9, 4.15, 1, 6, 9, 6.2, 1, 8, 9, 7.85)
+                .Snap(0.01)
+                .Min(25)
+                .Area(1.5)
+                .Build();
+            denseBench.Conforming = true;
+            var denseInput = ConstrainedDelaunayMesh2Candidate.Convert(denseBench);
+            var denseRaw = new QualityMesh2 { MinAngle = 25, MaxArea = 1.5, SnapTolerance = 0.01, Conforming = true, SmoothingPasses = 0 }.Compute(denseInput);
+            var denseSmooth = new QualityMesh2 { MinAngle = 25, MaxArea = 1.5, SnapTolerance = 0.01, Conforming = true, SmoothingPasses = 5 }.Compute(denseInput);
+            AssertOracleClean(denseBench, new QualityMesh2 { MinAngle = 25, MaxArea = 1.5, SnapTolerance = 0.01, Conforming = true, SmoothingPasses = 5 });
+            AssertConstraintsAndInputsUnchanged(denseRaw.Mesh, denseSmooth.Mesh);
+            int denseMoved = 0;
+            for (int i = denseRaw.Mesh.InputCount; i < denseRaw.Mesh.Vertices.Count; ++i)
+                if (denseRaw.Mesh.Vertices[i] != denseSmooth.Mesh.Vertices[i]) ++denseMoved;
+            Assert.True(denseMoved > 0, "Expected smoothing on 0.01 snap grid to move at least one Steiner point");
+        }
+
+        [Fact]
+        public void Smoothing_WithSpatiallyVaryingSizeFunction_StaysOracleValid()
+        {
+            // Non-constant SizeFunction: fine on the left (h = 0.5 at x = 0), coarse on the right (h = 3.0 at x = 10)
+            var bench = new B().Square(10).Min(25).Build();
+            bench.Conforming = true;
+            bench.SizeFunction = (x, y) => new Q(1, 2) + x * new Q(1, 4);
+            var mesher = new QualityMesh2 {
+                MinAngle = 25, Conforming = true,
+                SizeFunction = (x, y) => 0.5 + 0.25 * x,
+                SmoothingPasses = 5
+            };
+            AssertOracleClean(bench, mesher);
         }
 
         [Fact]
@@ -255,6 +294,23 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(p.x - 0.5 * p.y, reduced.Mesh.Heights[i], 10);
                 }
             }
+
+            // Per-region MaxArea + global MaxArea + hole + locked segment under ReduceSteiner
+            var regBench = new B()
+                .Square(10)
+                .Hole(3, 3, 5, 3, 5, 5, 3, 5)
+                .Seg(0, 6, 10, 6, marker: 2)
+                .RegionSeed(1, 1, 1, 0.5)
+                .RegionSeed(5, 8, 2, 2.0)
+                .Min(20)
+                .Area(2.5)
+                .Build();
+            regBench.Conforming = true;
+            AssertOracleClean(regBench, new QualityMesh2 { MinAngle = 20, MaxArea = 2.5, Conforming = true, ReduceSteiner = true });
+
+            var lockedBench = new B().Square(10).Seg(4, 5, 6, 5, marker: 7, locked: true).Min(20).Build();
+            lockedBench.ConstrainedQuality = true;
+            AssertOracleClean(lockedBench, new QualityMesh2 { MinAngle = 20, Conforming = false, ReduceSteiner = true, SmoothingPasses = 4 }, constrainedMode: true);
         }
 
         [Fact]
@@ -301,6 +357,13 @@ namespace geometry3Sharp.Tests
             string plainText = TextFormat.WriteInput(plain);
             Assert.DoesNotContain("reduce_steiner", plainText);
             Assert.DoesNotContain("smoothing_passes", plainText);
+
+            // Negative SmoothingPasses rejected symmetrically by both writer and reader
+            var neg = new B().Square(10).Min(25).Build();
+            neg.SmoothingPasses = -2;
+            Assert.Throws<InvalidOperationException>(() => TextFormat.WriteInput(neg));
+            Assert.Throws<FormatException>(() => TextFormat.ReadInput(plainText.Replace("end\n", "smoothing_passes -1\nend\n")));
+            Assert.Throws<FormatException>(() => TextFormat.ReadInput(plainText.Replace("end\n", "reduce_steiner 2\nend\n")));
         }
 
         [Fact]
@@ -312,6 +375,22 @@ namespace geometry3Sharp.Tests
             cts.Cancel();
             Assert.Throws<OperationCanceledException>(() =>
                 new QualityMesh2 { MinAngle = 25, MaxArea = 0.5, ReduceSteiner = true, SmoothingPasses = 5 }.Compute(g3Input, cts.Token));
+        }
+
+        [Fact]
+        public void PostProcess_Scaling_LinearInMeshSize()
+        {
+            // Compare n vs 4n triangles: post-processing stays fast and strictly valid with linear scaling
+            var small = ConstrainedDelaunayMesh2Candidate.Convert(new B().Square(10).Min(25).Area(0.5).Build());
+            var large = ConstrainedDelaunayMesh2Candidate.Convert(new B().Square(20).Min(25).Area(0.5).Build());
+            var mesher = new QualityMesh2 { MinAngle = 25, MaxArea = 0.5, Conforming = true, ReduceSteiner = true, SmoothingPasses = 3 };
+            var rSmall = mesher.Compute(small);
+            var rLarge = mesher.Compute(large);
+            Assert.Equal(Triangulation2Status.Success, rSmall.Status);
+            Assert.Equal(Triangulation2Status.Success, rLarge.Status);
+            Assert.Empty(rSmall.Mesh.BadTriangles);
+            Assert.Empty(rLarge.Mesh.BadTriangles);
+            Assert.True(rLarge.Mesh.Triangles.Count >= 3 * rSmall.Mesh.Triangles.Count);
         }
 
         [Fact]

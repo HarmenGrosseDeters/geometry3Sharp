@@ -56,6 +56,7 @@ namespace Meshing2Acceptance
                 sb.Append("mode constrained\n");
             }
             if (input.ReduceSteiner) sb.Append("reduce_steiner 1\n");
+            if (input.SmoothingPasses < 0) throw new InvalidOperationException("smoothing_passes is negative");
             if (input.SmoothingPasses > 0) sb.Append("smoothing_passes ").Append(input.SmoothingPasses.ToString(CultureInfo.InvariantCulture)).Append('\n');
             sb.Append("end\n");
             return sb.ToString();

@@ -533,7 +533,7 @@ namespace g3
                 // the result is a constrained Delaunay triangulation in any case, also when the limit stopped refinement
                 var bad = k.NonDelaunayEdges();
                 if (bad.Count > 0) k.RestoreDelaunay(bad);
-                if (options.ReduceSteiner && options.SizeFunction == null) ReduceSteiner();
+                if (options.ReduceSteiner && options.SizeFunction == null && !b.SteinerLimitReached) ReduceSteiner();
                 if (options.SmoothingPasses > 0) SmoothSteiner();
                 return null;
             }
@@ -580,14 +580,12 @@ namespace g3
                                 var ra = b.input.Regions[tag - 1].MaxArea;
                                 if (ra != null) regionMaxArea = regionMaxArea == null ? ra : Math.Min(regionMaxArea.Value, ra.Value);
                             }
-                            double areaBound = regionMaxArea != null ? regionMaxArea.Value * (1.0 - 1.0 / (1L << 40)) : 0;
-
                             for (int i = 0; i < m; ++i) {
                                 int a = tV[3 * i], c = tV[3 * i + 1], d = tV[3 * i + 2];
                                 var pa = k.Point(a); var pc = k.Point(c); var pd = k.Point(d);
                                 if (ExactPredicates.Orient2d(pa, pc, pd) <= 0) return false;
                                 if (options.MinAngle > 0 && TriMinSin2(pa, pc, pd) < sin2Min) return false;
-                                if (regionMaxArea != null && TriArea(pa, pc, pd) > areaBound) return false;
+                                if (regionMaxArea != null && ExceedsScaledArea(pa, pc, pd, regionMaxArea.Value)) return false;
 
                                 for (int j = 0; j < 3; ++j) {
                                     int lh = tH[3 * i + j];
@@ -656,13 +654,16 @@ namespace g3
             {
                 const double halfSqrt3 = 0.8660254037844386;
                 var star = new List<int>(16);
-                var targets = new Vector2d[3];
+                var targetDx = new double[3];
+                var targetDy = new double[3];
                 double[] alphas = { 1.0, 0.5, 0.25 };
+                int checkedCount = 0;
 
                 for (int pass = 0; pass < options.SmoothingPasses; ++pass) {
+                    b.cancel.ThrowIfCancellationRequested();
                     int moved = 0;
                     for (int v = firstSteiner; v < k.VertexCount; ++v) {
-                        if ((v & 255) == 0) b.cancel.ThrowIfCancellationRequested();
+                        if ((++checkedCount & 255) == 0) b.cancel.ThrowIfCancellationRequested();
                         if (v == k.Infinite) continue;
 
                         star.Clear();
@@ -688,9 +689,10 @@ namespace g3
 
                         for (int i = 0; i < deg; ++i) {
                             int e = star[i];
+                            int t = e / 3;
                             var pu = k.Point(k.V[Next(e)]);
                             var pw = k.Point(k.V[Prev(e)]);
-                            double s2 = TriMinSin2(oldPos, pu, pw);
+                            double s2 = TriMinSin2ForTriangle(t, v, oldPos);
                             if (s2 < oldMinSin2) { oldMinSin2 = s2; worstIdx = i; }
                             if (options.MinAngle > 0 && s2 < sin2Min) ++oldBelow;
 
@@ -707,13 +709,19 @@ namespace g3
                             }
                         }
 
-                        // Target 0: Laplacian link centroid (offset form for UTM / 2^20 precision)
+                        // Store target offsets directly (no +oldPos/-oldPos round-trip) for full precision at 2^20 / UTM.
                         int targetCount = 0;
-                        targets[targetCount++] = new Vector2d(oldPos.x + sumDx / deg, oldPos.y + sumDy / deg);
-                        // Target 1: Average circumcentre of incident triangles (centroidal Voronoi-like target)
-                        if (ccCount > 0)
-                            targets[targetCount++] = new Vector2d(oldPos.x + sumCcDx / ccCount, oldPos.y + sumCcDy / ccCount);
-                        // Target 2: Equilateral apex across the worst triangle's link edge
+                        // Target 0: Laplacian link centroid offset
+                        targetDx[targetCount] = sumDx / deg;
+                        targetDy[targetCount] = sumDy / deg;
+                        ++targetCount;
+                        // Target 1: Average circumcentre offset of incident triangles
+                        if (ccCount > 0) {
+                            targetDx[targetCount] = sumCcDx / ccCount;
+                            targetDy[targetCount] = sumCcDy / ccCount;
+                            ++targetCount;
+                        }
+                        // Target 2: Equilateral apex offset across the worst triangle's link edge
                         {
                             int we = star[worstIdx];
                             var pu = k.Point(k.V[Next(we)]);
@@ -721,9 +729,9 @@ namespace g3
                             double dux = pu.x - oldPos.x, duy = pu.y - oldPos.y;
                             double dwx = pw.x - oldPos.x, dwy = pw.y - oldPos.y;
                             double ex = dwx - dux, ey = dwy - duy;
-                            targets[targetCount++] = new Vector2d(
-                                oldPos.x + 0.5 * (dux + dwx) - halfSqrt3 * ey,
-                                oldPos.y + 0.5 * (duy + dwy) + halfSqrt3 * ex);
+                            targetDx[targetCount] = 0.5 * (dux + dwx) - halfSqrt3 * ey;
+                            targetDy[targetCount] = 0.5 * (duy + dwy) + halfSqrt3 * ex;
+                            ++targetCount;
                         }
 
                         double bestMinSin2 = oldMinSin2 * (1.0 + 1e-12);
@@ -731,8 +739,8 @@ namespace g3
                         bool hasBest = false;
 
                         for (int ti = 0; ti < targetCount; ++ti) {
-                            double tdx = targets[ti].x - oldPos.x;
-                            double tdy = targets[ti].y - oldPos.y;
+                            double tdx = targetDx[ti];
+                            double tdy = targetDy[ti];
                             for (int ai = 0; ai < alphas.Length; ++ai) {
                                 double a = alphas[ai];
                                 var cand = new Vector2d(oldPos.x + a * tdx, oldPos.y + a * tdy);
@@ -766,6 +774,12 @@ namespace g3
                 }
             }
 
+            double TriMinSin2ForTriangle(int t, int v, Vector2d pos)
+            {
+                int v0 = k.V[3 * t], v1 = k.V[3 * t + 1], v2 = k.V[3 * t + 2];
+                return TriMinSin2(v0 == v ? pos : k.Point(v0), v1 == v ? pos : k.Point(v1), v2 == v ? pos : k.Point(v2));
+            }
+
             bool CanMoveSteiner(int v, Vector2d oldPos, Vector2d cand, List<int> star, int oldBelow, double minRequiredSin2, out double candMinSin2)
             {
                 candMinSin2 = 0;
@@ -796,44 +810,56 @@ namespace g3
                     var pw = k.Point(w);
 
                     if (ExactPredicates.Orient2d(cand, pu, pw) <= 0) return false;
-                    double s2 = TriMinSin2(cand, pu, pw);
+                    double s2 = TriMinSin2ForTriangle(t, v, cand);
                     if (s2 <= minRequiredSin2) return false;
                     if (s2 < minS2) minS2 = s2;
                     if (options.MinAngle > 0 && s2 < sin2Min) {
+                        if (exempt.Contains(TriangleKey(t))) return false;
                         ++newBelow;
                         if (newBelow > oldBelow) return false;
                         // Preserve oracle small-angle / grid-floor exemptions if a triangle remains below MinAngle.
-                        if (TriMinSin2(oldPos, pu, pw) >= sin2Min) return false;
+                        if (TriMinSin2ForTriangle(t, v, oldPos) >= sin2Min) return false;
                         if (grid != null && BelowFloor(t) && !PairWithinGridFloor(candPx, candPy, u, w)) return false;
                         if (ShortestEdgeCorner(cand, pu, pw) != ShortestEdgeCorner(oldPos, pu, pw)) return false;
                     }
 
-                    if (regionMaxArea != null) {
-                        double newArea = TriArea(cand, pu, pw);
-                        double bound = regionMaxArea.Value * (1.0 - 1.0 / (1L << 40));
-                        if (newArea > bound) {
-                            double oldArea = TriArea(oldPos, pu, pw);
-                            if (oldArea <= bound || newArea > oldArea) return false;
-                        }
+                    if (regionMaxArea != null && ExceedsScaledArea(cand, pu, pw, regionMaxArea.Value)) {
+                        if (!ExceedsScaledArea(oldPos, pu, pw, regionMaxArea.Value)
+                            || CompareScaledTriArea(cand, pu, pw, oldPos, pu, pw) > 0)
+                            return false;
                     }
 
                     if (options.SizeFunction != null) {
                         var gc = new Vector2d(cand.x + ((pu.x - cand.x) + (pw.x - cand.x)) / 3.0, cand.y + ((pu.y - cand.y) + (pw.y - cand.y)) / 3.0);
-                        double h = options.SizeFunction(gc.x, gc.y);
-                        if (double.IsNaN(h) || h <= 0) return false;
-                        double newLong2 = TriLongestEdge2(cand, pu, pw);
-                        double hBound = h * h * (1.0 - 1.0 / (1L << 40));
-                        if (newLong2 > hBound) {
-                            double oldLong2 = TriLongestEdge2(oldPos, pu, pw);
-                            if (oldLong2 <= hBound || newLong2 > oldLong2) return false;
+                        double hNew = options.SizeFunction(gc.x, gc.y);
+                        if (double.IsNaN(hNew) || hNew <= 0) return false;
+                        if (ExceedsScaledSize(cand, pu, pw, hNew)) {
+                            var oldGc = new Vector2d(oldPos.x + ((pu.x - oldPos.x) + (pw.x - oldPos.x)) / 3.0, oldPos.y + ((pu.y - oldPos.y) + (pw.y - oldPos.y)) / 3.0);
+                            double hOld = options.SizeFunction(oldGc.x, oldGc.y);
+                            if (double.IsNaN(hOld) || hOld <= 0
+                                || !ExceedsScaledSize(oldPos, pu, pw, hOld)
+                                || CompareScaledTriLongestEdge(cand, pu, pw, oldPos, pu, pw) > 0)
+                                return false;
                         }
                     }
                 }
 
-                // 2. Grid pixel collision and constraint-crossing checks (snap rounding invariant + Q17)
+                // 2. Grid pixel collision and constraint-crossing checks (snap rounding invariant + Q17).
+                // Seed TrianglesNear from the star triangle containing cand (guaranteed in star since step 1 verified strict star kernel)
+                // and pad by a full pixel width so non-dyadic grids never miss a grazing triangle.
                 if (grid != null) {
-                    double h = grid.W / 2;
-                    foreach (int nt in TrianglesNear(star[0] / 3, cand.x - h, cand.y - h, cand.x + h, cand.y + h)) {
+                    int tCand = star[0] / 3;
+                    for (int i = 0; i < deg; ++i) {
+                        int e = star[i];
+                        var pu = k.Point(k.V[Next(e)]);
+                        var pw = k.Point(k.V[Prev(e)]);
+                        if (ExactPredicates.Orient2d(oldPos, pu, cand) >= 0 && ExactPredicates.Orient2d(pw, oldPos, cand) >= 0) {
+                            tCand = e / 3;
+                            break;
+                        }
+                    }
+                    double pad = grid.W;
+                    foreach (int nt in TrianglesNear(tCand, cand.x - pad, cand.y - pad, cand.x + pad, cand.y + pad)) {
                         for (int j = 0; j < 3; ++j) {
                             int ne = 3 * nt + j;
                             int nv = k.V[ne];
@@ -874,13 +900,15 @@ namespace g3
                             if (ExactPredicates.InCircle(cand, pu, pw, popp) > 0) return false;
                         }
                     } else {
-                        // Constrained link edge: never introduce encroachment on unlocked edges, and preserve conforming Delaunay across all constrained edges (including hole boundaries)
-                        if (!Locked(le) && !EncroachesOn(pu, pw, oldPos) && EncroachesOn(pu, pw, cand)) return false;
+                        // Constrained link edge: never introduce encroachment on unlocked edges, and preserve conforming Delaunay
+                        // across all constrained edges (unconditionally on unlocked edges so off-segment excuses cannot be amplified).
+                        bool locked = Locked(le);
+                        if (!locked && !EncroachesOn(pu, pw, oldPos) && EncroachesOn(pu, pw, cand)) return false;
                         if (options.Conforming && !k.IsGhost(nt)) {
                             int opp = k.V[Prev(twin)];
                             var popp = k.Point(opp);
-                            if (ExactPredicates.InCircle(oldPos, pu, pw, popp) <= 0
-                                && ExactPredicates.InCircle(cand, pu, pw, popp) > 0)
+                            if (ExactPredicates.InCircle(cand, pu, pw, popp) > 0
+                                && (!locked || ExactPredicates.InCircle(oldPos, pu, pw, popp) <= 0))
                                 return false;
                         }
                     }
@@ -907,56 +935,81 @@ namespace g3
             static double TriMinSin2(Vector2d a, Vector2d b, Vector2d c)
             {
                 double qx = b.x - a.x, qy = b.y - a.y, rx = c.x - a.x, ry = c.y - a.y;
-                double scale = Math.Max(Math.Max(Math.Abs(qx), Math.Abs(qy)), Math.Max(Math.Abs(rx), Math.Abs(ry)));
-                if (scale == 0) return 0;
-                ExactPoint3.Decompose(scale, out var m, out int e);
-                int ex = e + (int)ExactPoint3.BitLength(m) - 1;
-                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
-                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
-                double area2 = qx * ry - qy * rx;
+                if (qx == 0 && qy == 0 && rx == 0 && ry == 0) return 0;
+                int ex = ScaleOf(qx, qy, rx, ry);
+                var q0 = new Vector2d(ExactPoint3.ScaleB(qx, -ex), ExactPoint3.ScaleB(qy, -ex));
+                var r0 = new Vector2d(ExactPoint3.ScaleB(rx, -ex), ExactPoint3.ScaleB(ry, -ex));
+                double area2 = 2.0 * LocalArea(q0, r0);
                 if (!(area2 > 0)) return 0;
-                double a2 = area2 * area2;
+                double best = double.MaxValue;
+                for (int j = 0; j < 3; ++j) {
+                    var p = Corner(j, q0, r0); var q = Corner(j + 1, q0, r0); var r = Corner(j + 2, q0, r0);
+                    double l1 = (q - p).LengthSquared, l2 = (r - p).LengthSquared;
+                    double s2 = area2 * area2 / (l1 * l2);
+                    if (s2 < best) best = s2;
+                }
+                return best;
+            }
+
+            static bool ExceedsScaledArea(Vector2d a, Vector2d b, Vector2d c, double maxArea)
+            {
+                if (double.IsPositiveInfinity(maxArea)) return false;
+                double qx = b.x - a.x, qy = b.y - a.y, rx = c.x - a.x, ry = c.y - a.y;
+                if (qx == 0 && qy == 0 && rx == 0 && ry == 0) return false;
+                int ex = ScaleOf(qx, qy, rx, ry);
+                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
+                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
+                double localArea = 0.5 * (qx * ry - qy * rx);
+                double scaledBound = ExactPoint3.ScaleB(maxArea, -2 * ex);
+                if (double.IsPositiveInfinity(scaledBound)) return false;
+                return localArea > scaledBound * (1.0 - 1.0 / (1L << 40));
+            }
+
+            static int CompareScaledTriArea(Vector2d a1, Vector2d b1, Vector2d c1, Vector2d a2, Vector2d b2, Vector2d c2)
+            {
+                double q1x = b1.x - a1.x, q1y = b1.y - a1.y, r1x = c1.x - a1.x, r1y = c1.y - a1.y;
+                double q2x = b2.x - a2.x, q2y = b2.y - a2.y, r2x = c2.x - a2.x, r2y = c2.y - a2.y;
+                int ex = Math.Max(ScaleOf(q1x, q1y, r1x, r1y), ScaleOf(q2x, q2y, r2x, r2y));
+                double s1 = ExactPoint3.ScaleB(q1x, -ex) * ExactPoint3.ScaleB(r1y, -ex) - ExactPoint3.ScaleB(q1y, -ex) * ExactPoint3.ScaleB(r1x, -ex);
+                double s2 = ExactPoint3.ScaleB(q2x, -ex) * ExactPoint3.ScaleB(r2y, -ex) - ExactPoint3.ScaleB(q2y, -ex) * ExactPoint3.ScaleB(r2x, -ex);
+                return s1.CompareTo(s2);
+            }
+
+            static bool ExceedsScaledSize(Vector2d a, Vector2d b, Vector2d c, double h)
+            {
+                if (double.IsPositiveInfinity(h)) return false;
+                double qx = b.x - a.x, qy = b.y - a.y, rx = c.x - a.x, ry = c.y - a.y;
+                if (qx == 0 && qy == 0 && rx == 0 && ry == 0) return false;
+                int ex = ScaleOf(qx, qy, rx, ry);
+                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
+                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
                 double l0 = (rx - qx) * (rx - qx) + (ry - qy) * (ry - qy);
                 double l1 = rx * rx + ry * ry;
                 double l2 = qx * qx + qy * qy;
-                double maxProd = Math.Max(l1 * l2, Math.Max(l0 * l2, l0 * l1));
-                return maxProd > 0 ? a2 / maxProd : 0;
+                double localLong2 = Math.Max(l0, Math.Max(l1, l2));
+                double sh = ExactPoint3.ScaleB(h, -ex);
+                if (double.IsPositiveInfinity(sh)) return false;
+                double hBound = sh * sh * (1.0 - 1.0 / (1L << 40));
+                return localLong2 > hBound;
             }
 
-            static double TriArea(Vector2d a, Vector2d b, Vector2d c)
+            static int CompareScaledTriLongestEdge(Vector2d a1, Vector2d b1, Vector2d c1, Vector2d a2, Vector2d b2, Vector2d c2)
             {
-                double qx = b.x - a.x, qy = b.y - a.y, rx = c.x - a.x, ry = c.y - a.y;
-                double scale = Math.Max(Math.Max(Math.Abs(qx), Math.Abs(qy)), Math.Max(Math.Abs(rx), Math.Abs(ry)));
-                if (scale == 0) return 0;
-                ExactPoint3.Decompose(scale, out var m, out int e);
-                int ex = e + (int)ExactPoint3.BitLength(m) - 1;
-                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
-                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
-                return ExactPoint3.ScaleB(0.5 * (qx * ry - qy * rx), 2 * ex);
-            }
-
-            static double TriLongestEdge2(Vector2d a, Vector2d b, Vector2d c)
-            {
-                double qx = b.x - a.x, qy = b.y - a.y, rx = c.x - a.x, ry = c.y - a.y;
-                double scale = Math.Max(Math.Max(Math.Abs(qx), Math.Abs(qy)), Math.Max(Math.Abs(rx), Math.Abs(ry)));
-                if (scale == 0) return 0;
-                ExactPoint3.Decompose(scale, out var m, out int e);
-                int ex = e + (int)ExactPoint3.BitLength(m) - 1;
-                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
-                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
-                double l0 = (rx - qx) * (rx - qx) + (ry - qy) * (ry - qy);
-                double l1 = rx * rx + ry * ry;
-                double l2 = qx * qx + qy * qy;
-                return ExactPoint3.ScaleB(Math.Max(l0, Math.Max(l1, l2)), 2 * ex);
+                double q1x = b1.x - a1.x, q1y = b1.y - a1.y, r1x = c1.x - a1.x, r1y = c1.y - a1.y;
+                double q2x = b2.x - a2.x, q2y = b2.y - a2.y, r2x = c2.x - a2.x, r2y = c2.y - a2.y;
+                int ex = Math.Max(ScaleOf(q1x, q1y, r1x, r1y), ScaleOf(q2x, q2y, r2x, r2y));
+                double sq1x = ExactPoint3.ScaleB(q1x, -ex), sq1y = ExactPoint3.ScaleB(q1y, -ex), sr1x = ExactPoint3.ScaleB(r1x, -ex), sr1y = ExactPoint3.ScaleB(r1y, -ex);
+                double sq2x = ExactPoint3.ScaleB(q2x, -ex), sq2y = ExactPoint3.ScaleB(q2y, -ex), sr2x = ExactPoint3.ScaleB(r2x, -ex), sr2y = ExactPoint3.ScaleB(r2y, -ex);
+                double m1 = Math.Max((sr1x - sq1x) * (sr1x - sq1x) + (sr1y - sq1y) * (sr1y - sq1y), Math.Max(sr1x * sr1x + sr1y * sr1y, sq1x * sq1x + sq1y * sq1y));
+                double m2 = Math.Max((sr2x - sq2x) * (sr2x - sq2x) + (sr2y - sq2y) * (sr2y - sq2y), Math.Max(sr2x * sr2x + sr2y * sr2y, sq2x * sq2x + sq2y * sq2y));
+                return m1.CompareTo(m2);
             }
 
             static bool TryLocalCircumcentreOffset(double qx, double qy, double rx, double ry, out double ccDx, out double ccDy)
             {
                 ccDx = 0; ccDy = 0;
-                double scale = Math.Max(Math.Max(Math.Abs(qx), Math.Abs(qy)), Math.Max(Math.Abs(rx), Math.Abs(ry)));
-                if (scale == 0) return false;
-                ExactPoint3.Decompose(scale, out var m, out int e);
-                int ex = e + (int)ExactPoint3.BitLength(m) - 1;
+                if (qx == 0 && qy == 0 && rx == 0 && ry == 0) return false;
+                int ex = ScaleOf(qx, qy, rx, ry);
                 qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
                 rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
                 double det = 2.0 * (qx * ry - qy * rx);
@@ -1509,8 +1562,9 @@ namespace g3
                 return false;
             }
 
-            /// <summary> the pixel indices of vertex v, computed once per refiner: the kernel never moves a vertex after inserting it and
-            /// never reuses an id, so the indices stay valid; the exact index is costly (most of the mesher's time on the Herne tiles).
+            /// <summary> the pixel indices of vertex v, cached per refiner: refinement never moves a vertex after inserting it and
+            /// never reuses an id, and SmoothSteiner updates pixels[v] whenever it relocates a free Steiner vertex, so the cache stays
+            /// valid; the exact index is costly (most of the mesher's time on the Herne tiles).
             /// long.MinValue marks an entry not computed yet (an index of -2^63 would only be recomputed each time) </summary>
             (long x, long y) PixelOf(int v)
             {
