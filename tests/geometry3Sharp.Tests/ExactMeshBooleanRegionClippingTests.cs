@@ -146,7 +146,7 @@ namespace geometry3Sharp.Tests
         public void RegionClipping_IsClosedAndCertified_WithThreeCoplanarLayersAndOverlappingRegions(string what, Ops op)
         {
             List<DMesh3> m = ReviewInputs(what);
-            var old = new ExactMeshBoolean(m, op) { AllowOpenMeshes = true };
+            var old = new ExactMeshBoolean(m, op) { AllowOpenMeshes = true, RegionClipping = false };
             Assert.True(old.Compute(), old.Error);
             var neu = new ExactMeshBoolean(m, op) { RegionClipping = true, AllowOpenMeshes = true, RecordCertificate = true, ComputeExactVertices = true, CullOutsideA = op != Ops.Intersection };
             Assert.True(neu.Compute(), neu.Error);
@@ -172,7 +172,7 @@ namespace geometry3Sharp.Tests
             // the spiral has winding number 2 where it overlaps itself: the region of its top face (the coplanar box on it is a second mesh) must give 2, not 1
             var m = new List<DMesh3> { Spiral(), Box(-1.5, -0.5, 0.5, 0.5, 1.5, 1) };
             Func<int[], bool> twice = w => w[0] == 2;
-            var old = new ExactMeshBoolean(m, Ops.Union) { WindingPredicate = twice, AllowOpenMeshes = true };
+            var old = new ExactMeshBoolean(m, Ops.Union) { WindingPredicate = twice, AllowOpenMeshes = true, RegionClipping = false };
             var neu = new ExactMeshBoolean(m, Ops.Union) { WindingPredicate = twice, AllowOpenMeshes = true, RegionClipping = true, RecordCertificate = true, ComputeExactVertices = true };
             Assert.True(old.Compute(), old.Error);
             Assert.True(neu.Compute(), neu.Error);
@@ -191,7 +191,7 @@ namespace geometry3Sharp.Tests
         {
             // (review of #1725) the early-out of the Difference culls triangles of the first mesh: their boundary edges are never paired
             var m = new List<DMesh3> { FineBox(1, 1, 0.2, 2.5, 2.25, 1, 3), FineBox(1, 0.5, 0.2, 1.5, 1, 1, 5), FineBox(1, 0.5, 1, 2.5, 1.5, 1.5, 3) };
-            var old = new ExactMeshBoolean(m, Ops.Difference);
+            var old = new ExactMeshBoolean(m, Ops.Difference) { RegionClipping = false };
             var neu = new ExactMeshBoolean(m, Ops.Difference) { RegionClipping = true, RecordCertificate = true, ComputeExactVertices = true };
             Assert.True(old.Compute(), old.Error);
             Assert.True(neu.Compute(), neu.Error);
@@ -212,7 +212,7 @@ namespace geometry3Sharp.Tests
         {
             // (review of #1725, rule (b) of the ghosts) the end of a flat clip on the interior of a constraint segment of another layer
             var m = new List<DMesh3> { Box(0, 0, 0, 3, 3, 1), Box(0, 0, 0.5, 2, 2, 1), FineBox(1, 0, 0.2, 3, 2, 1, 3) };
-            var old = new ExactMeshBoolean(m, Ops.Intersection) { CullOutsideA = false };
+            var old = new ExactMeshBoolean(m, Ops.Intersection) { CullOutsideA = false, RegionClipping = false };
             var neu = new ExactMeshBoolean(m, Ops.Intersection) { CullOutsideA = false, RegionClipping = true, RecordCertificate = true, ComputeExactVertices = true };
             Assert.True(old.Compute(), old.Error);
             Assert.True(neu.Compute(), neu.Error);
@@ -235,7 +235,7 @@ namespace geometry3Sharp.Tests
         {
             // the spiral's top faces overlap themselves (identical triangles: not embedded, not culled); a fine box on its top gives it ghosts, its flat edges crossing the spiral's sides
             var m = new List<DMesh3> { Spiral(), FineBox(-1.5, -0.5, 0.5, 0.5, 1.5, 1, 4) };
-            var old = new ExactMeshBoolean(m, op) { AllowOpenMeshes = true, CullOutsideA = false, RecordCertificate = true, ComputeExactVertices = true };
+            var old = new ExactMeshBoolean(m, op) { AllowOpenMeshes = true, CullOutsideA = false, RecordCertificate = true, ComputeExactVertices = true, RegionClipping = false };
             var neu = new ExactMeshBoolean(m, op) { AllowOpenMeshes = true, CullOutsideA = false, RegionClipping = true, RecordCertificate = true, ComputeExactVertices = true };
             Assert.True(old.Compute(), old.Error);
             Assert.True(neu.Compute(), neu.Error);
@@ -315,7 +315,7 @@ namespace geometry3Sharp.Tests
             foreach (bool swap in new[] { false, true }) {
                 var m = swap ? new List<DMesh3> { small, box } : new List<DMesh3> { box, small };
                 Func<int[], bool> inBoxOnly = swap ? (w => w[0] == 0 && w[1] > 0) : (Func<int[], bool>)(w => w[1] == 0 && w[0] > 0);
-                var old = new ExactMeshBoolean(m, Ops.Union) { WindingPredicate = inBoxOnly };
+                var old = new ExactMeshBoolean(m, Ops.Union) { WindingPredicate = inBoxOnly, RegionClipping = false };
                 var neu = new ExactMeshBoolean(m, Ops.Union) { WindingPredicate = inBoxOnly, RegionClipping = true };
                 Assert.True(old.Compute(), old.Error);
                 Assert.True(neu.Compute(), neu.Error);
@@ -379,7 +379,7 @@ namespace geometry3Sharp.Tests
                 }
                 // the others round the inputs: the result is a clean mesh of the same surface as the old rule gives for the same inputs
                 var neu = Run(t, op, true);
-                var old = new ExactMeshBoolean(t, op);
+                var old = new ExactMeshBoolean(t, op) { RegionClipping = false };
                 Assert.True(old.Compute(), old.Error);
                 Assert.Equal(old.Result.TriangleCount == 0, neu.Result.TriangleCount == 0);
                 if (neu.Result.TriangleCount == 0) continue;

@@ -824,7 +824,7 @@ namespace g3
         /// meshes. A piece is output from the stack's first triangle as before: the members of a stack are triangles of other meshes, so the region of the lowest rank is that of the lowest mesh.
         /// The result is the same surface; the triangulation of coplanar clusters differs. The stack walk is not used with it.
         /// </summary>
-        internal bool RegionClipping;
+        internal bool RegionClipping = true;
 
         // the arrangement of Compute() with this instance's settings (also the one-mesh arrangement of nest_input)
         ExactMeshArrangement new_arrangement(List<DMesh3> inputs)
