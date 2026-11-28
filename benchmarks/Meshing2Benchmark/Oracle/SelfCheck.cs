@@ -1239,6 +1239,61 @@ namespace Meshing2Acceptance
             SecondReviewFindings(Must, Accept, Reject);
             M3ReviewFindings(Must, Accept, Reject);
             SnapGateFindings(Must, Accept, Reject);
+            // per-triangle area bounds (I8, F-33): accepted when triangles inside the bounded input triangle meet the area limit while outside
+            // triangles remain larger; rejected as AreaAboveBound when a triangle inside exceeds it; TextFormat round-trips triangle_areas
+            {
+                var sq = Points(0, 0, 2, 0, 2, 2, 0, 2);
+                sq.TriangleAreas.Add(new TriangleAreaInput(0, 1, 2, 1.0));
+                // split only (0,1,2) into two triangles of area 1 each by adding (1,1) on the diagonal; (0,2,3) keeps area 2
+                var splitTris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 0, 4, 3 }, new[] { 4, 2, 3 } };
+                var fine = new Mesh2Output {
+                    Status = Mesh2Status.Success,
+                    VX = new[] { 0.0, 2, 2, 0, 1 }, VY = new[] { 0.0, 0, 2, 2, 1 },
+                    InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = splitTris, Neighbours = NeighboursOf(splitTris),
+                    Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) },
+                    TriangleLabels = new[] { 0, 0, 0, 0 }, BadTriangles = new int[0]
+                };
+                Accept("per-triangle area bound met", sq, fine, M3());
+                Accept("per-triangle area bound met (reference)", sq, fine, M3().WithReference());
+                var coarseTris = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
+                var coarse = new Mesh2Output {
+                    Status = Mesh2Status.Success,
+                    VX = sq.X, VY = sq.Y, InputToVertex = new[] { 0, 1, 2, 3 },
+                    Triangles = coarseTris, Neighbours = NeighboursOf(coarseTris),
+                    Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) },
+                    TriangleLabels = new[] { 0, 0 }, BadTriangles = new int[0]
+                };
+                Reject("per-triangle area bound exceeded", Violation.AreaAboveBound, sq, coarse, M3());
+                Reject("per-triangle area bound exceeded (reference)", Violation.AreaAboveBound, sq, coarse, M3().WithReference());
+                // clockwise TriangleAreaInput must behave identically to counter-clockwise
+                var sqCw = Points(0, 0, 2, 0, 2, 2, 0, 2);
+                sqCw.TriangleAreas.Add(new TriangleAreaInput(0, 2, 1, 1.0));
+                Accept("per-triangle area bound met (clockwise)", sqCw, fine, M3());
+                Reject("per-triangle area bound exceeded (clockwise)", Violation.AreaAboveBound, sqCw, coarse, M3());
+                // degenerate / collinear TriangleAreaInput must be ignored, not apply to the whole plane
+                var sqDeg = Points(0, 0, 2, 0, 2, 2, 0, 2);
+                sqDeg.TriangleAreas.Add(new TriangleAreaInput(0, 0, 0, 0.01));
+                Accept("degenerate per-triangle area bound is ignored", sqDeg, coarse, M3());
+                // overlapping TriangleAreaInputs take the stricter (minimum) bound
+                var sqMin = Points(0, 0, 2, 0, 2, 2, 0, 2);
+                sqMin.TriangleAreas.Add(new TriangleAreaInput(0, 1, 2, 4.0));
+                sqMin.TriangleAreas.Add(new TriangleAreaInput(0, 1, 2, 0.5));
+                Reject("overlapping per-triangle area bounds take min", Violation.AreaAboveBound, sqMin, fine, M3());
+                // invalid TriangleAreaInput (bad index, non-positive, NaN, Inf) rejected as InputInvalid
+                var badIdx = Points(0, 0, 2, 0, 2, 2, 0, 2); badIdx.TriangleAreas.Add(new TriangleAreaInput(0, 1, 9, 1.0));
+                Reject("per-triangle area out-of-range index", Violation.InputInvalid, badIdx, coarse, M3());
+                var badZero = Points(0, 0, 2, 0, 2, 2, 0, 2); badZero.TriangleAreas.Add(new TriangleAreaInput(0, 1, 2, 0.0));
+                Reject("per-triangle area zero", Violation.InputInvalid, badZero, coarse, M3());
+                var badNan = Points(0, 0, 2, 0, 2, 2, 0, 2); badNan.TriangleAreas.Add(new TriangleAreaInput(0, 1, 2, double.NaN));
+                Reject("per-triangle area NaN", Violation.InputInvalid, badNan, coarse, M3());
+                var badInf = Points(0, 0, 2, 0, 2, 2, 0, 2); badInf.TriangleAreas.Add(new TriangleAreaInput(0, 1, 2, double.PositiveInfinity));
+                Reject("per-triangle area Infinity", Violation.InputInvalid, badInf, coarse, M3());
+                string text = TextFormat.WriteInput(sq);
+                var parsed = TextFormat.ReadInput(text);
+                Must("TextFormat round-trips triangle_areas", parsed.TriangleAreas.Count == 1
+                    && parsed.TriangleAreas[0].A == 0 && parsed.TriangleAreas[0].B == 1 && parsed.TriangleAreas[0].C == 2
+                    && parsed.TriangleAreas[0].MaxArea == 1.0 && TextFormat.WriteInput(parsed) == text);
+            }
             return items;
         }
 

@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
@@ -134,6 +135,81 @@ namespace g3
                 // the edge opposite output vertex j starts at output vertex j + 1
                 neighbours[i] = new Index3i(id[H[e1] / 3], id[H[e2] / 3], id[H[e0] / 3]);
             }
+        }
+
+        /// <summary>
+        /// Exact sign of Orient2d(u, w, (a + b + c) / 3), evaluated without dividing by 3 via 3 * Orient2d(u, w, G) =
+        /// (w - u) x ((a - u) + (b - u) + (c - u)). Uses a conservative normal-range double filter with exact BigInteger fallback,
+        /// so thin, huge, subnormal, and mixed-scale triangles always match the exact rational centroid.
+        /// </summary>
+        internal static int OrientCentroid2d(Vector2d u, Vector2d w, Vector2d a, Vector2d b, Vector2d c)
+        {
+            double dx = w.x - u.x, dy = w.y - u.y;
+            double ax = a.x - u.x, ay = a.y - u.y;
+            double bx = b.x - u.x, by = b.y - u.y;
+            double cx = c.x - u.x, cy = c.y - u.y;
+            double adx = Math.Abs(dx), ady = Math.Abs(dy);
+            double sumAbsX = Math.Abs(ax) + Math.Abs(bx) + Math.Abs(cx);
+            double sumAbsY = Math.Abs(ay) + Math.Abs(by) + Math.Abs(cy);
+            if (adx < 1e140 && ady < 1e140 && sumAbsX < 1e140 && sumAbsY < 1e140) {
+                double sx = ax + bx + cx, sy = ay + by + cy;
+                double det = dx * sy - dy * sx;
+                double errScale = adx * sumAbsY + ady * sumAbsX;
+                if (Math.Abs(det) > errScale * 1e-13 && Math.Abs(det) > 1e-280)
+                    return det > 0 ? 1 : -1;
+            }
+            return OrientCentroid2dExact(u, w, a, b, c);
+        }
+
+        static int OrientCentroid2dExact(Vector2d u, Vector2d w, Vector2d a, Vector2d b, Vector2d c)
+        {
+            double[] vals = { u.x, u.y, w.x, w.y, a.x, a.y, b.x, b.y, c.x, c.y };
+            var mant = new BigInteger[10];
+            var exp = new int[10];
+            int emin = int.MaxValue;
+            for (int i = 0; i < 10; ++i) {
+                ExactPoint3.Decompose(vals[i], out mant[i], out exp[i]);
+                if (!mant[i].IsZero && exp[i] < emin) emin = exp[i];
+            }
+            if (emin == int.MaxValue) return 0;
+            var q = new BigInteger[10];
+            for (int i = 0; i < 10; ++i) q[i] = mant[i].IsZero ? BigInteger.Zero : mant[i] << (exp[i] - emin);
+            BigInteger ux = q[0], uy = q[1], wx = q[2], wy = q[3];
+            BigInteger sx = (q[4] - ux) + (q[6] - ux) + (q[8] - ux);
+            BigInteger sy = (q[5] - uy) + (q[7] - uy) + (q[9] - uy);
+            return ((wx - ux) * sy - (wy - uy) * sx).Sign;
+        }
+
+        /// <summary> Exact check whether (a + b + c) / 3 == v. </summary>
+        internal static bool CentroidEqualsVertex(Vector2d v, Vector2d a, Vector2d b, Vector2d c)
+        {
+            double ax = a.x - v.x, bx = b.x - v.x, cx = c.x - v.x;
+            double ay = a.y - v.y, by = b.y - v.y, cy = c.y - v.y;
+            double sx = Math.Abs(ax) + Math.Abs(bx) + Math.Abs(cx);
+            double sy = Math.Abs(ay) + Math.Abs(by) + Math.Abs(cy);
+            if (sx < 1e140 && sy < 1e140) {
+                if (Math.Abs(ax + bx + cx) > sx * 1e-12 + 1e-280) return false;
+                if (Math.Abs(ay + by + cy) > sy * 1e-12 + 1e-280) return false;
+            }
+            return Sum3EqualsZeroExact(v.x, a.x, b.x, c.x) && Sum3EqualsZeroExact(v.y, a.y, b.y, c.y);
+        }
+
+        static bool Sum3EqualsZeroExact(double v, double a, double b, double c)
+        {
+            double[] vals = { v, a, b, c };
+            var mant = new BigInteger[4];
+            var exp = new int[4];
+            int emin = int.MaxValue;
+            for (int i = 0; i < 4; ++i) {
+                ExactPoint3.Decompose(vals[i], out mant[i], out exp[i]);
+                if (!mant[i].IsZero && exp[i] < emin) emin = exp[i];
+            }
+            if (emin == int.MaxValue) return true;
+            BigInteger qv = mant[0].IsZero ? BigInteger.Zero : mant[0] << (exp[0] - emin);
+            BigInteger qa = mant[1].IsZero ? BigInteger.Zero : mant[1] << (exp[1] - emin);
+            BigInteger qb = mant[2].IsZero ? BigInteger.Zero : mant[2] << (exp[2] - emin);
+            BigInteger qc = mant[3].IsZero ? BigInteger.Zero : mant[3] << (exp[3] - emin);
+            return ((qa - qv) + (qb - qv) + (qc - qv)).IsZero;
         }
     }
 }

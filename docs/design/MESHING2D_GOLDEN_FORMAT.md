@@ -79,6 +79,7 @@ A description is a list of steps, read from the left. A point is numbered at its
 | `region_seed(x y label [max_area])` | a region by seed. If two regions cover a place, the last one wins |
 | `region_ring(label max_area x y ...)` | a region by ring; `-` for no area limit |
 | `min_angle(d)`, `max_area(a)`, `steiner_limit(n)`, `snap(t)` | options: minimum angle in degrees, largest triangle area, cap on inserted points, snap tolerance in coordinate units (default 0, automatic); an explicit tolerance is the pixel width of the snap grid, anchored at the origin with half-open pixels (decision D14) |
+| `triangle_area(a b c max_area)` | per-triangle area limit on an existing triangulation (spec I8, F-33): triangles whose centroid lies inside the closed input triangle `(a, b, c)` must have area at most `max_area` |
 | `no_noding`, `conforming` | options: crossing segments must fail with a status; empty circumcircles also across segments |
 | `mode(constrained)` | M3 constrained-quality mode (`Conforming = false`); canonical input text adds `mode constrained`. These inputs have separate hashes and golden rows. |
 
@@ -120,12 +121,15 @@ size_constant <value|->                           # the largest edge; a size tha
 resolve_crossings <0|1>
 conforming <0|1>
 mode constrained                                  # optional: only when set
+triangle_areas <r>                                # optional: only when non-empty
+<a> <b> <c> <max_area>                            # r lines; a, b, c are input point indices
 end
 ```
 
 The line `mode constrained` marks the constrained quality mode (owner decision 2026-11-02): quality without O2, judged as
 constrained Delaunay. It is written only when set, so every other input keeps its text and its `input_sha256`; it contradicts
-`conforming 1`, which a reader rejects. In a generator the mode is `mode(constrained)`.
+`conforming 1`, which a reader rejects. In a generator the mode is `mode(constrained)`. The `triangle_areas <r>` section is
+likewise written only when non-empty, preserving every other input's `input_sha256`.
 
 Worked example: the input `literal(0 0, 1 0, 0 1)` has this canonical text, with a final line end,
 

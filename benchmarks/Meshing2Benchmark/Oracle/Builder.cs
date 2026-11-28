@@ -94,6 +94,12 @@ namespace Meshing2Acceptance
         }
         public B Min(double degrees) { input.MinAngleDeg = degrees; text.Add("min_angle(" + Num(degrees) + ")"); return this; }
         public B Area(double v) { input.MaxArea = v; text.Add("max_area(" + Num(v) + ")"); return this; }
+        public B TriangleArea(int a, int b, int c, double maxArea)
+        {
+            input.TriangleAreas.Add(new TriangleAreaInput(a, b, c, maxArea));
+            text.Add("triangle_area(" + a.ToString(CultureInfo.InvariantCulture) + " " + b.ToString(CultureInfo.InvariantCulture) + " " + c.ToString(CultureInfo.InvariantCulture) + " " + Num(maxArea) + ")");
+            return this;
+        }
         public B Limit(int n) { input.SteinerLimit = n; text.Add("steiner_limit(" + n + ")"); return this; }
         public B Snap(double t) { input.SnapTolerance = t; text.Add("snap(" + Num(t) + ")"); return this; }
         public B NoNoding() { input.ResolveCrossings = false; text.Add("no_noding"); return this; }

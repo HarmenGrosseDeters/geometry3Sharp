@@ -22,6 +22,7 @@ This guide covers exact 2D Delaunay and quality meshing (`DelaunayMesh2`, `Const
   - **Constrained vs. Conforming:** Default `Conforming = false` produces a constrained Delaunay mesh (for `MinAngle <= 25.65°`, segments are encroached only inside their diametral lens; above that, their diametral circle). `Conforming = true` makes every triangle Delaunay across constraint segments as well.
   - **Small input angles & Steiner limits:** Small angles forced by input constraints remain and are counted in `BadTriangles`. Reaching the Steiner-point budget returns a valid mesh with `SteinerLimitReached = true` (quality bounds not guaranteed).
   - **Grid snapping:** With a snap tolerance, every vertex—including Steiner points added during refinement—lies on the snap grid.
+  - **Refining an existing mesh (`QualityMesh2.Refine`):** Accepts an existing `TriangulationMesh2` or `ConstrainedMesh2` with optional per-triangle maximum areas (`triangleMaxAreas`), preserving domain boundaries, holes, islands, region labels, subsegment markers, locks, heights, input vertex mapping, and original constraint endpoints (zero drift across chained refinements) without mutating the input mesh.
   - **2.5D export (`ConstrainedMesh2.ToDMesh3()`):** Copies vertex and triangle IDs, interpolates vertex heights into `z` (or `0` without heights), and writes region labels as triangle groups.
 - **CLI:** `g3cli mesh2d` (JSON or Triangle `.poly` / `.node` / `.ele` files; see [g3cli README](../../tools/g3cli/README.md)).
 - **Example:** [Meshing2DExample.cs](../examples/Meshing2DExample.cs)

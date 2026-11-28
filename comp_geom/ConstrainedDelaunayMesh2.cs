@@ -193,6 +193,19 @@ namespace g3
             /// <summary> filled by the refinement for the output </summary>
             internal bool SteinerLimitReached;
             internal Func<int, bool> IsBad;
+            /// <summary> Optional preloaded sources and per-segment source-id lists for <see cref="QualityMesh2.Refine(ConstrainedMesh2, IReadOnlyList{double?}, CancellationToken)"/>,
+            /// preserving original input segment endpoints across chained refinements (O12, O17). </summary>
+            internal Source[] PreloadedSources;
+            internal List<int[]> SegmentSourceIds;
+            /// <summary> Optional per-input-vertex flag indicating whether each vertex existed before the first quality refinement pass
+            /// (preserved across chained <see cref="QualityMesh2.Refine(ConstrainedMesh2, IReadOnlyList{double?}, CancellationToken)"/> calls). </summary>
+            internal bool[] PreloadedBeforeRefinement;
+            /// <summary> Input segments from this index on (when not covered by <see cref="SegmentSourceIds"/>) are boundary hull constraints (Hull = true, Input = -1)
+            /// without invoking the snap-grid diagnostics of <see cref="HullFromSegments"/>. </summary>
+            internal int ExtraHullFrom = int.MaxValue;
+            /// <summary> Optional domain and region tag classifier (triangle vertices -> tag: -1 outside, 0 domain with no region, > 0 for 1 + region index).
+            /// When set, classifies constraint-bounded cells in <see cref="Output"/> instead of ring-parity and seed flooding. </summary>
+            internal Func<Vector2d, Vector2d, Vector2d, int> ClassifyTriangle;
 
             internal Builder(ConstrainedMesh2Input input, bool resolve, CancellationToken cancel)
             {
@@ -384,6 +397,7 @@ namespace g3
 
             double Along(int v, Source q)
             {
+                if (q.VA < 0 || q.VB < 0) return 0;
                 double dx = q.BX - q.AX, dy = q.BY - q.AY, l2 = dx * dx + dy * dy;
                 double t = l2 > 0 ? ((k.X[v] - q.AX) * dx + (k.Y[v] - q.AY) * dy) / l2 : 0;
                 t = Math.Max(0, Math.Min(1, t));
@@ -509,12 +523,33 @@ namespace g3
                         Add(a, b, Make(a, b, rings.Count + g, 0, false, nextRingEdge++));
                     }
                 }
+                int preloadOffset = sources.Count;
+                if (PreloadedSources != null) {
+                    for (int i = 0; i < PreloadedSources.Length; ++i) {
+                        var ps = PreloadedSources[i];
+                        ps.Ring = -1;
+                        ps.VA = ps.VA >= 0 && ps.VA < n ? KV(ps.VA) : -1;
+                        ps.VB = ps.VB >= 0 && ps.VB < n ? KV(ps.VB) : -1;
+                        sources.Add(ps);
+                    }
+                }
                 if (input.Segments != null)
                     for (int si = 0; si < input.Segments.Count; ++si) {
                         var s = input.Segments[si];
-                        var source = Make(s.A, s.B, -1, s.Marker, s.Locked, si);
+                        if (SegmentSourceIds != null && si < SegmentSourceIds.Count && SegmentSourceIds[si] != null) {
+                            int u = KV(s.A), w = KV(s.B);
+                            if (u != w) {
+                                var ids = SegmentSourceIds[si];
+                                var list = new List<int>(ids.Length);
+                                for (int j = 0; j < ids.Length; ++j) list.Add(preloadOffset + ids[j]);
+                                work.Push(new Piece { U = u, W = w, Sources = list });
+                            }
+                            continue;
+                        }
+                        bool extraHull = si >= ExtraHullFrom;
+                        var source = Make(s.A, s.B, -1, s.Marker, s.Locked, extraHull ? -1 : si);
                         // the snapped chains of the hull edges of a hull domain (QualityMesh2 on a grid): hull sources
-                        source.Hull = si >= HullSegmentsFrom && si < HullSegmentsTo;
+                        source.Hull = (si >= HullSegmentsFrom && si < HullSegmentsTo) || extraHull;
                         Add(s.A, s.B, source);
                     }
                 // in input order: reverse the stack once
@@ -928,6 +963,94 @@ namespace g3
             ConstrainedTriangulation2Result Output(Vector2d[] inputVertices, int[] mapping)
             {
                 int slots = k.TriangleSlots;
+                if (ClassifyTriangle != null) {
+                    // Partition non-ghost triangles into constraint-bounded cells so tags never differ across an unconstrained edge.
+                    var visited = new bool[slots];
+                    var queue = new Queue<int>();
+                    for (int t = 0; t < slots; ++t) {
+                        if (!k.IsGhost(t)) continue;
+                        k.Tag[t] = -1;
+                        visited[t] = true;
+                        if (SnapRounded) queue.Enqueue(t);
+                    }
+                    // On a snapped mesh, every boundary edge of the input mesh was added as a constraint, so any triangle reachable
+                    // from a ghost without crossing a constraint lies strictly outside the domain.
+                    while (queue.Count > 0) {
+                        int t = queue.Dequeue();
+                        for (int j = 0; j < 3; ++j) {
+                            int e = 3 * t + j;
+                            if (k.Seg[e] >= 0) continue;
+                            int nb = k.H[e] / 3;
+                            if (visited[nb]) continue;
+                            visited[nb] = true;
+                            k.Tag[nb] = -1;
+                            queue.Enqueue(nb);
+                        }
+                    }
+                    var cell = new List<int>();
+                    var areaByTag = new Dictionary<int, double>();
+                    for (int seed = 0; seed < slots; ++seed) {
+                        if (visited[seed]) continue;
+                        cell.Clear();
+                        visited[seed] = true;
+                        cell.Add(seed);
+                        for (int ci = 0; ci < cell.Count; ++ci) {
+                            int c = cell[ci];
+                            for (int j = 0; j < 3; ++j) {
+                                int e = 3 * c + j;
+                                if (k.Seg[e] >= 0) continue;
+                                int nb = k.H[e] / 3;
+                                if (visited[nb]) continue;
+                                visited[nb] = true;
+                                cell.Add(nb);
+                            }
+                        }
+                        int cellTag;
+                        if (!SnapRounded || cell.Count == 1) {
+                            int rep = cell[0];
+                            cellTag = ClassifyTriangle(k.Point(k.V[3 * rep]), k.Point(k.V[3 * rep + 1]), k.Point(k.V[3 * rep + 2]));
+                        } else {
+                            // On the snap grid, boundary snapping can shift a thin sliver triangle's centroid slightly across an unsnapped
+                            // boundary; classify the entire constraint-bounded cell by scale-free area-weighted majority.
+                            areaByTag.Clear();
+                            int maxEx = int.MinValue;
+                            for (int ci = 0; ci < cell.Count; ++ci) {
+                                int c = cell[ci];
+                                var p0 = k.Point(k.V[3 * c]);
+                                var d1 = k.Point(k.V[3 * c + 1]) - p0;
+                                var d2 = k.Point(k.V[3 * c + 2]) - p0;
+                                int ex = QualityMesh2.Refiner.ScaleOf(d1.x, d1.y, d2.x, d2.y);
+                                if (ex > maxEx) maxEx = ex;
+                            }
+                            for (int ci = 0; ci < cell.Count; ++ci) {
+                                int c = cell[ci];
+                                var p0 = k.Point(k.V[3 * c]);
+                                var p1 = k.Point(k.V[3 * c + 1]);
+                                var p2 = k.Point(k.V[3 * c + 2]);
+                                var q0 = new Vector2d(ExactPoint3.ScaleB(p1.x - p0.x, -maxEx), ExactPoint3.ScaleB(p1.y - p0.y, -maxEx));
+                                var r0 = new Vector2d(ExactPoint3.ScaleB(p2.x - p0.x, -maxEx), ExactPoint3.ScaleB(p2.y - p0.y, -maxEx));
+                                double area = Math.Abs(0.5 * (q0.x * r0.y - q0.y * r0.x));
+                                int tag = ClassifyTriangle(p0, p1, p2);
+                                areaByTag[tag] = (areaByTag.TryGetValue(tag, out double cur) ? cur : 0.0) + area;
+                            }
+                            cellTag = -1;
+                            double bestArea = -1.0;
+                            foreach (var kv in areaByTag) {
+                                if (kv.Value > bestArea || (kv.Value == bestArea && kv.Key > cellTag)) {
+                                    bestArea = kv.Value;
+                                    cellTag = kv.Key;
+                                }
+                            }
+                        }
+                        for (int ci = 0; ci < cell.Count; ++ci) k.Tag[cell[ci]] = cellTag;
+                    }
+                    if (refine != null) {
+                        SnapshotReference();
+                        var failure = refine(this);
+                        if (failure != null) return failure;
+                    }
+                    return Build(inputVertices, mapping);
+                }
                 RingParity(out var state, out var sets, out var inside, out var overlaps);
                 int baseRings = (input.Rings ?? new List<Mesh2Ring>()).Count;
                 var keep = new bool[slots];
@@ -1058,6 +1181,9 @@ namespace g3
                 var labels = new int[count];
                 var subsegments = new List<Mesh2Subsegment>();
                 var subsegmentSources = new List<int[]>();
+                var savedSources = SnapRounded ? null : new List<Source>();
+                var savedSourceMap = SnapRounded ? null : new Dictionary<int, int>();
+                var subsegmentSourceIds = SnapRounded ? null : new List<int[]>();
                 for (int t = 0; t < slots; ++t) {
                     int i = id[t];
                     if (i < 0) continue;
@@ -1072,8 +1198,26 @@ namespace g3
                         if (c2 < 0) continue;
                         int nb = id[k.H[e] / 3];
                         if (nb >= 0 && nb < i) continue;
-                        subsegments.Add(Subsegment(outId[k.V[e]], outId[k.V[Next(e)]], Covering(k.V[e], k.V[Next(e)], k.Sources[c2])));
-                        subsegmentSources.Add(k.Sources[c2].Select(z => sources[z].Input).ToArray());
+                        var srcs = k.Sources[c2];
+                        subsegments.Add(Subsegment(outId[k.V[e]], outId[k.V[Next(e)]], Covering(k.V[e], k.V[Next(e)], srcs)));
+                        subsegmentSources.Add(srcs.Select(z => sources[z].Input).ToArray());
+                        if (savedSources != null) {
+                            var mapped = new int[srcs.Count];
+                            for (int si = 0; si < srcs.Count; ++si) {
+                                int z = srcs[si];
+                                if (!savedSourceMap.TryGetValue(z, out int sz)) {
+                                    var srcCopy = sources[z];
+                                    srcCopy.Ring = -1;
+                                    srcCopy.VA = srcCopy.VA >= 0 && srcCopy.VA < outId.Length ? outId[srcCopy.VA] : -1;
+                                    srcCopy.VB = srcCopy.VB >= 0 && srcCopy.VB < outId.Length ? outId[srcCopy.VB] : -1;
+                                    sz = savedSources.Count;
+                                    savedSources.Add(srcCopy);
+                                    savedSourceMap.Add(z, sz);
+                                }
+                                mapped[si] = sz;
+                            }
+                            subsegmentSourceIds.Add(mapped);
+                        }
                     }
                 }
                 var vertices = inputVertices.Concat(extra).ToArray();
@@ -1097,8 +1241,13 @@ namespace g3
                 mesh.SteinerLimitReached = SteinerLimitReached;
                 mesh.DroppedInputPoints = DroppedInputPoints; mesh.DroppedInputSegments = DroppedInputSegments;
                 mesh.SubsegmentSources = subsegmentSources.ToArray();
+                if (savedSources != null) {
+                    mesh.SavedSources = savedSources.ToArray();
+                    mesh.SubsegmentSourceIds = subsegmentSourceIds.ToArray();
+                }
                 var before = new bool[vertices.Length];
-                for (int i = 0; i < n; ++i) before[i] = true;
+                for (int i = 0; i < n; ++i)
+                    before[i] = PreloadedBeforeRefinement != null && i < PreloadedBeforeRefinement.Length ? PreloadedBeforeRefinement[i] : true;
                 for (int j = 0; j < extraKernel.Count; ++j) before[n + j] = extraKernel[j] < RefinementStart;
                 mesh.ExistedBeforeRefinement = before;
                 var status = count == 0 ? Triangulation2Status.Empty : Triangulation2Status.Success;

@@ -55,6 +55,11 @@ namespace Meshing2Acceptance
                 if (input.Conforming) throw new InvalidOperationException("the constrained quality mode contradicts conforming");
                 sb.Append("mode constrained\n");
             }
+            if (input.TriangleAreas.Count > 0) {
+                sb.Append("triangle_areas ").Append(input.TriangleAreas.Count).Append('\n');
+                foreach (var ta in input.TriangleAreas)
+                    sb.Append(ta.A.ToString(CultureInfo.InvariantCulture)).Append(' ').Append(ta.B.ToString(CultureInfo.InvariantCulture)).Append(' ').Append(ta.C.ToString(CultureInfo.InvariantCulture)).Append(' ').Append(Token(ta.MaxArea)).Append('\n');
+            }
             sb.Append("end\n");
             return sb.ToString();
         }
@@ -157,6 +162,15 @@ namespace Meshing2Acceptance
                 if (mode.Length != 2 || mode[1] != "constrained") throw new FormatException("mode: expected \"mode constrained\", got: " + string.Join(" ", mode));
                 if (input.Conforming) throw new FormatException("mode constrained contradicts conforming 1");
                 input.ConstrainedQuality = true;
+            }
+            if (r.TryOptional("triangle_areas", out var taHead)) {
+                if (taHead.Length != 2) throw new FormatException("triangle_areas: expected count, got: " + string.Join(" ", taHead));
+                int c = Int(taHead[1]);
+                if (c < 0) throw new FormatException("triangle_areas is negative");
+                for (int i = 0; i < c; ++i) {
+                    var f = r.Fields(4, "triangle_area");
+                    input.TriangleAreas.Add(new TriangleAreaInput(Int(f[0]), Int(f[1]), Int(f[2]), ParseCoordinate(f[3])));
+                }
             }
             r.Named("end", 1);
             return input;
