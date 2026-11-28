@@ -93,7 +93,9 @@ namespace gs
     /// input's volume that the Difference removed), "Fallback" (the sheet role refused: the inputs are used as
     /// solids), "InputRepair" (an open input was closed on a copy), "Refused" (an open input is left and the run fails with OpenInput) and
     /// "Grid" (with AutomaticSteps: the run failed and is done once more with the inputs snapped to the cell in Grid; the steps after it are
-    /// those of that run, or, where it failed too, those of the run that goes on without the grid).
+    /// those of that run, or, where it failed too, those of the run that goes on without the grid). "SheetExtension" (with SheetExtension on: the sheet role
+    /// refused a sheet with RimInsideWorkpiece and the rim of that sheet was continued up to the workpiece's surface by MeshSheetExtension, or the extension
+    /// was tried and refused; Reason says which sheet and why it refused, Change what the extension did, or the helper's refusal and that the run goes on without it).
     /// </summary>
     public sealed class SolidBooleanRouteStep
     {
@@ -109,6 +111,36 @@ namespace gs
         public ExactMeshBoolean.SheetRefusal SheetReason = ExactMeshBoolean.SheetRefusal.None;
         /// <summary> for the step Grid: the cell the inputs were snapped to (a power of two); 0 otherwise </summary>
         public double Grid;
+    }
+
+    /// <summary>
+    /// One try of the sheet extension (SolidBooleanPipeline.SheetExtension) for a sheet that the sheet role refused with RimInsideWorkpiece: what
+    /// MeshSheetExtension did with it (Report.SheetExtensions, in the order of the tries; each sheet at most once per Compute). The strip is not an input
+    /// the caller passed: what it adds is reported here, and NoInventedSurface counts the extended sheet as a reference surface of the result.
+    /// </summary>
+    public sealed class SolidBooleanSheetExtension
+    {
+        /// <summary> the index of the sheet in Inputs </summary>
+        public int Input;
+        /// <summary> true: the caller stated the sheet in InputRoles; false: the pipeline routed the open tool to the sheet role by itself </summary>
+        public bool Stated;
+        /// <summary> the helper's status: Success (the strip was built, or nothing was to add: see Applied) or its refusal </summary>
+        public MeshSheetExtension.ExtensionStatus Status;
+        /// <summary> the helper's witness where it refused, else empty </summary>
+        public string Reason = "";
+        /// <summary> true: the strip was added and the extended sheet was handed to a run of the pipeline </summary>
+        public bool Applied;
+        /// <summary> true: the extended sheet is in the run that is the result (false if the cut with it failed and the run went on without the extension) </summary>
+        public bool InResult;
+        /// <summary>
+        /// Diagonal: the diagonal of the bounding box of the sheet as given, in the input's own frame (not rotation invariant: a rotated copy has another box). Depth: the largest depth of the
+        /// sheet's rim inside the workpiece as the helper measured it (sampled: a lower bound), absolute. DepthRelative: Depth / Diagonal, the number that the helper's limit of 5 % is
+        /// compared with, so a rim near the limit can be extended in one frame and refused in another. Also set for a refusal
+        /// </summary>
+        public double Diagonal, Depth, DepthRelative;
+        /// <summary> the triangles of the strip, and the area of the strip inside the workpiece (the surface the extension adds to the cut; 0 if not applied) </summary>
+        public int AddedTriangles;
+        public double AddedArea;
     }
 
     /// <summary> one solid of the boolean result that MinThickness removed (an outer shell with the cavities inside it) </summary>
@@ -196,6 +228,13 @@ namespace gs
         /// and no Grid step ran
         /// </summary>
         public List<SolidBooleanRouteStep> Route = new List<SolidBooleanRouteStep>();
+        /// <summary>
+        /// with SheetExtension: one entry per sheet that the extension was tried for (also one that the helper refused), in the order of the tries; empty
+        /// without the option and where no sheet was refused with RimInsideWorkpiece. Of the whole Compute, not only of the run that is the result
+        /// </summary>
+        public List<SolidBooleanSheetExtension> SheetExtensions = new List<SolidBooleanSheetExtension>();
+        /// <summary> the time of the helper runs of SheetExtension (the diagnosis, the strip, its checks and its own cut), in milliseconds; 0 without them. The runs of the pipeline after it are in BooleanMilliseconds </summary>
+        public long SheetExtensionMilliseconds;
         /// <summary> triangles of the exact boolean result (before the reduction) </summary>
         public int BooleanTriangles;
         /// <summary> the boolean's InsideOutCells: the components of the closed inputs that are inside-out (see ExactMeshBoolean.InsideOutCells) </summary>
@@ -645,6 +684,44 @@ namespace gs
         /// other bits than those of AutomaticStepModes: InvalidInput
         /// </summary>
         public AutomaticStepModes AutomaticSteps = AutomaticStepModes.GridBeforeFallback | AutomaticStepModes.GridAfterRoundingNotClean;
+
+        /// <summary> which sheets SheetExtension continues up to the workpiece's surface when the sheet role refuses them with RimInsideWorkpiece </summary>
+        public enum SheetExtensionModes
+        {
+            /// <summary> no extension: the run is the run without this option, bit for bit (the default) </summary>
+            Off = 0,
+            /// <summary> only a sheet the caller stated in InputRoles (the caller's word that the tool is a cutting surface) </summary>
+            StatedSheets = 1,
+            /// <summary>
+            /// also an open tool that the pipeline routed to the sheet role by itself (no entry in InputRoles). Such a tool may be a closed body that lost a face near
+            /// the surface, which shape cannot tell from a sheet, and it is then continued and cut as an open surface, with Success, instead of being repaired by InputRepair
+            /// (eg a box tool [3,7]^2 x [2,9.95] without its lid in the cube [0,10]^3: AutoRepair without the option gives a closed cavity of volume 872.8; with this mode the
+            /// walls are continued to the surface and the cut is an open pocket of volume 872.0, a clean Solid, and nothing in Status or ResultKind says so). The only signals are
+            /// Report.SheetExtensions: Stated == false and AddedArea. Use StatedSheets where a tool may be such a body
+            /// </summary>
+            AlsoAutoRoutedTools = 2
+        }
+
+        /// <summary>
+        /// Default Off (nothing changes, nothing extra is computed: bit for bit the run without this option). A sheet meant as a through cut can end a
+        /// little short of the workpiece's surface (by about 0.1 % to 1 % of its size): the sheet role then refuses it with RimInsideWorkpiece. With
+        /// StatedSheets (or AlsoAutoRoutedTools) the pipeline continues the rim of the refused sheet straight up to the first input's surface with
+        /// <see cref="MeshSheetExtension"/> (limit: 5 % of the sheet's bounding box diagonal, the helper's default; its refusals are respected, among them a strip
+        /// that meets another tool, CutNotClean and GapBelowResolution) and cuts again. The order of a run: the direct sheet cut, the grid retry
+        /// (AutomaticSteps; it answers a rim that is meant to lie in a face, exactly and without a convention), then the extension, then the fallback
+        /// to solids. The extension works on the inputs as given (not the snapped copies of the grid retry; with InputGrid the extended sheet is snapped like
+        /// the other inputs, which can spoil the strip, and the cut is then refused as before). The sheet role names one refused sheet at a time: that sheet is
+        /// continued and the cut tried again, each sheet at most once per Compute (n sheets: at most n + 1 cuts). MinThickness and ThinInputs measure the inputs as given,
+        /// before the strip is added; UncutSide is passed through. If the helper refuses, or the run with the extended sheet fails, the run goes on exactly as without
+        /// the option (the fallback to solids runs); the helper's reason is in the route step "SheetExtension" and in Report.SheetExtensions. A result with an
+        /// extended sheet is a cut along a surface that the caller did not give: Report.SheetExtensions says where, how deep and how much area the strip adds inside the
+        /// workpiece, and NoInventedSurface counts the extended sheet as a reference surface (the strip is not invented surface of a repair). The outcome near the depth limit
+        /// can depend on the frame (the limit is a share of the sheet's bounding box diagonal, which a rotation changes by up to a factor of sqrt(3)): a rim between
+        /// about 3 % and 9 % of the diagonal can be continued in one orientation of the inputs and refused in another; scalings by powers of two give the same result bit for bit.
+        /// A run with an extended sheet that fails (the boolean refuses it, RoundingNotClean: no grid retry on extended inputs) is dropped and the run goes on as without the option; a
+        /// result that the Verification then refuses stays that refusal (no fallback). Only Difference. Not a defined value: InvalidInput
+        /// </summary>
+        public SheetExtensionModes SheetExtension = SheetExtensionModes.Off;
         /// <summary>
         /// Default 0 (off). Otherwise a length: every solid of the boolean result (an outer shell with the cavities inside it)
         /// whose thickness 2 Volume / Area is below it is removed before the reduction and listed in Report.RemovedThinSolids.
@@ -834,6 +911,14 @@ namespace gs
         string autoRefusalText;
         // the refused sheet is one that this run routed (the boolean's witness mesh is an auto-routed tool), not one the caller stated
         bool autoRefusalRouted;
+        // the sheet that the boolean named when it refused (the pipeline's index of the boolean's SheetWitnessMesh), -1 if it did not refuse a sheet
+        int refusedInput;
+        // SheetExtension: the extended sheets that the current run uses in place of the inputs (by the input's index; null: none), the tries of this Compute and their time
+        SortedDictionary<int, DMesh3> extended;
+        List<SolidBooleanSheetExtension> sheetExt = new List<SolidBooleanSheetExtension>();
+        long sheetExtMs;
+        // the sheets whose own rim is inside the workpiece, by input (the probe of ExtendSheet), for this Compute
+        Dictionary<int, bool> pendingProbe = new Dictionary<int, bool>();
         // the steps of the run so far (they outlive the report of a refused sheet route)
         List<SolidBooleanRouteStep> route;
         // the first step of the current run in route (the steps before it belong to an earlier run of this Compute)
@@ -859,6 +944,8 @@ namespace gs
         /// a strict rounding refusal) is the result. With MinThickness a tool without a stated role is measured as before, and one that is
         /// left out as thin is not routed. ConfigureBoolean runs once more for the run after a refused sheet. With AutomaticSteps = Grid a run
         /// that fails with RoundingNotClean or a stated sheet's refusal RimInsideWorkpiece is done once more on a grid taken from the data too (see there).
+        /// With SheetExtension (default Off) a sheet that the sheet role still refuses with RimInsideWorkpiece after the grid step is continued up to the first input's
+        /// surface (MeshSheetExtension) and the run is done again, before the fallback; Report.SheetExtensions and the route step SheetExtension say what was added.
         /// </summary>
         public bool Compute()
         {
@@ -904,13 +991,27 @@ namespace gs
         // the run with its steps (sheet route, Grid step, fallback); the result is checked by Compute (Verification)
         bool computeRoute(Stopwatch total)
         {
+            bool result = computeRoute0(total);
+            // (the helper ran in the run that is not the result too, eg before the fallback)
+            Report.SheetExtensionMilliseconds = sheetExtMs;
+            return result;
+        }
+
+        bool computeRoute0(Stopwatch total)
+        {
             route = new List<SolidBooleanRouteStep>();
             grid = InputGrid;
+            extended = null;
+            sheetExt = new List<SolidBooleanSheetExtension>();
+            sheetExtMs = 0;
+            pendingProbe = new Dictionary<int, bool>();
             bool gridTried = false;
             bool done = compute(total, true);
             if (autoRefusal != ExactMeshBoolean.SheetRefusal.None) {
                 ExactMeshBoolean.SheetRefusal refusal = autoRefusal;
                 string text = autoRefusalText;
+                int refused = refusedInput;
+                bool routed = autoRefusalRouted;
                 // the Grid step answers a refused sheet before the tool is given up as a sheet (one try: not again after the fallback)
                 if (refusal == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece) {
                     int stepsBefore = route.Count;
@@ -918,6 +1019,13 @@ namespace gs
                     // (one try: a step that was made, also a failed one, is the try; an option that does not answer a sheet leaves it for the failure after the fallback)
                     gridTried = route.Count > stepsBefore || retried;
                     if (retried)
+                        return true;
+                    if (Status == PipelineStatus.Cancelled)
+                        return false;
+                }
+                // the sheet extension answers the sheet that is still refused, after the grid and before the tool is given up as a sheet
+                if (refusal == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece && ExtensionWanted(refused, routed)) {
+                    if (extensionRetry(total, refused, routed))
                         return true;
                     if (Status == PipelineStatus.Cancelled)
                         return false;
@@ -932,9 +1040,225 @@ namespace gs
                     Error += " (the open tool was tried as a sheet first, which refused: " + refusal + ": " + text + ")";
                 if (!gridTried && gridFailure())
                     done = gridRetry(total, false, Error, SheetReason);
-            } else if (gridFailure())
+            } else if (gridFailure()) {
+                // (a stated sheet: the run has no sheet that the pipeline routed, so the refusal is the stated sheet's)
+                bool rim = BooleanStatus == ExactMeshBoolean.BooleanStatus.SheetRefused && SheetReason == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece;
+                int refused = refusedInput;
                 done = gridRetry(total, true, Error, SheetReason);
+                if (!done && rim && Status != PipelineStatus.Cancelled && ExtensionWanted(refused, false))
+                    done = extensionRetry(total, refused, false);
+            }
             return done;
+        }
+
+        // ---- the sheet extension (SheetExtension) ----
+
+        // Whether SheetExtension answers a refusal RimInsideWorkpiece of the sheet that is input `input` (routed: the pipeline routed it, the caller did not state it)
+        bool ExtensionWanted(int input, bool routed)
+        {
+            if (SheetExtension == SheetExtensionModes.Off || Operation != ExactMeshBoolean.Operations.Difference || input <= 0 || input >= Inputs.Count)
+                return false;
+            return !routed || SheetExtension == SheetExtensionModes.AlsoAutoRoutedTools;
+        }
+
+        // the refusal RimInsideWorkpiece that the run has now, as the sheet it names (the pipeline's index) and whether the pipeline routed that sheet
+        bool RimRefusal(out int input, out bool routed)
+        {
+            input = refusedInput;
+            routed = false;
+            if (autoRefusal == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece) {
+                routed = autoRefusalRouted;
+                return input >= 0;
+            }
+            return autoRefusal == ExactMeshBoolean.SheetRefusal.None && Status == PipelineStatus.BooleanFailed
+                && BooleanStatus == ExactMeshBoolean.BooleanStatus.SheetRefused && SheetReason == ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece && input >= 0;
+        }
+
+        // The SheetExtension step: the run has failed with the refusal RimInsideWorkpiece of the sheet `input`. The rim of that sheet is continued up to the first
+        // input's surface (MeshSheetExtension, on the inputs as given) and the run is done again with the extended sheet; if that run names another sheet with the same
+        // refusal that was not tried, the same for it (each sheet once). True: the run is the result. False: the helper refused, or the run with the extended sheets
+        // failed too; then the first failure is the result again (with the steps of the extension, but not those of its runs), except for a cancelled run
+        // (Status Cancelled). The stage times of the runs that are not the result are added to those of the one that is
+        bool extensionRetry(Stopwatch total, int input, bool routed)
+        {
+            SolidBooleanReport firstReport = Report;
+            PipelineStatus firstStatus = Status;
+            string firstError = Error;
+            ExactMeshBoolean.BooleanStatus firstBoolean = BooleanStatus;
+            ExactMeshBoolean.SheetRefusal firstSheet = SheetReason;
+            int mine = route.Count;
+            var kept = new List<SolidBooleanRouteStep>();
+            var failedRuns = new SolidBooleanReport();
+            var tried = new HashSet<int>();
+            var used = new SortedDictionary<int, DMesh3>();
+            var attempts = new List<SolidBooleanSheetExtension>();
+            bool again = true;
+            while (again && ExtensionWanted(input, routed) && tried.Add(input)) {
+                if (Cancellation.IsCancellationRequested) {
+                    fail(PipelineStatus.Cancelled, "cancelled", total);
+                    return false;
+                }
+                SolidBooleanSheetExtension entry = ExtendSheet(input, routed, used);
+                attempts.Add(entry);
+                kept.Add(route[route.Count - 1]);
+                if (!entry.Applied)
+                    break;
+                extended = used;
+                bool done = compute(total, true);
+                string meets = null;
+                if (done && used.Count >= 2 && StripsMeetOthers(used, out meets)) {
+                    // (a strip is checked by the helper against the tools as they were then: another short sheet was left out, or not yet extended; the whole is checked here)
+                    var s = new SolidBooleanRouteStep { Name = "SheetExtension", Reason = "the extended sheets of the run are checked against each other and the other tools", Change = "refused: " + meets + "; the run goes on without the extension", SheetReason = ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece };
+                    route.Add(s);
+                    kept.Add(s);
+                    addStageTimes(failedRuns, Report);
+                    break;
+                }
+                if (done || Status == PipelineStatus.Cancelled) {
+                    // (the retry is the result, also where it was cancelled: the time of the failed runs is time of this run)
+                    addStageTimes(Report, failedRuns);
+                    addStageTimes(Report, firstReport);
+                    if (done)
+                        foreach (SolidBooleanSheetExtension e in attempts)
+                            e.InResult = e.Applied;
+                    Report.SheetExtensionMilliseconds = sheetExtMs;
+                    return done;
+                }
+                addStageTimes(failedRuns, Report);
+                again = RimRefusal(out input, out routed);
+            }
+            // the first failure is the result: the runs with an extended sheet are dropped, their steps too (the steps of the extension stay)
+            extended = null;
+            Result = null;
+            for (int k = route.Count - 1; k >= mine; --k)
+                if (!kept.Contains(route[k]))
+                    route.RemoveAt(k);
+            addStageTimes(firstReport, failedRuns);
+            firstReport.TotalMilliseconds = total.ElapsedMilliseconds;
+            firstReport.SheetExtensionMilliseconds = sheetExtMs;
+            Report = firstReport;
+            Status = firstStatus;
+            Error = firstError;
+            BooleanStatus = firstBoolean;
+            SheetReason = firstSheet;
+            return false;
+        }
+
+        // The new triangles of each extended sheet against every other tool as the run had it (an extended sheet in full, with its strip, or the input), exact, as the helper's
+        // MeetsOtherTool does. The helper checked each strip against the tools it was given then; a short sheet that was left out of them, or extended later, is covered here
+        bool StripsMeetOthers(SortedDictionary<int, DMesh3> used, out string text)
+        {
+            var trees = new Dictionary<int, DMeshAABBTree3>();
+            foreach (KeyValuePair<int, DMesh3> kv in used) {
+                DMesh3 ext = kv.Value;
+                DMesh3 original = Inputs[kv.Key];     // (a strip triangle is one that the input does not have at that id: AppendTriangle reuses freed ids, so ids above MaxTriangleID are not the test)
+                for (int j = 1; j < Inputs.Count; ++j) {
+                    if (j == kv.Key || Inputs[j].TriangleCount == 0 || (ThinInputs == ThinInputModes.TreatAsEmpty && Report.ThinInputs.Exists(x => x.Index == j)))
+                        continue;
+                    DMesh3 other;
+                    if (!used.TryGetValue(j, out other))
+                        other = Inputs[j];
+                    DMeshAABBTree3 tree;
+                    if (!trees.TryGetValue(j, out tree))
+                        trees[j] = tree = new DMeshAABBTree3(other, true);
+                    foreach (int t in ext.TriangleIndices()) {
+                        if (original.IsTriangle(t))
+                            continue;
+                        var a = new Triangle3d();
+                        ext.GetTriVertices(t, ref a.V0, ref a.V1, ref a.V2);
+                        var box = new AxisAlignedBox3d(a.V0);
+                        box.Contain(a.V1); box.Contain(a.V2);
+                        bool hit = false;
+                        tree.DoTraversal(new DMeshAABBTree3.TreeTraversal {
+                            NextBoxDF = (bx, depth) => !hit && bx.Intersects(box),
+                            NextTriangleF = tid => {
+                                if (hit)
+                                    return;
+                                var b = new Triangle3d();
+                                other.GetTriVertices(tid, ref b.V0, ref b.V1, ref b.V2);
+                                if (ExactTriangleIntersection.Intersects(ref a, ref b))
+                                    hit = true;
+                            }
+                        });
+                        if (hit) {
+                            text = "the strip of input " + kv.Key + " meets input " + j + " (the other tools were not all there when the helper checked it)";
+                            return true;
+                        }
+                    }
+                }
+            }
+            text = null;
+            return false;
+        }
+
+        // The helper for the sheet `input` against the first input, both as given; the tools of the Difference that the strip must not meet are the other inputs
+        // (as the boolean gets them: an extended sheet of an earlier try instead of the input, an open tool without a stated role as a sheet; a tool that was left
+        // out as thin is not one). On success the extended sheet is put into used. The entry is in sheetExt and the step "SheetExtension" is the last of the route
+        SolidBooleanSheetExtension ExtendSheet(int input, bool routed, SortedDictionary<int, DMesh3> used)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var tools = new List<DMesh3>();
+            var roles = new List<ExactMeshBoolean.InputRole>();
+            for (int i = 1; i < Inputs.Count; ++i) {
+                if (i == input || Inputs[i].TriangleCount == 0)
+                    continue;
+                if (ThinInputs == ThinInputModes.TreatAsEmpty && Report.ThinInputs.Exists(t => t.Index == i))
+                    continue;
+                DMesh3 tool;
+                bool extendedAlready = used.TryGetValue(i, out tool);
+                bool open = Report.InputClosed != null && i < Report.InputClosed.Length && !Report.InputClosed[i];
+                bool stated = InputRoles != null && i < InputRoles.Count;
+                ExactMeshBoolean.InputRole role = stated ? InputRoles[i] : (open ? ExactMeshBoolean.InputRole.Sheet : ExactMeshBoolean.InputRole.Solid);
+                // A sheet of the Difference whose own rim is inside the workpiece (so the sheet role refuses it too) is left out of the helper's tools: the helper's last
+                // check is the sheet role's cut of the extended sheet with the tools, which would refuse that other sheet's rim and so refuse this extension. It is
+                // extended in its turn (the sheet role names one refused sheet at a time), and by then this sheet's extension is one of its tools, so the strips are checked
+                // against each other; and the run with all extended sheets is the check of the whole
+                if (!extendedAlready && role == ExactMeshBoolean.InputRole.Sheet) {
+                    // (the probe is of the input as given: once per input in a Compute)
+                    bool pending;
+                    if (!pendingProbe.TryGetValue(i, out pending)) {
+                        var probe = new MeshSheetExtension { Sheet = Inputs[i], Workpiece = Inputs[0] };
+                        var probeClock = Stopwatch.StartNew();
+                        bool diagnosed = probe.Diagnose();
+                        sheetExtMs += probeClock.ElapsedMilliseconds;
+                        pendingProbe[i] = pending = diagnosed && probe.Report.ChosenEdges > 0;
+                    }
+                    if (pending)
+                        continue;
+                }
+                tools.Add(extendedAlready ? tool : Inputs[i]);
+                roles.Add(role);
+            }
+            var op = new MeshSheetExtension { Sheet = Inputs[input], Workpiece = Inputs[0], OtherTools = tools, OtherRoles = roles, UncutSide = UncutSide };
+            var clock = Stopwatch.StartNew();
+            op.Compute();
+            sheetExtMs += clock.ElapsedMilliseconds;
+            SheetExtensionReport hr = op.Report;
+            var e = new SolidBooleanSheetExtension {
+                Input = input, Stated = !routed, Status = op.Status, Reason = op.Status == MeshSheetExtension.ExtensionStatus.Success ? "" : (op.Error ?? op.Status.ToString()),
+                Diagonal = hr.Diagonal, Depth = hr.MaxDepth, DepthRelative = hr.MaxDepthRelative
+            };
+            string which = "input " + input + (routed ? ", an open tool that the pipeline routed to the sheet role," : ", a sheet stated in InputRoles,");
+            string reason = which + " is refused by the sheet role with RimInsideWorkpiece (a free edge of the sheet lies inside the workpiece)";
+            string change;
+            if (op.Status != MeshSheetExtension.ExtensionStatus.Success)
+                change = "the extension is refused: " + op.Status + ": " + e.Reason + "; the run goes on without it";
+            else if (!hr.Extended)
+                change = "the extension found no rim edge inside the workpiece to continue (the sheet is unchanged); the run goes on without it";
+            else {
+                e.Applied = true;
+                e.AddedTriangles = hr.NewTriangles;
+                foreach (SheetExtensionRun r in hr.Runs)
+                    if (!double.IsNaN(r.StripAreaInside))
+                        e.AddedArea += r.StripAreaInside;
+                used[input] = op.Result;
+                change = "the rim is continued up to the workpiece's surface by a strip of " + hr.NewTriangles + " triangles (the rim is at most " + e.Depth.ToString("R", inv)
+                    + " inside, " + (100 * e.DepthRelative).ToString("0.###", inv) + " % of the sheet's diagonal; the strip adds " + e.AddedArea.ToString("R", inv)
+                    + " of area inside the workpiece), and the run is done again with the extended sheet";
+            }
+            sheetExt.Add(e);
+            route.Add(new SolidBooleanRouteStep { Name = "SheetExtension", Input = input, Reason = reason, Change = change, SheetReason = ExactMeshBoolean.SheetRefusal.RimInsideWorkpiece });
+            return e;
         }
 
         // the failures of a run that the Grid step answers: the boolean's RoundingNotClean, and a stated sheet refused with its rim inside the workpiece
@@ -1169,7 +1493,9 @@ namespace gs
             SheetReason = ExactMeshBoolean.SheetRefusal.None;
             Report = new SolidBooleanReport();
             Report.Route = route;
+            Report.SheetExtensions = sheetExt;
             runStart = route.Count;
+            refusedInput = -1;
             autoSheet = null;
             autoRefusal = ExactMeshBoolean.SheetRefusal.None;
             autoRefusalRouted = false;
@@ -1198,6 +1524,8 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "AutomaticSteps is not a defined value", total);
             if ((Verification & ~(VerificationModes.NoInventedSurface | VerificationModes.RoundingVolume)) != 0)
                 return fail(PipelineStatus.InvalidInput, "Verification is not a defined value", total);
+            if (SheetExtension < SheetExtensionModes.Off || SheetExtension > SheetExtensionModes.AlsoAutoRoutedTools)
+                return fail(PipelineStatus.InvalidInput, "SheetExtension is not a defined value", total);
             if (!(MaxInventedSurfaceShare >= 0) || !(MaxRoundingVolumeChange >= 0))
                 return fail(PipelineStatus.InvalidInput, "MaxInventedSurfaceShare and MaxRoundingVolumeChange must not be negative or NaN", total);
             if (!(MinThickness >= 0) || double.IsInfinity(MinThickness))
@@ -1285,11 +1613,20 @@ namespace gs
 
             // 2. the boolean; an input that fails the check is tried as it is first (with Orientation = AreaMajority the boolean reorients flipped triangles, which the
             // check counts as open), and repaired only if the boolean refuses it
-            List<DMesh3> used = given;
+            // (SheetExtension: the extended sheets stand in for the sheets, after the measures above, which are those of the inputs as given; on the grid of InputGrid like the others)
+            List<DMesh3> src = given;
+            if (extended != null && extended.Count > 0) {
+                src = new List<DMesh3>(given);
+                foreach (KeyValuePair<int, DMesh3> e in extended) {
+                    int moved;
+                    src[e.Key] = grid > 0 ? Snapped(e.Value, grid, out moved) : e.Value;
+                }
+            }
+            List<DMesh3> used = src;
             if (active.Count < n) {
                 used = new List<DMesh3>(active.Count);
                 foreach (int i in active)
-                    used.Add(given[i]);
+                    used.Add(src[i]);
                 anyOpen = false;
                 foreach (int i in active)
                     anyOpen |= !Report.InputClosed[i] && !isSheet(i);
@@ -1317,6 +1654,7 @@ namespace gs
                 autoRefusalText = op.Error;
                 // (the witness is the refused sheet's index among the inputs the boolean got: active maps it to the pipeline's index)
                 autoRefusalRouted = op.SheetWitnessMesh >= 0 && op.SheetWitnessMesh < active.Count && autoSheet[active[op.SheetWitnessMesh]];
+                refusedInput = op.SheetWitnessMesh >= 0 && op.SheetWitnessMesh < active.Count ? active[op.SheetWitnessMesh] : -1;
                 return fail(PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
             }
             if (anyOpen && op.Status == ExactMeshBoolean.BooleanStatus.OpenInput) {
@@ -1397,6 +1735,8 @@ namespace gs
             if (op.Status != ExactMeshBoolean.BooleanStatus.Success && !thinOnly) {
                 BooleanStatus = op.Status;
                 SheetReason = op.SheetReason;
+                if (op.Status == ExactMeshBoolean.BooleanStatus.SheetRefused && op.SheetWitnessMesh >= 0 && op.SheetWitnessMesh < active.Count)
+                    refusedInput = active[op.SheetWitnessMesh];
                 return fail(op.Status == ExactMeshBoolean.BooleanStatus.OpenInput ? PipelineStatus.OpenInput : PipelineStatus.BooleanFailed, op.Status + ": " + op.Error, total);
             }
             Report.InsideOutCells = op.InsideOutCells;
@@ -2570,9 +2910,17 @@ namespace gs
             if (mesh.TriangleCount == 0)
                 return true;
             double largest = Math.Max(LargestUsedCoordinate(new[] { mesh }), LargestUsedCoordinate(Inputs));
+            // (the references are the inputs as passed: Inputs is never changed by the run, the repair and the snap work on copies. With SheetExtension the
+            // extended sheets are references too: the strip is a surface that the caller's sheet was continued by, not one that a repair made up)
+            IList<DMesh3> references = Inputs;
+            if (extended != null && extended.Count > 0) {
+                var all = new List<DMesh3>(Inputs);
+                all.AddRange(extended.Values);
+                references = all;
+                largest = Math.Max(largest, LargestUsedCoordinate(extended.Values));
+            }
             Report.InventedSurfaceTolerance = InventedSurfaceToleranceOf(roundingBound, largest, grid);
-            // (the references are the inputs as passed: Inputs is never changed by the run, the repair and the snap work on copies)
-            InventedSurfaceMeasure m = InventedSurfaceOf(mesh, Inputs, Report.InventedSurfaceTolerance, Cancellation);
+            InventedSurfaceMeasure m = InventedSurfaceOf(mesh, references, Report.InventedSurfaceTolerance, Cancellation);
             if (m == null)
                 return false;
             Report.InventedSurfaceShare = m.Share;
@@ -2755,6 +3103,13 @@ namespace gs
                         failures.Add("RoundingVolume: the rounding repair moved " + r(dV) + " of the volume " + r(before) + " (" + basis + "; the parts that are not thin moved " + r(rest) + "), more than MaxRoundingVolumeChange "
                             + r(MaxRoundingVolumeChange) + " and the floor " + r(floor));
                 }
+            }
+            if (Report.SheetExtensions.Exists(x => x.InResult) && (Verification & VerificationModes.NoInventedSurface) != 0) {
+                double added = 0;
+                foreach (SolidBooleanSheetExtension x in Report.SheetExtensions)
+                    if (x.InResult)
+                        added += x.AddedArea;
+                text.Add("SheetExtension: the strip of the extended sheet(s) is a reference surface of NoInventedSurface; it adds " + r(added) + " of area inside the workpiece (Report.SheetExtensions)");
             }
             step("Verification", -1, "Verification = " + Verification, string.Join("; ", text) + (failures.Count > 0 ? "; refused" : "; passed"));
             Report.VerificationMilliseconds += clock.ElapsedMilliseconds;

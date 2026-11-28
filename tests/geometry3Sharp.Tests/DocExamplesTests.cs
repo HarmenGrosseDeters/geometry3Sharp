@@ -556,6 +556,25 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void SheetExtensionExample_InThePipeline_ContinuesAShortStatedSheet_AndReportsIt()
+        {
+            SolidBooleanPipeline p = SheetExtensionExample.RunInPipeline(SweptCutCube(), SweptCutSheet(-1, -1, 3.9, 5, 1, 5, 2));
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.Success, p.Status);
+            Assert.Equal(SolidBooleanResultKind.Solid, p.Report.ResultKind);
+            Assert.Equal("", gs.MeshRobustRepair.NotCleanReason(p.Result));
+            Assert.Equal(32, Volume(p.Result), 9);
+            SolidBooleanSheetExtension e = Assert.Single(p.Report.SheetExtensions);
+            Assert.True(e.Applied);
+            Assert.True(e.InResult);
+            Assert.True(e.AddedArea > 0);
+            Assert.Equal("SheetExtension", Assert.Single(p.Report.Route).Name);
+            // too deep: refused as without the option
+            SolidBooleanPipeline deep = SheetExtensionExample.RunInPipeline(SweptCutCube(), SweptCutSheet(-1, -1, 2, 5, 1, 1, 2));
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, deep.Status);
+            Assert.Equal(MeshSheetExtension.ExtensionStatus.DepthAboveLimit, Assert.Single(deep.Report.SheetExtensions).Status);
+        }
+
+        [Fact]
         public void SweptCutExample_FullCrossing_Step_Pillar_AndPocket()
         {
             Vector3d down = -Vector3d.AxisZ;
