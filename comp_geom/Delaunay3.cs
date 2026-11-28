@@ -162,10 +162,121 @@ namespace g3
                 if (alive[c]) yield return c;
         }
 
+        const double MinNormal = 2.2250738585072014e-308; // 2^-1022
+        const double FastScaleMin = 7.888609052210118e-31; // 2^-100: (2^-100)^4 = 2^-400 >> MinNormal
+        const double FastScaleMax = 1.2676506002282294e30; // 2^100:  (2^100)^4 = 2^400 << double.MaxValue
+
+        static int Pow2Exp(double v)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int biased = (int)((bits >> 52) & 0x7FFL);
+            if (biased != 0)
+                return biased - 1023;
+            long sbits = BitConverter.DoubleToInt64Bits(v * 18014398509481984.0); // 2^54
+            return (int)((sbits >> 52) & 0x7FFL) - 1023 - 54;
+        }
+
+        static Vector3d ScaleVec(Vector3d v, int n)
+        {
+            return new Vector3d(ExactPoint3.ScaleB(v.x, n), ExactPoint3.ScaleB(v.y, n), ExactPoint3.ScaleB(v.z, n));
+        }
+
+        static Vector3d SafeDiff(Vector3d p, Vector3d q, out int pre)
+        {
+            Vector3d d = p - q;
+            if (d.IsFinite) { pre = 0; return d; }
+            pre = 1;
+            return 0.5 * p - 0.5 * q;
+        }
+
+        static double SafeDistance(Vector3d a, Vector3d b)
+        {
+            if (!a.IsFinite || !b.IsFinite) return double.NaN;
+            Vector3d d = SafeDiff(a, b, out int pre);
+            double m = d.MaxAbs;
+            if (m == 0) return 0;
+            int e = Pow2Exp(m);
+            Vector3d ds = ScaleVec(d, -e);
+            return ExactPoint3.ScaleB(Math.Sqrt(ds.LengthSquared), e + pre);
+        }
+
+        internal static bool WithinSeparation(Vector3d a, Vector3d b, double minSeparation)
+        {
+            if (double.IsNaN(minSeparation) || minSeparation < 0)
+                return false;
+            if (minSeparation == 0)
+                return a == b;
+            double minSqr = minSeparation * minSeparation;
+            double d2 = a.DistanceSquared(b);
+            if (minSqr >= 4 * MinNormal && !double.IsInfinity(minSqr)
+                && d2 >= 4 * MinNormal && !double.IsInfinity(d2))
+                return d2 <= minSqr;
+            return SafeDistance(a, b) <= minSeparation;
+        }
+
         public double CellVolume(int c)
         {
-            Vector3d a = vertices[cv[4 * c]], b = vertices[cv[4 * c + 1]], d = vertices[cv[4 * c + 2]], e = vertices[cv[4 * c + 3]];
-            return (b - a).Cross(d - a).Dot(e - a) / 6.0;
+            return CellVolume(vertices[cv[4 * c]], vertices[cv[4 * c + 1]], vertices[cv[4 * c + 2]], vertices[cv[4 * c + 3]]);
+        }
+
+        static int ColResidualExp(double ux, int eu, double vx, int ev, double wx, int ew, out bool any)
+        {
+            int ec = int.MinValue;
+            any = false;
+            if (ux != 0) { ec = Math.Max(ec, Pow2Exp(Math.Abs(ux)) - eu); any = true; }
+            if (vx != 0) { ec = Math.Max(ec, Pow2Exp(Math.Abs(vx)) - ev); any = true; }
+            if (wx != 0) { ec = Math.Max(ec, Pow2Exp(Math.Abs(wx)) - ew); any = true; }
+            return ec;
+        }
+
+        internal static double CellVolume(Vector3d a, Vector3d b, Vector3d d, Vector3d e)
+        {
+            Vector3d u = b - a, v = d - a, w = e - a;
+            if (u.IsFinite && v.IsFinite && w.IsFinite) {
+                double mu = u.MaxAbs, mv = v.MaxAbs, mw = w.MaxAbs;
+                double hi = Math.Max(mu, Math.Max(mv, mw));
+                double lo = Math.Min(mu, Math.Min(mv, mw));
+                double mx = Math.Max(Math.Abs(u.x), Math.Max(Math.Abs(v.x), Math.Abs(w.x)));
+                double my = Math.Max(Math.Abs(u.y), Math.Max(Math.Abs(v.y), Math.Abs(w.y)));
+                double mz = Math.Max(Math.Abs(u.z), Math.Max(Math.Abs(v.z), Math.Abs(w.z)));
+                double loCol = Math.Min(mx, Math.Min(my, mz));
+                if (hi <= FastScaleMax && (hi == 0 || (lo >= FastScaleMin && loCol >= FastScaleMin)))
+                    return u.Cross(v).Dot(w) / 6.0;
+            }
+            if (!a.IsFinite || !b.IsFinite || !d.IsFinite || !e.IsFinite)
+                return double.NaN;
+            // Anchor at a vertex of the shortest edge (via an even permutation so the signed volume is unchanged),
+            // preventing catastrophic cancellation when two vertices are much closer to each other than to a.
+            u = SafeDiff(b, a, out int pu);
+            v = SafeDiff(d, a, out int pv);
+            w = SafeDiff(e, a, out int pw);
+            int bestP = pu; double bestM = u.MaxAbs; int anchor = 0;
+            if (pv < bestP || (pv == bestP && v.MaxAbs < bestM)) { bestP = pv; bestM = v.MaxAbs; }
+            if (pw < bestP || (pw == bestP && w.MaxAbs < bestM)) { bestP = pw; bestM = w.MaxAbs; }
+            Vector3d bd = SafeDiff(d, b, out int pbd);
+            if (pbd < bestP || (pbd == bestP && bd.MaxAbs < bestM)) { bestP = pbd; bestM = bd.MaxAbs; anchor = 1; }
+            Vector3d be = SafeDiff(e, b, out int pbe);
+            if (pbe < bestP || (pbe == bestP && be.MaxAbs < bestM)) { bestP = pbe; bestM = be.MaxAbs; anchor = 1; }
+            Vector3d de = SafeDiff(e, d, out int pde);
+            if (pde < bestP || (pde == bestP && de.MaxAbs < bestM)) { anchor = 2; }
+            if (anchor == 1) {
+                u = SafeDiff(a, b, out pu); v = be; pv = pbe; w = bd; pw = pbd;
+            } else if (anchor == 2) {
+                u = de; pu = pde; v = SafeDiff(a, d, out pv); w = SafeDiff(b, d, out pw);
+            }
+            double um = u.MaxAbs, vm = v.MaxAbs, wm = w.MaxAbs;
+            if (um == 0 || vm == 0 || wm == 0) return 0;
+            // det(R * M * C) = det(R) * det(M) * det(C): row exponents (eu, ev, ew) plus residual column exponents
+            // (ecx, ecy, ecz <= 0) keep every nonzero entry in (-2, 2) without losing either thin rows or thin columns.
+            int eu = Pow2Exp(um), ev = Pow2Exp(vm), ew = Pow2Exp(wm);
+            int ecx = ColResidualExp(u.x, eu, v.x, ev, w.x, ew, out bool anyX);
+            int ecy = ColResidualExp(u.y, eu, v.y, ev, w.y, ew, out bool anyY);
+            int ecz = ColResidualExp(u.z, eu, v.z, ev, w.z, ew, out bool anyZ);
+            if (!anyX || !anyY || !anyZ) return 0;
+            Vector3d us = new Vector3d(ExactPoint3.ScaleB(u.x, -(eu + ecx)), ExactPoint3.ScaleB(u.y, -(eu + ecy)), ExactPoint3.ScaleB(u.z, -(eu + ecz)));
+            Vector3d vs = new Vector3d(ExactPoint3.ScaleB(v.x, -(ev + ecx)), ExactPoint3.ScaleB(v.y, -(ev + ecy)), ExactPoint3.ScaleB(v.z, -(ev + ecz)));
+            Vector3d ws = new Vector3d(ExactPoint3.ScaleB(w.x, -(ew + ecx)), ExactPoint3.ScaleB(w.y, -(ew + ecy)), ExactPoint3.ScaleB(w.z, -(ew + ecz)));
+            return ExactPoint3.ScaleB(us.Cross(vs).Dot(ws) / 6.0, eu + ev + ew + ecx + ecy + ecz + pu + pv + pw);
         }
 
         /// <summary> circumcenter of cell c (floating point) </summary>
@@ -177,9 +288,49 @@ namespace g3
         public static Vector3d Circumcenter(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
         {
             Vector3d u = b - a, v = c - a, w = d - a;
-            Vector3d vw = v.Cross(w), wu = w.Cross(u), uv = u.Cross(v);
-            double den = 2 * u.Dot(vw);
-            return a + (u.LengthSquared * vw + v.LengthSquared * wu + w.LengthSquared * uv) / den;
+            if (u.IsFinite && v.IsFinite && w.IsFinite) {
+                double mu = u.MaxAbs, mv = v.MaxAbs, mw = w.MaxAbs;
+                double hi = Math.Max(mu, Math.Max(mv, mw));
+                double lo = Math.Min(mu, Math.Min(mv, mw));
+                if (hi <= FastScaleMax && lo >= FastScaleMin) {
+                    Vector3d vw = v.Cross(w), wu = w.Cross(u), uv = u.Cross(v);
+                    double den = 2 * u.Dot(vw);
+                    return a + (u.LengthSquared * vw + v.LengthSquared * wu + w.LengthSquared * uv) / den;
+                }
+            }
+            if (!a.IsFinite || !b.IsFinite || !c.IsFinite || !d.IsFinite)
+                return new Vector3d(double.NaN, double.NaN, double.NaN);
+            u = SafeDiff(b, a, out int pu);
+            v = SafeDiff(c, a, out int pv);
+            w = SafeDiff(d, a, out int pw);
+            double um = u.MaxAbs, vm = v.MaxAbs, wm = w.MaxAbs;
+            if (um == 0 || vm == 0 || wm == 0)
+                return new Vector3d(double.NaN, double.NaN, double.NaN);
+            int eu = Pow2Exp(um), ev = Pow2Exp(vm), ew = Pow2Exp(wm);
+            Vector3d us = ScaleVec(u, -eu), vs = ScaleVec(v, -ev), ws = ScaleVec(w, -ew);
+            Vector3d vws = vs.Cross(ws), wus = ws.Cross(us), uvs = us.Cross(vs);
+            double dens = 2 * us.Dot(vws);
+            // Per-edge scaling cancels 2^(su+sv+sw) in dens, leaving 2^su, 2^sv, 2^sw on the three terms
+            Vector3d raw1 = (us.LengthSquared * vws) / dens;
+            Vector3d raw2 = (vs.LengthSquared * wus) / dens;
+            Vector3d raw3 = (ws.LengthSquared * uvs) / dens;
+            if (!raw1.IsFinite || !raw2.IsFinite || !raw3.IsFinite)
+                return a + (raw1 + raw2 + raw3);
+            int su = eu + pu, sv = ev + pv, sw = ew + pw;
+            Vector3d t1 = ScaleVec(raw1, su), t2 = ScaleVec(raw2, sv), t3 = ScaleVec(raw3, sw);
+            Vector3d res = a + (t1 + t2 + t3);
+            if (res.IsFinite)
+                return res;
+            // Avoid intermediate overflow when |cc - a| > double.MaxValue (or cancelling large terms) while |cc| <= double.MaxValue
+            int maxE = a.MaxAbs > 0 ? Pow2Exp(a.MaxAbs) : -1074;
+            if (raw1.MaxAbs > 0) maxE = Math.Max(maxE, su + Pow2Exp(raw1.MaxAbs));
+            if (raw2.MaxAbs > 0) maxE = Math.Max(maxE, sv + Pow2Exp(raw2.MaxAbs));
+            if (raw3.MaxAbs > 0) maxE = Math.Max(maxE, sw + Pow2Exp(raw3.MaxAbs));
+            int shift = maxE - 1000;
+            if (shift <= 0)
+                return res;
+            Vector3d sum = ScaleVec(a, -shift) + (ScaleVec(raw1, su - shift) + ScaleVec(raw2, sv - shift) + ScaleVec(raw3, sw - shift));
+            return ScaleVec(sum, shift);
         }
 
 
@@ -504,9 +655,8 @@ namespace g3
                 for (int i = 0; i < 4; ++i)
                     if (vmark[cv[4 * c + i]] != vmarkValue) return InsertResult.Failed;
             // the nearest vertex of p is a vertex of its conflict region
-            double minSqr = minSeparation * minSeparation;
             foreach (int v in boundaryVerts)
-                if (vertices[v].DistanceSquared(p) <= minSqr) return InsertResult.TooClose;
+                if (WithinSeparation(vertices[v], p, minSeparation)) return InsertResult.TooClose;
 
             if (support) {
                 undoVertex = vertices.Count; undoMaxCell = maxCell; undoLastCell = lastCell; undoRng = insertRng;
@@ -778,9 +928,8 @@ namespace g3
             foreach (int c in cavity)
                 for (int i = 0; i < 4; ++i)
                     if (!vset.Contains(cv[4 * c + i])) return InsertResult.Failed;
-            double minSqr = minSeparation * minSeparation;
             foreach (int v in boundaryVerts)
-                if (vertices[v].DistanceSquared(p) <= minSqr) return InsertResult.TooClose;
+                if (WithinSeparation(vertices[v], p, minSeparation)) return InsertResult.TooClose;
             foreach (var (c, i) in boundary) {
                 int n = cn[4 * c + i];
                 plan.Cells.Add(new PlannedCell() {
