@@ -320,6 +320,8 @@ namespace gs
             internal bool Cells;
             /// <summary> the cells were built but sampled more volume than the region, which was used instead </summary>
             internal bool CellsRejected;
+            internal bool SortSamplesByMorton;
+            internal int MortonSortedSamples;
             internal int Samples, UnionSamples, SampledCells, ChildTests, Depth, Unclassified, WindingEvaluations;
             /// <summary> volume of the sampled region, and of the cells known to be in the union (exactly) </summary>
             internal double SampledVolume, KnownUnion, KnownBoth;
@@ -619,14 +621,24 @@ namespace gs
             double maxShare = 1 - minIoU;
             int round = Math.Max(1, samples / 32);
             double pLow = 0, pHigh = 1;
+            bool sortSamples = stats?.SortSamplesByMorton == true;
+            ulong[] packedOrder = null;
             while (samples > 0) {
                 int end = Math.Min(samples, done + round);
                 for (int k = done; k < end; ++k)        // same sequence as VolumeIoU (on the region path)
                     pts[k] = cells != null ? cells.Next(rnd) : region.Next(rnd);
-                gParallel.ForEach(Interval1i.FromToInclusive(done, end - 1), (k) => {
-                    bool a = referenceInside(pts[k]), b = resultInside(pts[k]);
-                    cls[k] = (a ? 1 : 0) | (b ? 2 : 0);
-                });
+                void Classify(int index)
+                {
+                    bool a = referenceInside(pts[index]), b = resultInside(pts[index]);
+                    cls[index] = (a ? 1 : 0) | (b ? 2 : 0);
+                }
+                var range = Interval1i.FromToInclusive(done, end - 1);
+                if (sortSamples) {
+                    MeshBatchQueries.SortPackedPointOrder(pts, done, end - done, ref packedOrder);
+                    gParallel.ForEach(range, k => Classify(done + unchecked((int)(uint)packedOrder[k - done])));
+                } else {
+                    gParallel.ForEach(range, Classify);
+                }
                 for (int k = done; k < end; ++k) {
                     if (cls[k] == 3) both++; else if (cls[k] != 0) onlyOne++;
                     if ((cls[k] & 1) != 0) inputSolid++;
@@ -646,6 +658,7 @@ namespace gs
             }
             if (stats != null) {
                 stats.Samples = done;
+                stats.MortonSortedSamples = sortSamples ? done : 0;
                 stats.UnionSamples = both + onlyOne;
                 stats.IoULow = 1 - pHigh;
                 stats.IoUHigh = 1 - pLow;

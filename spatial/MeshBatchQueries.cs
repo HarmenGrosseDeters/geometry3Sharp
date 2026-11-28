@@ -383,20 +383,37 @@ namespace g3
             return keys;
         }
 
-        static ulong[] PointKeys(Vector3d[] points)
+        static ulong[] PointKeys(Vector3d[] points) => PointKeys(points, 0, points.Length);
+
+        static ulong[] PointKeys(Vector3d[] points, int start, int count)
+        {
+            var keys = new ulong[count];
+            fill_point_keys(points, start, count, keys, packIndex: false);
+            return keys;
+        }
+
+        // The 30-bit Morton code occupies the high word. The low word keeps the original local index.
+        internal static void SortPackedPointOrder(Vector3d[] points, int start, int count, ref ulong[] keys)
+        {
+            if (keys == null || keys.Length < count)
+                keys = new ulong[count];
+            fill_point_keys(points, start, count, keys, packIndex: true);
+            Array.Sort(keys, 0, count);
+        }
+
+        static void fill_point_keys(Vector3d[] points, int start, int count, ulong[] keys, bool packIndex)
         {
             var b = AxisAlignedBox3d.Empty;
-            for (int i = 0; i < points.Length; ++i)
-                if (points[i].IsFinite)
-                    b.Contain(points[i]);
-            var keys = new ulong[points.Length];
-            for (int i = 0; i < points.Length; ++i) {
-                Vector3d p = points[i];
-                if (p.IsFinite == false)
-                    continue;
-                keys[i] = Morton3(Q10(Unit(p.x, b.Min.x, b.Max.x)), Q10(Unit(p.y, b.Min.y, b.Max.y)), Q10(Unit(p.z, b.Min.z, b.Max.z)));
+            for (int i = 0; i < count; ++i)
+                if (points[start + i].IsFinite)
+                    b.Contain(points[start + i]);
+            for (int i = 0; i < count; ++i) {
+                Vector3d p = points[start + i];
+                ulong key = p.IsFinite
+                    ? Morton3(Q10(Unit(p.x, b.Min.x, b.Max.x)), Q10(Unit(p.y, b.Min.y, b.Max.y)), Q10(Unit(p.z, b.Min.z, b.Max.z)))
+                    : 0;
+                keys[i] = packIndex ? (key << 32) | (uint)i : key;
             }
-            return keys;
         }
 
         static double Unit(double v, double lo, double hi)

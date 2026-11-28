@@ -25,6 +25,33 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void PackedMortonVolumeCheck_MatchesInputOrder(bool useCells)
+        {
+            var input = new MeshRepairMetrics.SolidReference(Box(Vector3d.Zero, Vector3d.One));
+            var result = MeshRepairMetrics.SolidReference.Unoriented(
+                Box(new Vector3d(0.03, 0, 0), new Vector3d(1.03, 1, 1)));
+            var baseline = new MeshRepairMetrics.VolumeCheckStats();
+            var morton = new MeshRepairMetrics.VolumeCheckStats { SortSamplesByMorton = true };
+            bool accepted = MeshRepairMetrics.VolumeIoUAtLeast(input, result, 0.99, out double iou,
+                samples: 4096, stats: baseline, useCells: useCells);
+            bool sortedAccepted = MeshRepairMetrics.VolumeIoUAtLeast(input, result, 0.99, out double sortedIoU,
+                samples: 4096, stats: morton, useCells: useCells);
+
+            Assert.Equal(useCells, morton.Cells);
+            Assert.Equal(accepted, sortedAccepted);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(iou), BitConverter.DoubleToInt64Bits(sortedIoU));
+            Assert.Equal(baseline.Samples, morton.Samples);
+            Assert.Equal(baseline.UnionSamples, morton.UnionSamples);
+            Assert.Equal(baseline.IoULow, morton.IoULow);
+            Assert.Equal(baseline.IoUHigh, morton.IoUHigh);
+            Assert.Equal(0, baseline.MortonSortedSamples);
+            Assert.True(morton.MortonSortedSamples > 0);
+            Assert.Equal(morton.Samples, morton.MortonSortedSamples);
+        }
+
         [Fact]
         public void ClosedBox_NoSelfIntersections()
         {
