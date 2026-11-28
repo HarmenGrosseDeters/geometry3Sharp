@@ -1148,16 +1148,19 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
 
-* `alpha_wrap_fix_star.py` checks equivalence, termination, and worst-case super-linear complexity
-  of the one-pass manifold step (`join_inside_components`, `join_flip`, `build_outside_tree`,
-  `outside_pieces_cut_off`, `outside_stays_connected`, `before` / `preferred_flip`) in
-  `mesh_ops/MeshAlphaWrap.cs` (issue `#1607`): strict total-order refinement of `before`,
-  dead-cell isolation and non-neighbour `Joins` monotonicity (with `sat` witnesses for neighbour
-  improvement and lazy-heap stale demotion), bounded-graph exactness of spanning-forest cut-off
-  and non-exterior connectivity (with 1-hop reattachment and non-root boundary negative controls),
-  `join_flip` component-count preservation across out-of-order `deadCells`, and the quadratic
-  `W = k * L + k * (k + 1) / 2` degree-3-bounded comb-star reattachment witness plus three Python
-  simulation replays. Full 3D Delaunay star geometry and benchmark timings remain outside this pilot.
+* `alpha_wrap_fix_star.py` checks equivalence, inductive invariants, termination, and worst-case
+  super-linear complexity of the one-pass manifold step (`fix_star`, `before`, `join_candidate`,
+  `join_inside_components`, `join_flip`, `build_outside_tree`, `outside_pieces_cut_off`,
+  `outside_stays_connected`, `preferred_flip`, `star_components`) in `mesh_ops/MeshAlphaWrap.cs`
+  (issue `#1607`): exact scan-order equivalence of `before` (modeling finite non-NaN volumes as
+  `z3.Int`, with reversed-`K` negative control), dead-cell isolation and non-neighbour `Joins`
+  monotonicity, bounded-graph spanning-forest cut-off exactness plus inductive preservation of
+  the boundary-rooted acyclic forest across reattachment, the graph-theoretic connectivity
+  criterion behind `outside_stays_connected`, bounded-graph exactness of `join_flip`'s
+  `nIn = nIn + 1 - distinct` across out-of-order `deadCells`, and the quadratic
+  `W = k * L + k * (k + 1) / 2` comb-star complexity proof plus three Python replays enforcing the
+  3-star-facet bound (`len(adj) + boundary <= 3`) and lockstep BFS early exit. Full 3D Delaunay
+  star geometry, floating-point `NaN` volumes, and benchmark timings remain outside this pilot.
 
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_alpha_wrap_fix_star.py -v

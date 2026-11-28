@@ -13,13 +13,19 @@ class AlphaWrapFixStarZ3Tests(unittest.TestCase):
 
     def test_source_drift_is_rejected(self):
         cases = [
+            ('if (nIn > 1 && !ReferenceFixStar && (outsideComps == 1 || allExterior)) {',
+             'if (nIn > 1 && !ReferenceFixStar) {'),
             ('return a.K < b.K;', 'return a.K > b.K;'),
+            ('else if (root != firstIn) joins = 1;', 'else if (root == firstIn) joins = 1;'),
             ('if (now.Corner != top.Corner || now.Joins != top.Joins)', 'if (false)'),
             ('nIn = nIn + 1 - distinct;', 'nIn = nIn - distinct;'),
             ('treeParent[k] = -1;', 'treeParent[k] = k;'),
-            ('if (treeMark[mk] != detMark) continue;', 'break;'),
+            ('treeParent[mk] = u; treeMark[mk] = attMark; q.Add(mk);',
+             'treeParent[u] = mk; treeMark[mk] = attMark; q.Add(mk);'),
             ('if (nn == 1) return true;', 'if (nn == 1) return false;'),
             ('return volumeA < volumeB;', 'return volumeA <= volumeB;'),
+            ('if (m < 0) { compExterior[id] = true; continue; }',
+             'if (m < 0) { continue; }'),
         ]
         for old, new in cases:
             with self.subTest(old=old):
