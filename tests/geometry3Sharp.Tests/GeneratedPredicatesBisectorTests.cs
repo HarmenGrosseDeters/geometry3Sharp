@@ -377,6 +377,126 @@ namespace geometry3Sharp.Tests
             Assert.True(fixedPath > 100 && bigPath > 20, $"fixed {fixedPath}, big {bigPath}");
         }
 
+
+        // ---- the guards of every entry, argument by argument, and the prepared form of BisectorSide3 ----
+
+        // (name, arity, the double entry, the FixedPoint3 entry, the BigInteger form)
+        delegate int FixedEntry(FixedPoint3[] f);
+        static readonly (string name, int n, Func<Vector3d[], int> d, FixedEntry f, Func<ExactPoint3[], int> big)[] Entries = {
+            ("BisectorSide1", 3, d => BisectorPredicates.BisectorSide1(d[0], d[1], d[2]), f => BisectorPredicates.BisectorSide1(ref f[0], ref f[1], ref f[2]),
+                e => BisectorPredicates.BisectorSide1Big(e[0], e[1], e[2])),
+            ("BisectorSide2", 5, d => BisectorPredicates.BisectorSide2(d[0], d[1], d[2], d[3], d[4]), f => BisectorPredicates.BisectorSide2(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4]),
+                e => BisectorPredicates.BisectorSide2Big(e[0], e[1], e[2], e[3], e[4])),
+            ("BisectorSide3", 7, d => BisectorPredicates.BisectorSide3(d[0], d[1], d[2], d[3], d[4], d[5], d[6]),
+                f => BisectorPredicates.BisectorSide3(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5], ref f[6]),
+                e => BisectorPredicates.BisectorSide3Big(e[0], e[1], e[2], e[3], e[4], e[5], e[6])),
+            ("DotSites", 4, d => BisectorPredicates.DotSites(d[0], d[1], d[2], d[3]), f => BisectorPredicates.DotSites(ref f[0], ref f[1], ref f[2], ref f[3]),
+                e => BisectorPredicates.DotSitesBig(e[0], e[1], e[2], e[3])),
+            ("DetSitesNormal", 6, d => BisectorPredicates.DetSitesNormal(d[0], d[1], d[2], d[3], d[4], d[5]),
+                f => BisectorPredicates.DetSitesNormal(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5]),
+                e => BisectorPredicates.DetSitesNormalBig(e[0], e[1], e[2], e[3], e[4], e[5])),
+            ("DistanceAbove1", 3, d => BisectorPredicates.DistanceAbove1(d[0], d[1], d[2]), f => BisectorPredicates.DistanceAbove1(ref f[0], ref f[1], ref f[2]),
+                e => BisectorPredicates.DistanceAbove1Big(e[0], e[1], e[2])),
+            ("DistanceAbove2", 5, d => BisectorPredicates.DistanceAbove2(d[0], d[1], d[2], d[3], d[4]), f => BisectorPredicates.DistanceAbove2(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4]),
+                e => BisectorPredicates.DistanceAbove2Big(e[0], e[1], e[2], e[3], e[4])),
+            ("DistanceAbove3", 7, d => BisectorPredicates.DistanceAbove3(d[0], d[1], d[2], d[3], d[4], d[5], d[6]),
+                f => BisectorPredicates.DistanceAbove3(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5], ref f[6]),
+                e => BisectorPredicates.DistanceAbove3Big(e[0], e[1], e[2], e[3], e[4], e[5], e[6])),
+            ("RadiusEdgeAbove", 6, d => BisectorPredicates.RadiusEdgeAbove(d[0], d[1], d[2], d[3], d[4], d[5]),
+                f => BisectorPredicates.RadiusEdgeAbove(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5]),
+                e => BisectorPredicates.RadiusEdgeAboveBig(e[0], e[1], e[2], e[3], e[4], e[5])) };
+
+        /// <summary>
+        /// every argument of every entry, one at a time: a non-finite coordinate throws (also in BisectorSide3Prepare); a
+        /// rational point (W != 1) throws in the FixedPoint3 entry; one point beyond the bound 2^64 - 1 sends the call to the
+        /// BigInteger form (it allocates, and equals the oracle's BigInteger form), the others in it stay on FixedArith
+        /// </summary>
+        [Fact]
+        public void Guards_ArgumentByArgument()
+        {
+            var rand = new Random(12);
+            foreach (var en in Entries) {
+                for (int j = 0; j < en.n; ++j)
+                    for (int c = 0; c < 3; ++c)
+                        foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                            var P = Enumerable.Range(0, en.n).Select(i => new Vector3d(i + 1, 2 * i - 3, 0.5 * i)).ToArray();
+                            P[j] = new Vector3d(c == 0 ? bad : 1, c == 1 ? bad : 2, c == 2 ? bad : 3);
+                            Assert.Throws<ArgumentException>(() => en.d(P));
+                            if (en.name == "BisectorSide3" && j < 6)
+                                Assert.Throws<ArgumentException>(() => BisectorPredicates.BisectorSide3Prepare(P[0], P[1], P[2], P[3], P[4], P[5], out _));
+                        }
+                for (int j = 0; j < en.n; ++j) {
+                    var E = Enumerable.Range(0, en.n).Select(i => ExactPoint3.FromInteger(RandomInt(rand, 40), RandomInt(rand, 40), RandomInt(rand, 40))).ToArray();
+                    var rational = (ExactPoint3[])E.Clone();
+                    rational[j] = ExactPoint3.Create(3 * RandomInt(rand, 40) + 1, RandomInt(rand, 40), RandomInt(rand, 40), 3);     // (x / 3 is not an integer)
+                    var fr = rational.Select(Fixed).ToArray();
+                    Assert.False(fr[j].WIsOne);
+                    Assert.Throws<ArgumentException>(() => en.f(fr));
+                    for (int comp = 0; comp < 3; ++comp) {
+                        // (r.y, r.z of DistanceAbove* and k.z of RadiusEdgeAbove are not in the formula: the integer entry does not read them)
+                        bool unread = j == en.n - 1 && (en.name.StartsWith("DistanceAbove") ? comp > 0 : en.name == "RadiusEdgeAbove" && comp == 2);
+                        if (unread) continue;
+                        var beyond = (ExactPoint3[])E.Clone();
+                        var big = (BigInteger.One << 64) + BigInteger.Abs(RandomInt(rand, 20));
+                        beyond[j] = ExactPoint3.FromInteger(comp == 0 ? big : E[j].X, comp == 1 ? -big : E[j].Y, comp == 2 ? big : E[j].Z);
+                        var fb = beyond.Select(Fixed).ToArray();
+                        int r = en.f(fb);
+                        Assert.Equal(en.big(beyond), r);
+#if NET
+                        long before = GC.GetAllocatedBytesForCurrentThread();
+                        int again = en.f(fb);
+                        long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+                        Assert.Equal(r, again);
+                        Assert.True(bytes > 0, en.name + ": argument " + j + " beyond the bound stayed on FixedArith");
+#endif
+                    }
+                }
+            }
+        }
+
+        static bool InGate(Vector3d p, int degree)
+        {
+            double lo = ScaleB(1.0, -(960 / degree - 52));
+            return new[] { p.x, p.y, p.z }.All(x => x == 0 || Math.Abs(x) >= lo && Math.Abs(x) <= ScaleB(1.0, 164));
+        }
+
+        /// <summary>
+        /// the prepared form of BisectorSide3: its Gate is "every prepared point in the filter's range" (one point moved out at
+        /// each position, below and above); its filter equals the unsplit filter bit for bit (also where it refuses, 2), on
+        /// random, nearly degenerate and exactly degenerate inputs; an unprepared struct is rejected
+        /// </summary>
+        [Fact]
+        public void Prepared_EqualsUnsplit_GateAndFilter()
+        {
+            var rand = new Random(13);
+            int decided = 0, refused = 0;
+            for (int k = 0; k < 1200; ++k) {
+                var P = RandomPoints(rand, 7, k % 3 == 0 ? 12 : 53, k % 5 == 0 ? -40 : 0, false);
+                if (k % 4 == 1) {           // nearly degenerate: e moved off a tie by one ulp
+                    var x = new Vector3d(rand.Next(-50, 50), rand.Next(-50, 50), rand.Next(-50, 50));
+                    var S = Norm3.OrderBy(_ => rand.Next()).Take(4).ToArray();
+                    P = new[] { x + S[0], x + S[1], x + S[2], x + new Vector3d(1, 2, 0), x + new Vector3d(0, 1, 3), x - new Vector3d(1, 3, 3), x + S[3] };
+                    if (k % 8 == 1) P[6] = new Vector3d(BitIncrement(P[6].x), P[6].y, P[6].z);
+                }
+                if (k % 7 == 2) P[1] = P[0];                    // det = 0, m~ of det = 0
+                if (k % 11 == 3) {                              // one prepared point out of the range, below or above
+                    int j = rand.Next(6);
+                    P[j] = P[j] * (rand.Next(2) == 0 ? ScaleB(1.0, -200) : ScaleB(1.0, 200));
+                }
+                BisectorPredicates.BisectorSide3Prepare(P[0], P[1], P[2], P[3], P[4], P[5], out var s);
+                Assert.Equal(P.Take(6).All(p => InGate(p, 6)), s.Gate);
+                Assert.Equal(BisectorPredicates.BisectorSide3(P[0], P[1], P[2], P[3], P[4], P[5], P[6]), BisectorPredicates.BisectorSide3(ref s, P[6]));
+                if (s.Gate && InGate(P[6], 6)) {
+                    int f = BisectorPredicates.BisectorSide3Filter(P[0], P[1], P[2], P[3], P[4], P[5], P[6]);
+                    Assert.Equal(f, BisectorPredicates.BisectorSide3FilterPrepared(ref s, P[6]));
+                    if (f == 2) refused++; else decided++;
+                }
+            }
+            Assert.True(decided > 500 && refused > 50, $"decided {decided}, refused {refused}");
+            var none = default(BisectorPredicates.BisectorSide3Prepared);
+            Assert.Throws<InvalidOperationException>(() => BisectorPredicates.BisectorSide3(ref none, Vector3d.Zero));
+        }
+
         // ---- the calls: the entry, its filter (never wrong where it decides) and its exact stage ----
 
         static int filterDecided, filterCalls;
