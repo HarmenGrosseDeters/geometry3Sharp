@@ -322,6 +322,8 @@ caller needs it.
     first runs in parallel, so parallel equals serial. With `PreventNormalFlips` / `MinTriangleQuality` the flip check and the band check
     alternate on the mix the other left. With `PreventSelfIntersections` its later rounds also check the band of the mixed triangles.
   - A split itself is not checked: its halves lie in the old triangles, up to the rounding of the midpoint.
+  - With the band set, `FullProjectionPass` and the smoothing are buffered whatever the other flags (`EnableSmoothInPlace` is ignored),
+    and the default reference is taken at the start of the pass and of each edge operation, before any change.
   - Measured and dropped:
     - the patch bound (slower, 111 against 85 s);
     - a cache of the answers by corner positions (3 % hits, slower: 99 s).
@@ -333,7 +335,7 @@ caller needs it.
   - `MeshTopologySummary` (with the genus per component as a multiset);
   - `MeshPostRepairCleanup.NestingDepths` (the nesting depth and exact volume sign of each closed component, by a vote of winding
     numbers at interior samples, as `FindInvertedComponents` reads it: checked, not exact);
-  - `NotCleanReason`.
+  - `MeshRobustRepair.FindDefects` (without `NotClosed` for an open input; the boundary loops are compared as totals).
 - **Not built:** item 3, the isotopy guard (tier M, the collapse lemma open).
 
 ## 11. Staged plan

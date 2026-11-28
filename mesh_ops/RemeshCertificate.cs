@@ -13,12 +13,16 @@ namespace gs
     ///   - SelfIntersectingPairs: MeshRepairMetrics.SelfIntersections, exact (ExactTriangleIntersection);
     ///   - HausdorffResultToInput / HausdorffInputToResult: MeshHausdorffDistance with CertifiedUpper, one direction each: an upper
     ///     bound that is never below the exact distance, rounding included; HausdorffConverged if both reached the tolerance;
-    ///   - components, genus, boundary loops before and after: MeshTopologySummary, combinatorial, exact;
+    ///   - components, genus, boundary loops before and after: MeshTopologySummary, combinatorial, exact (the genus per
+    ///     component as a multiset; the boundary loops as totals only);
     ///   - NestingPreserved: the closed components' nesting depths and volume signs (as multisets) are the same, read by winding
     ///     numbers at interior samples (MeshPostRepairCleanup's reading; floating point: checked, not exact);
-    ///   - NotCleanReason: MeshRobustRepair.NotCleanReason of the result ("" if clean).
-    /// WithinBand: both Hausdorff upper bounds at most the band given (false without one). Passed: all of them (with a band:
-    /// within it). Scale invariant (relative tolerances; the 2^k scales give the same answer bit for bit).
+    ///   - Defects, NotCleanReason: MeshRobustRepair.FindDefects of the result, without NotClosed if the input is open too
+    ///     (the result of an open input keeps its boundary).
+    /// WithinBand: both Hausdorff upper bounds at most the band given (false without one). Passed: closed if the input is,
+    /// manifold, no self-intersection, no defect, both Hausdorff computations converged, no topology change, the nesting
+    /// preserved and, with a band, within it. An empty input or result fails (no Hausdorff distance). Scale invariant
+    /// (relative tolerances; the 2^k scales give the same answer bit for bit).
     /// </summary>
     public class RemeshCertificate
     {
@@ -40,6 +44,9 @@ namespace gs
         public bool NestingPreserved;
         /// <summary> both Hausdorff upper bounds within the band (false if no band was given) </summary>
         public bool WithinBand;
+        /// <summary> MeshRobustRepair.FindDefects of the result (NotClosed masked if the input is open) </summary>
+        public MeshRobustRepair.Defects Defects;
+        /// <summary> MeshRobustRepair.DescribeDefects(Defects): "" if clean </summary>
         public string NotCleanReason = "";
 
         /// <summary>
@@ -54,7 +61,11 @@ namespace gs
             c.Closed = result.IsClosed();
             c.Manifold = result.CheckValidity(false, FailMode.ReturnOnly);     // (no bowtie vertices)
             c.SelfIntersectingPairs = result.TriangleCount > 0 ? MeshRepairMetrics.SelfIntersections(result) : 0;
-            c.NotCleanReason = MeshRobustRepair.NotCleanReason(result);
+            // (the self-intersections are counted above: FindDefects need not search them again)
+            c.Defects = MeshRobustRepair.FindDefects(result, false);
+            if (c.SelfIntersectingPairs > 0) c.Defects |= MeshRobustRepair.Defects.SelfIntersections;
+            if (input.TriangleCount > 0 && !input.IsClosed()) c.Defects &= ~MeshRobustRepair.Defects.NotClosed;
+            c.NotCleanReason = MeshRobustRepair.DescribeDefects(c.Defects);
 
             if (input.TriangleCount > 0 && result.TriangleCount > 0) {
                 double tol = 1e-4 * (maxDeviation > 0 ? maxDeviation : input.CachedBounds.DiagonalLength);
@@ -74,19 +85,14 @@ namespace gs
             c.GenusBefore = before.Genus; c.GenusAfter = after.Genus;
             c.BoundaryLoopsBefore = before.BoundaryLoops; c.BoundaryLoopsAfter = after.BoundaryLoops;
             c.TopologyChanges = MeshTopologySummary.Compare(before, after);
-            if (c.ComponentsBefore == c.ComponentsAfter && c.TopologyChanges == MeshTopologySummary.Changes.None) {
-                // genus per component too (the totals can agree while a handle moved), as sorted multisets
-                var gb = before.ComponentList.Select(x => x.Genus).OrderBy(x => x).ToList();
-                var ga = after.ComponentList.Select(x => x.Genus).OrderBy(x => x).ToList();
-                if (!gb.SequenceEqual(ga)) c.TopologyChanges |= MeshTopologySummary.Changes.HandlesClosed | MeshTopologySummary.Changes.HandlesCreated;
-            }
+            // (Compare also compares the genus per component: a handle moved between components is a change)
 
             var nb = MeshPostRepairCleanup.NestingDepths(input).Select(x => (x.depth, x.volumeSign)).OrderBy(x => x).ToList();
             var na = MeshPostRepairCleanup.NestingDepths(result).Select(x => (x.depth, x.volumeSign)).OrderBy(x => x).ToList();
             c.NestingPreserved = nb.SequenceEqual(na);
 
             c.WithinBand = maxDeviation > 0 && c.HausdorffResultToInput <= maxDeviation && c.HausdorffInputToResult <= maxDeviation;
-            c.Passed = c.Closed == input.IsClosed() && c.Manifold && c.SelfIntersectingPairs == 0 && c.NotCleanReason == ""
+            c.Passed = c.Closed == input.IsClosed() && c.Manifold && c.SelfIntersectingPairs == 0 && c.Defects == MeshRobustRepair.Defects.None
                 && c.HausdorffConverged && c.TopologyChanges == MeshTopologySummary.Changes.None && c.NestingPreserved
                 && (!(maxDeviation > 0) || c.WithinBand);
             return c;

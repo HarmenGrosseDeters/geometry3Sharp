@@ -159,6 +159,77 @@ namespace geometry3Sharp.Tests
             Assert.True(OneSided(banded, input, 0.01 * delta) <= delta * (1 + 1e-9));
         }
 
+        /// <summary>
+        /// the projection pass is guarded with the band alone (no preset, no other guard flag): a projection target 5 delta
+        /// off the surface moves no vertex out of the band; without the band it moves them all
+        /// </summary>
+        [Fact]
+        public void ProjectionPass_BandAlone_IsGuarded()
+        {
+            DMesh3 input = Cylinder();
+            double delta = 2e-3 * input.CachedBounds.DiagonalLength;
+            DMesh3 run(double band)
+            {
+                DMesh3 m = new DMesh3(input);
+                var r = new Remesher(m) { MaxDeviation = band, EnableSmoothing = false };
+                r.SetProjectionTarget(new OffsetTarget(new Vector3d(0, 0, 5 * delta)));
+                r.SetTargetEdgeLength(0.15);
+                r.BasicRemeshPass();
+                lastRejected = r.DeviationRejected;
+                return m;
+            }
+            Assert.True(OneSided(run(0), input, 0.01 * delta) > 2 * delta, "precondition: the projection moves the mesh off");
+            DMesh3 banded = run(delta);
+            Assert.True(lastRejected > 0);
+            Assert.True(OneSided(banded, input, 0.01 * delta) <= delta * (1 + 1e-9));
+            Assert.True(banded.IsClosed() && banded.CheckValidity(false, FailMode.ReturnOnly));
+        }
+
+        /// <summary> EnableSmoothInPlace is ignored with the band (the smoothing is buffered, every move checked) </summary>
+        [Fact]
+        public void SmoothInPlace_WithBand_StaysWithin()
+        {
+            DMesh3 input = Cylinder();
+            double delta = 2e-3 * input.CachedBounds.DiagonalLength;
+            DMesh3 free = Remesh(input, 0.1, 0, 8, false, false, r => r.EnableSmoothInPlace = true);
+            Assert.True(OneSided(free, input, 0.01 * delta) > 2 * delta, "precondition: the in-place smoothing leaves the band");
+            DMesh3 m = Remesh(input, 0.1, delta, 8, false, false, r => r.EnableSmoothInPlace = true);
+            Assert.True(OneSided(m, input, 0.01 * delta) <= delta * (1 + 1e-9));
+            Assert.Equal("", Invariance.Difference(Remesh(input, 0.1, delta, 8, false), m));
+        }
+
+        /// <summary>
+        /// the default reference is the mesh before the first operation: in a pass whose first change is a split of one cap
+        /// edge whose constraint projects the new vertex 5 delta off (every other edge is only split), that vertex stays at
+        /// the midpoint (a reference taken after the move would contain it)
+        /// </summary>
+        [Fact]
+        public void DefaultReference_TakenBeforeTheFirstOperation()
+        {
+            DMesh3 input = Cylinder();
+            double delta = 2e-3 * input.CachedBounds.DiagonalLength;
+            DMesh3 m = new DMesh3(input);
+            var r = new Remesher(m) { MaxDeviation = delta, EnableCollapses = false, EnableFlips = false, EnableSmoothing = false };
+            var c = new MeshConstraints();
+            // (along the cap's normal, the axis: a move within the cap's plane would stay in the band)
+            var target = new OffsetTarget(new Vector3d(0, 5 * delta, 0));
+            // a cap edge (both triangles in the cap) longer than the target: constrained to the offset target
+            int e0 = m.EdgeIndices().First(e => {
+                Index2i ev = m.GetEdgeV(e), et = m.GetEdgeT(e);
+                return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)) > 0.3
+                    && Math.Abs(m.GetTriNormal(et.a).y) > 0.9 && Math.Abs(m.GetTriNormal(et.b).y) > 0.9;
+            });
+            Index2i v0 = m.GetEdgeV(e0);
+            c.SetOrUpdateEdgeConstraint(e0, new EdgeConstraint(EdgeRefineFlags.NoFlip, target));
+            c.SetOrUpdateVertexConstraint(v0.a, new VertexConstraint(target));
+            c.SetOrUpdateVertexConstraint(v0.b, new VertexConstraint(target));
+            r.SetExternalConstraints(c);
+            r.SetTargetEdgeLength(0.15);
+            r.BasicRemeshPass();
+            Assert.True(r.DeviationRejected > 0);
+            Assert.True(OneSided(m, input, 0.01 * delta) <= delta * (1 + 1e-9));
+        }
+
         /// <summary> off by default: the remesher's results are the same as before, bit for bit, and nothing is counted </summary>
         [Fact]
         public void Off_ByDefault_NoChange()
@@ -203,6 +274,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void OffPath_Fingerprints_AsOnMaster()
         {
+#if NETFRAMEWORK
+            // (pinned on net10.0, where they were taken on master; .NET Framework's Math may round differently in the
+            // feature detection and the projection, and the off path is the same code on every target)
+            return;
+#else
             DMesh3 input = Cylinder();
             Assert.Equal("BB7EAD3227870DAE", Fingerprint(Remesh(input, 0.1, 0, 6)));
             Assert.Equal("43677C0567C712C6", Fingerprint(Remesh(input, 0.1, 0, 6, true, true, r => r.ApplySafePreset())));
@@ -213,6 +289,7 @@ namespace geometry3Sharp.Tests
             pro.SetTargetEdgeLength(0.1);
             pro.FastestRemesh(10);
             Assert.Equal("51F2225920DC73BB", Fingerprint(m));
+#endif
         }
 
         /// <summary> the parallel buffered moves give the serial result, and repeated runs the same </summary>
@@ -368,6 +445,53 @@ namespace geometry3Sharp.Tests
             var ch = RemeshCertificate.Compute(torus, disc, 10);
             Assert.True(ch.TopologyChanges.HasFlag(MeshTopologySummary.Changes.HandlesClosed)); Assert.False(ch.Passed);
             Assert.Equal(1, ch.GenusBefore); Assert.Equal(0, ch.GenusAfter);
+            // a degenerate triangle (closed, manifold, no crossing, on the surface): a poked face's new vertex moved next to an
+            // edge (1e-14 inside: area below NotCleanReason's 1e-12 diagonal^2, not zero)
+            DMesh3 poked = new DMesh3(a);
+            int pt = poked.TriangleIndices().First();
+            Index3i ptv = poked.GetTriangle(pt);
+            Vector3d pc = poked.GetVertex(ptv.c), pm = 0.5 * (poked.GetVertex(ptv.a) + poked.GetVertex(ptv.b));
+            Assert.Equal(MeshResult.Ok, poked.PokeTriangle(pt, out DMesh3.PokeTriangleInfo pinfo));
+            poked.SetVertex(pinfo.new_vid, pm + 1e-14 * (pc - pm));
+            var cg = RemeshCertificate.Compute(a, poked, 10);
+            Assert.True(cg.Closed && cg.Manifold && cg.SelfIntersectingPairs == 0 && cg.WithinBand, cg.NotCleanReason);
+            Assert.True(cg.Defects.HasFlag(MeshRobustRepair.Defects.DegenerateTriangles)); Assert.False(cg.Passed);
+        }
+
+        /// <summary>
+        /// an open input: its remesh keeps the boundary, and the certificate passes (NotClosed of the result is masked,
+        /// the boundary loops are compared); a closed result of an open input fails, and an empty one
+        /// </summary>
+        [Fact]
+        public void Certificate_OpenInput()
+        {
+            DMesh3 input = new CappedCylinderGenerator() { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 1, Slices = 16, NoSharedVertices = false }.Generate().MakeDMesh();
+            // remove the top cap: an open tube with one boundary loop at the top... and the bottom cap kept
+            foreach (int t in input.TriangleIndices().ToList()) {
+                Vector3d n = input.GetTriNormal(t);
+                if (n.y > 0.9) input.RemoveTriangle(t);
+            }
+            input = new DMesh3(input, true);
+            Assert.False(input.IsClosed());
+            double delta = 2e-3 * input.CachedBounds.DiagonalLength;
+            DMesh3 m = Remesh(input, 0.1, delta, 6, true, true, r => r.ApplySafePreset());
+            var c = RemeshCertificate.Compute(input, m, 2 * delta);
+            Assert.True(c.Passed, $"{c.NotCleanReason} {c.TopologyChanges} {c.HausdorffResultToInput / delta} {c.HausdorffInputToResult / delta}");
+            Assert.False(c.Closed);
+            Assert.Equal(MeshRobustRepair.Defects.None, c.Defects);
+            Assert.Equal(1, c.BoundaryLoopsBefore); Assert.Equal(1, c.BoundaryLoopsAfter);
+            // a closed result of the open input: the boundary loop lost
+            var cc = RemeshCertificate.Compute(input, Cylinder(), 10);
+            Assert.False(cc.Passed);
+            // empty: fails
+            var ce = RemeshCertificate.Compute(input, new DMesh3(), 10);
+            Assert.False(ce.Passed); Assert.Equal(MeshRobustRepair.Defects.Empty, ce.Defects);
+            // and a closed input still reports a hole of its result
+            Assert.True(RemeshCertificate.Compute(Cylinder(), Cylinder(), 1).Passed);
+            DMesh3 cyl = Cylinder();
+            cyl.RemoveTriangle(cyl.TriangleIndices().First());
+            var ch = RemeshCertificate.Compute(Cylinder(), cyl, 1);
+            Assert.True(ch.Defects.HasFlag(MeshRobustRepair.Defects.NotClosed)); Assert.False(ch.Passed);
         }
 
         /// <summary> the certificate is the same at the 2^k scales (the band scaled), bit for bit </summary>

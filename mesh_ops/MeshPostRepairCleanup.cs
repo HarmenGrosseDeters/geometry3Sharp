@@ -504,7 +504,7 @@ namespace gs
                     if (trees[j] == null) trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
                     if (samples == null)
                         samples = interior_samples(mesh, closed[i], signs[i] < 0,
-                            Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(volAreas[i].x) / Math.Max(volAreas[i].y, double.MinValue)));
+                            Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(volAreas[i].x) / Math.Max(volAreas[i].y, double.Epsilon)));
                     int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
                     if (2 * votes > samples.Count) depth++;
                 }
