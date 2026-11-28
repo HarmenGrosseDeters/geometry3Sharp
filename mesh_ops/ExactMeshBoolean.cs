@@ -112,7 +112,8 @@ namespace g3
             /// </summary>
             RoundingNotClean = 4,
             /// <summary>
-            /// MaxPieces: the arrangement would have more pieces than that (Counts["predicted_pieces"]); found before its
+            /// MaxPieces: the arrangement would have more pieces than that (Counts["predicted_pieces"], or the certified
+            /// Counts["piece_lower_bound"] with EnableEarlyPieceBudgetCheck); found before its
             /// triangulation, Result is null
             /// </summary>
             BudgetExceeded = 5,
@@ -252,12 +253,21 @@ namespace g3
 
         /// <summary>
         /// budget: the largest number of pieces (triangles of the arrangement, Counts["pieces"]) that Compute() takes on;
-        /// with more, it stops before the triangulation with Status BudgetExceeded instead of running on (the count is
-        /// exact and known after the intersections are computed, a few percent into the work). 0 (the default): no limit.
+        /// with more, it stops before the triangulation with Status BudgetExceeded. By default, the count is computed
+        /// exactly after preparing the intersection crossings. 0 (the default): no limit.
         /// The time of the classification grows with the pieces: for open input meshes, a winding number per piece and
         /// open mesh, most of them carried from a neighbouring piece.
         /// </summary>
         public long MaxPieces;
+
+        /// <summary>
+        /// For a positive MaxPieces, allow refusal before crossing preparation when distinct known vertices already
+        /// certify that the arrangement exceeds the budget. On early refusal Counts["piece_lower_bound"] is a lower
+        /// bound and Counts["predicted_pieces"] is absent. With this option and a positive budget, predicted_pieces
+        /// is reported only after a complete prediction. Region clipping uses the full prediction path.
+        /// Defaults to false.
+        /// </summary>
+        public bool EnableEarlyPieceBudgetCheck;
 
         /// <summary>
         /// Compute() checks it between its phases and within the long ones (intersections, triangulation,
@@ -983,6 +993,7 @@ namespace g3
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
             arr = new_arrangement(inputs);
+            arr.EnableEarlyPieceBudgetCheck = EnableEarlyPieceBudgetCheck;
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
@@ -1012,9 +1023,15 @@ namespace g3
             Counts["intersecting_pairs"] = arr.IntersectingPairs;
             Counts["points"] = arr.PointCount;
             Counts["merged_points"] = arr.MergedPoints;
-            Counts["predicted_pieces"] = arr.PredictedPieces;
+            if (!EnableEarlyPieceBudgetCheck || MaxPieces <= 0 || RegionClipping || arr.HasPiecePrediction)
+                Counts["predicted_pieces"] = arr.PredictedPieces;
             if (arr.Stopped == ExactMeshArrangement.StopReason.Cancelled)
                 return cancelled();
+            if (arr.PieceLowerBound > 0) {
+                Counts["piece_lower_bound"] = arr.PieceLowerBound;
+                return fail(BooleanStatus.BudgetExceeded, string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "the arrangement has at least {0} pieces, more than MaxPieces = {1}", arr.PieceLowerBound, MaxPieces));
+            }
             if (arr.Stopped == ExactMeshArrangement.StopReason.Budget)
                 return fail(BooleanStatus.BudgetExceeded, string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "the arrangement would have {0} pieces, more than MaxPieces = {1}", arr.PredictedPieces, MaxPieces));

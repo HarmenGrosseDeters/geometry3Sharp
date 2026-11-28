@@ -1,0 +1,283 @@
+diff --git a/DeterministicApis.txt b/DeterministicApis.txt
+index a4b56b259..380b9610a 100644
+--- a/DeterministicApis.txt
++++ b/DeterministicApis.txt
+@@ -926,3 +926,4 @@ construct M:g3.TpmsLattice.FieldFunction.SheetValue(g3.Vector3d@) ; delegate-inv
+ construct M:g3.TpmsLattice.FieldFunction.SheetHalfWidth(g3.Vector3d) ; delegate-invocation ; 1 ; P4 [TpmsDeterminismTests.Lattice_ParallelEqualsSerial_AndRepeatedRuns] calls LevelAt, as in Raw
+ construct M:g3.TpmsLattice.FieldFunction.DomainValue(g3.Vector3d@) ; delegate-invocation ; 1 ; P4 [TpmsDeterminismTests.Lattice_ParallelEqualsSerial_AndRepeatedRuns] calls DomainDistance, as in Raw (a later stage)
+ construct M:g3.TpmsLattice.LinearGrade(System.Int32,System.Double,System.Double,System.Double,System.Double,System.Double) ; delegate-invocation ; 2 ; P1 [TpmsDeterminismTests.Field_InvarianceOverSimilarities] the map calls period and phase, lambdas of this member (pure functions of z)
++site M:System.Collections.Generic.List`1.AddRange(System.Collections.Generic.IEnumerable{`0}) @ M:g3.ExactMeshArrangement.weighted_budget_trial ; P2 [EndpointBudgetAudit.Run] copies endpoints into a source span; consumption counts interior endpoints and tests the interval only after a complete span, so the result is independent of copy order
+diff --git a/benchmarks/SolidBooleanAudit/EndpointBudgetAudit.cs b/benchmarks/SolidBooleanAudit/EndpointBudgetAudit.cs
+index cdb49db11..faf9da875 100644
+--- a/benchmarks/SolidBooleanAudit/EndpointBudgetAudit.cs
++++ b/benchmarks/SolidBooleanAudit/EndpointBudgetAudit.cs
+@@ -15,7 +15,8 @@ static class EndpointBudgetAudit
+     sealed record Sample(ExactMeshBoolean Boolean, double Milliseconds, long AllocatedBytes);
+     static readonly JsonSerializerOptions EvidenceJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+-    public static int Run(string label, ExactMeshBoolean.Operations operation, string budgetText, int repetitions, string[] sources)
++    public static int Run(string label, ExactMeshBoolean.Operations operation, string budgetText, int repetitions, string[] sources,
++        bool weighted = false)
+     {
+         if (repetitions < 1)
+             throw new ArgumentOutOfRangeException(nameof(repetitions));
+@@ -23,13 +24,19 @@ static class EndpointBudgetAudit
+         List<DMesh3> warmup = Enumerable.Range(0, 4).Select(RotatedCube).ToList();
+         Measure(warmup, ExactMeshBoolean.Operations.Union, 2000, false);
+         Measure(warmup, ExactMeshBoolean.Operations.Union, 2000, true);
++        if (weighted) {
++            Measure(warmup, ExactMeshBoolean.Operations.Union, 1100, true);
++            Measure(warmup, ExactMeshBoolean.Operations.Union, 1100, true, weighted: true);
++        }
+
++        long? exactReference = null;
+         long budget;
+         if (budgetText == "tight" || budgetText == "near" || budgetText == "exact") {
+             var probe = Measure(inputs, operation, 1, false, allowOpen).Boolean;
+             if (!probe.Counts.TryGetValue("predicted_pieces", out long prediction) ||
+                 (probe.Status != ExactMeshBoolean.BooleanStatus.BudgetExceeded && probe.Status != ExactMeshBoolean.BooleanStatus.Success))
+                 throw new InvalidOperationException($"Could not obtain a reference prediction for {label}: {probe.Error}");
++            exactReference = prediction;
+             budget = Math.Max(1, budgetText switch {
+                 "exact" => prediction,
+                 "near" => prediction - 1,
+@@ -41,13 +48,32 @@ static class EndpointBudgetAudit
+
+         for (int repetition = 0; repetition < repetitions; ++repetition) {
+             bool earlyFirst = (repetition & 1) != 0;
+-            Sample first = Measure(inputs, operation, budget, earlyFirst, allowOpen);
+-            Sample second = Measure(inputs, operation, budget, !earlyFirst, allowOpen);
++            Sample first = Measure(inputs, operation, budget, weighted || earlyFirst, allowOpen, weighted && earlyFirst);
++            Sample second = Measure(inputs, operation, budget, weighted || !earlyFirst, allowOpen, weighted && !earlyFirst);
+             Sample baseline = earlyFirst ? second : first, filtered = earlyFirst ? first : second;
+             var a = baseline.Boolean;
+             var b = filtered.Boolean;
+-            if (a.Status != b.Status || !a.Counts.TryGetValue("predicted_pieces", out long prediction))
++            if (a.Status != b.Status)
+                 throw new InvalidOperationException($"The two runs disagree for {label}: {a.Status}, {b.Status}.");
++            if (!a.Counts.TryGetValue("predicted_pieces", out long prediction)) {
++                if (!weighted || !a.Counts.TryGetValue("piece_lower_bound", out _))
++                    throw new InvalidOperationException($"Missing reference prediction for {label}.");
++                if (!exactReference.HasValue) {
++                    var probe = Measure(inputs, operation, 1, false, allowOpen).Boolean;
++                    if (!probe.Counts.TryGetValue("predicted_pieces", out long exact) ||
++                        (probe.Status != ExactMeshBoolean.BooleanStatus.BudgetExceeded && probe.Status != ExactMeshBoolean.BooleanStatus.Success))
++                        throw new InvalidOperationException($"Could not obtain a reference prediction for {label}: {probe.Error}");
++                    exactReference = exact;
++                }
++                prediction = exactReference.Value;
++            }
++            var expected = budget > 0 && prediction > budget
++                ? ExactMeshBoolean.BooleanStatus.BudgetExceeded : ExactMeshBoolean.BooleanStatus.Success;
++            if (a.Status != expected)
++                throw new InvalidOperationException($"The budget result disagrees with the exact prediction for {label}.");
++            bool referenceEarly = a.Counts.TryGetValue("piece_lower_bound", out long referenceBound);
++            if (referenceEarly && (referenceBound <= budget || referenceBound > prediction || a.Result != null))
++                throw new InvalidOperationException($"The reference certificate disagrees with the exact prediction for {label}.");
+             bool early = b.Counts.TryGetValue("piece_lower_bound", out long bound);
+             if (early ? bound <= budget || bound > prediction || b.Result != null || b.Counts.ContainsKey("predicted_pieces") :
+                 !b.Counts.TryGetValue("predicted_pieces", out long filteredPrediction) || filteredPrediction != prediction)
+@@ -67,10 +93,12 @@ static class EndpointBudgetAudit
+                 label, operation = operation.ToString(), budgetText, budget, repetition, earlyFirst,
+                 sourceFiles = files, hashes,
+                 inputTriangles = inputs.Select(m => m.TriangleCount).ToArray(), status = a.Status.ToString(),
+-                prediction, lowerBound = early ? bound : (long?)null, triangles = b.Result?.TriangleCount, sameMesh, defect,
++                prediction, referenceLowerBound = referenceEarly ? referenceBound : (long?)null,
++                lowerBound = early ? bound : (long?)null, triangles = b.Result?.TriangleCount, sameMesh, defect,
+                 baselineMs = baseline.Milliseconds, filteredMs = filtered.Milliseconds,
+                 baselineBytes = baseline.AllocatedBytes, filteredBytes = filtered.AllocatedBytes,
+-                baselinePhases = a.PhaseMilliseconds, filteredPhases = b.PhaseMilliseconds
++                baselinePhases = a.PhaseMilliseconds, filteredPhases = b.PhaseMilliseconds,
++                baselinePhaseBytes = a.PhaseAllocatedBytes, filteredPhaseBytes = b.PhaseAllocatedBytes
+             }));
+         }
+         return 0;
+@@ -178,7 +206,8 @@ static class EndpointBudgetAudit
+         bool allowOpen = sources.Contains("--allow-open");
+         sources = sources.Where(s => s != "--allow-open").ToArray();
+         bool procedural = sources.Length == 1 && int.TryParse(sources[0], out _);
+-        List<DMesh3> inputs = procedural
++        bool identical = sources.Length == 1 && sources[0] == "identical";
++        List<DMesh3> inputs = identical ? new List<DMesh3> { RotatedCube(0), RotatedCube(0) } : procedural
+             ? Enumerable.Range(0, int.Parse(sources[0])).Select(RotatedCube).ToList()
+             : sources.Select(Read).ToList();
+         if (!procedural && inputs.Count == 1)
+@@ -186,14 +215,16 @@ static class EndpointBudgetAudit
+         if (inputs.Count < 2)
+             throw new ArgumentException("At least two operands are required.");
+         return (inputs, allowOpen, sources.Select(Path.GetFileName).ToArray(),
+-            procedural ? Array.Empty<string>() : sources.Select(Hash).ToArray());
++            procedural || identical ? Array.Empty<string>() : sources.Select(Hash).ToArray());
+     }
+
+-    static Sample Measure(List<DMesh3> inputs, ExactMeshBoolean.Operations operation, long budget, bool early, bool allowOpen = false)
++    static Sample Measure(List<DMesh3> inputs, ExactMeshBoolean.Operations operation, long budget, bool early, bool allowOpen = false,
++        bool weighted = false)
+     {
+         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+         var boolean = new ExactMeshBoolean(inputs, operation) {
+-            MaxPieces = budget, EnableEarlyPieceBudgetCheck = early, Cancellation = timeout.Token, AllowOpenMeshes = allowOpen
++            MaxPieces = budget, EnableEarlyPieceBudgetCheck = early, Cancellation = timeout.Token, AllowOpenMeshes = allowOpen,
++            UseWeightedBudgetTrial = weighted
+         };
+         long bytes = GC.GetTotalAllocatedBytes(true);
+         var timer = Stopwatch.StartNew();
+diff --git a/benchmarks/SolidBooleanAudit/Program.cs b/benchmarks/SolidBooleanAudit/Program.cs
+index 87cbc2b30..0adfbcf1a 100644
+--- a/benchmarks/SolidBooleanAudit/Program.cs
++++ b/benchmarks/SolidBooleanAudit/Program.cs
+@@ -631,13 +631,13 @@ static class Program
+             }
+             return EndpointBudgetAudit.Evidence(args[1], Enum.Parse<ExactMeshBoolean.Operations>(args[2], true), args.Skip(3).ToArray());
+         }
+-        if (args.Length > 0 && args[0] == "endpoint-budget") {
++        if (args.Length > 0 && (args[0] == "endpoint-budget" || args[0] == "endpoint-prototype")) {
+             if (args.Length < 6) {
+                 Console.Error.WriteLine("Usage: endpoint-budget <label> <operation> <budget|tight|near|exact> <repetitions> <cube-count|mesh [mesh ...]> [--allow-open]");
+                 return 2;
+             }
+             return EndpointBudgetAudit.Run(args[1], Enum.Parse<ExactMeshBoolean.Operations>(args[2], true),
+-                args[3], int.Parse(args[4]), args.Skip(5).ToArray());
++                args[3], int.Parse(args[4]), args.Skip(5).ToArray(), args[0] == "endpoint-prototype");
+         }
+         // the oracle checks itself first: the volume and the winding of a cube and of a hollow cube
+         var cube = Oracle.Of(Corpus.Cube(0, 2), Vector3d.Zero);
+diff --git a/geometry3Sharp_netstandard.csproj b/geometry3Sharp_netstandard.csproj
+index aa49e3ce4..df9580f62 100644
+--- a/geometry3Sharp_netstandard.csproj
++++ b/geometry3Sharp_netstandard.csproj
+@@ -63,6 +63,7 @@
+
+   <ItemGroup>
+     <InternalsVisibleTo Include="geometry3Sharp.Tests" />
++    <InternalsVisibleTo Include="SolidBooleanAudit" />
+     <InternalsVisibleTo Include="ReaderFuzzPilot" />
+     <!-- profiling of the exact booleans (benchmarks/BooleanComparison profile) -->
+     <InternalsVisibleTo Include="BooleanComparison" />
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index b801c45dc..54e7c6454 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -1,4 +1,4 @@
+-// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
++﻿// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+ using System;
+ using System.Collections.Generic;
+ using System.Numerics;
+@@ -1271,6 +1271,7 @@ namespace g3
+         /// </summary>
+         internal long MaxPieces;
+         internal bool EnableEarlyPieceBudgetCheck;
++        internal bool UseWeightedBudgetTrial;
+         internal long PieceLowerBound { get; private set; }
+         internal bool HasPiecePrediction { get; private set; }
+         /// <summary> Compute stops at the next phase or block of work once this is cancelled (Stopped is Cancelled) </summary>
+@@ -1374,7 +1375,7 @@ namespace g3
+             clock.Lap("merge.points");
+             // Region clipping can discard endpoints of embedded regions' flat-edge clips during preparation.
+             if (EnableEarlyPieceBudgetCheck && MaxPieces > 0 && !RegionClipping) {
+-                long lowerBound = endpoint_budget_lower_bound();
++                long lowerBound = UseWeightedBudgetTrial ? weighted_budget_trial() : endpoint_budget_lower_bound();
+                 clock.Lap("merge.endpoint_budget");
+                 if (cancelled())
+                     return;
+@@ -1499,6 +1500,79 @@ namespace g3
+             return 0;
+         }
+
++        long weighted_budget_trial()
++        {
++            var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
++            long remaining = MaxPieces;
++            for (int ti = 0; ti < Triangles.Count && remaining >= 0; ++ti) {
++                if ((ti & 127) == 0 && cancelled())
++                    return 0;
++                InputTriangle t = Triangles[ti];
++                if (!Culled[ti] && !t.Degenerate && triangulated(t))
++                    remaining -= 1L + 2L * (t.Points.Count + 2L * t.Segments.Count);
++            }
++            clock.Lap("weighted.raw");
++            if (remaining >= 0 || cancelled())
++                return 0;
++
++            long lower = 0;
++            var points = new List<int>();
++            var spans = new List<(int Source, int End)>();
++            for (int ti = 0; ti < Triangles.Count; ++ti) {
++                if ((ti & 127) == 0 && cancelled())
++                    return 0;
++                InputTriangle t = Triangles[ti];
++                if (Culled[ti] || t.Degenerate || !triangulated(t))
++                    continue;
++                lower++;
++                if (t.Points.Count != 0 || t.Segments.Count != 0) {
++                    HashSet<int> known = canonical_touched_points(t, true);
++                    if (known == null)
++                        return 0;
++                    int scanned = 0;
++                    foreach (Segment s in t.Segments) {
++                        if ((++scanned & 1023) == 0 && cancelled())
++                            return 0;
++                        known.Add(Canonical(s.P));
++                        known.Add(Canonical(s.Q));
++                    }
++                    for (int k = 0; k < 3; ++k)
++                        known.Remove(Canonical(t.Corners[k]));
++                    lower += known.Count;
++                    if (lower <= MaxPieces && known.Count != 0) {
++                        points.AddRange(known);
++                        spans.Add((ti, points.Count));
++                    }
++                }
++                if (lower > MaxPieces)
++                    break;
++            }
++            clock.Lap("weighted.count");
++            if (lower > MaxPieces)
++                return lower;
++            if (cancelled() || lower + points.Count <= MaxPieces)
++                return 0;
++
++            int start = 0;
++            foreach (var span in spans) {
++                InputTriangle t = Triangles[span.Source];
++                for (int i = start; i < span.End; ++i) {
++                    if ((i & 1023) == 0 && cancelled())
++                        return 0;
++                    bool boundary = false;
++                    for (int k = 0; k < 3 && !boundary; ++k)
++                        boundary = Orient(t, t.Corners[k], t.Corners[(k + 1) % 3], points[i]) == 0;
++                    if (!boundary)
++                        lower++;
++                }
++                start = span.End;
++                if (lower > MaxPieces || lower + (points.Count - start) <= MaxPieces)
++                    break;
++            }
++            clock.Lap("weighted.classify");
++            return lower > MaxPieces ? lower : 0;
++        }
++
+         // Both the endpoint check and the full predictor start with the same canonical point set.
+         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+         HashSet<int> canonical_touched_points(InputTriangle t, bool cancellable)
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 19642619c..901a6c429 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -268,6 +268,7 @@ namespace g3
+         /// Defaults to false.
+         /// </summary>
+         public bool EnableEarlyPieceBudgetCheck;
++        internal bool UseWeightedBudgetTrial;
+
+         /// <summary>
+         /// Compute() checks it between its phases and within the long ones (intersections, triangulation,
+@@ -994,6 +995,7 @@ namespace g3
+                 return cancelled();
+             arr = new_arrangement(inputs);
+             arr.EnableEarlyPieceBudgetCheck = EnableEarlyPieceBudgetCheck;
++            arr.UseWeightedBudgetTrial = UseWeightedBudgetTrial;
+             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
+             // the first mesh closed, so that the exact ray decides inside and outside)
+             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)

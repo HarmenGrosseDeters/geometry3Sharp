@@ -68,7 +68,7 @@ static class Program
     static int Main(string[] args)
     {
         switch (args[0]) {
-            case "export": return Export(args[1], args[2]);
+            case "export": return Export(args[1], args[2], args.Skip(3).Contains("--operands-only"));
             case "pair": return Pair(args[1], args[2], args[3]);
             case "components": return Components(args[1], args[2]);
             case "array": return ArrayCase(args[1], args[2], int.Parse(args[3]));
@@ -133,7 +133,7 @@ static class Program
         return a;
     }
 
-    static int Export(string meshFile, string dir)
+    static int Export(string meshFile, string dir, bool operandsOnly)
     {
         DMesh3 a = Load(meshFile);
         if (a == null) {
@@ -144,7 +144,10 @@ static class Program
         AxisAlignedBox3d bounds = a.CachedBounds;
         MeshTransforms.Rotate(b, bounds.Center, Quaterniond.AxisAngleD(new Vector3d(1, 1, 0).Normalized, 20));
         MeshTransforms.Translate(b, 0.25 * new Vector3d(bounds.Width, bounds.Height, bounds.Depth));
-        WriteCase(a, b, dir, Path.GetFileName(meshFile));
+        if (operandsOnly)
+            WriteOperandPair(a, b, dir);
+        else
+            WriteCase(a, b, dir, Path.GetFileName(meshFile));
         return 0;
     }
 
@@ -207,12 +210,17 @@ static class Program
         return 0;
     }
 
-    // A.off, B.off and info.json with the input properties of both meshes and the reference volumes
-    internal static Dictionary<string, object> WriteCase(DMesh3 a, DMesh3 b, string dir, string name, Dictionary<string, object> extra = null, bool inputsClean = false)
+    static void WriteOperandPair(DMesh3 a, DMesh3 b, string dir)
     {
         Directory.CreateDirectory(dir);
         WriteOFF(a, Path.Combine(dir, "A.off"));
         WriteOFF(b, Path.Combine(dir, "B.off"));
+    }
+
+    // A.off, B.off and info.json with the input properties of both meshes and the reference volumes
+    internal static Dictionary<string, object> WriteCase(DMesh3 a, DMesh3 b, string dir, string name, Dictionary<string, object> extra = null, bool inputsClean = false)
+    {
+        WriteOperandPair(a, b, dir);
         // reference volumes of the solids (self-intersections resolved exactly)
         // inputsClean: the caller has checked NotCleanReason == "" (closed, manifold, no self-intersections, positive
         // volume), so the volumes are those of the meshes themselves and the checks are skipped

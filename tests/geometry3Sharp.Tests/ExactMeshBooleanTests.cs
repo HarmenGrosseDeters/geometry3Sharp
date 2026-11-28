@@ -278,6 +278,18 @@ namespace geometry3Sharp.Tests
             var comps = new MeshConnectedComponents(r);
             comps.FindConnectedT();
             Assert.Equal(2, comps.Count);
+            long prediction = boolean.Counts["predicted_pieces"];
+            boolean.EnableEarlyPieceBudgetCheck = true;
+            boolean.ArrangementPreDecideCoplanar = false;
+            boolean.MaxPieces = prediction;
+            Assert.True(boolean.Compute(), boolean.Error);
+            Assert.Equal("", Invariance.Difference(r, boolean.Result));
+            boolean.MaxPieces = prediction - 1;
+            Assert.False(boolean.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.BudgetExceeded, boolean.Status);
+            Assert.Equal(prediction, boolean.Counts["piece_lower_bound"]);
+            Assert.False(boolean.Counts.ContainsKey("predicted_pieces"));
+            Assert.Null(boolean.Result);
         }
 
         // two unit cubes in a checkerboard (touching along the vertical edge x = y = 1) between two slabs that

@@ -30,6 +30,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [TRITRI_PREFILTER.md](TRITRI_PREFILTER.md) | Devillers-Guigue sign-based triangle-triangle prefilter |
 | [EXACT_BOOLEAN_30_PRESTUDY.md](EXACT_BOOLEAN_30_PRESTUDY.md) | Exact Boolean 3.0 pre-study (measurements, upper bounds, targets) |
 | [EXACT_BOOLEAN_40_DESIGN.md](EXACT_BOOLEAN_40_DESIGN.md) | Exact Boolean 4.0 design analysis (lazy `ExactMesh` chains) |
+| [EXACT_BOOLEAN_ENDPOINT_BUDGET.md](EXACT_BOOLEAN_ENDPOINT_BUDGET.md) | Opt-in endpoint certificate for early piece-budget refusal |
 | [EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md](EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md) | Hierarchical Antipodal boundary sum for open inputs |
 | [EXACT_BOOLEAN_T1B_PROFILE.md](EXACT_BOOLEAN_T1B_PROFILE.md) | Profiling study of parallel SafeRounding edits (closed) |
 | [EXACT_BOOLEAN_T5_CROSS_CARRY.md](EXACT_BOOLEAN_T5_CROSS_CARRY.md) | Carrying open winding numbers across input-triangle edges |

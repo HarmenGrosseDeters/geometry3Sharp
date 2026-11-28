@@ -1,0 +1,56 @@
+{
+  "z3": "4.15.4",
+  "passed": true,
+  "obligations": [
+    {
+      "name": "positive_two_pass_stop_can_disagree_with_the_full_weighted_scan",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "negative_two_pass_stop_can_hide_a_full_weighted_certificate",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "classifying_another_batch_can_widen_the_interval",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "classifying_a_batch_consistent_with_retained_truth_can_exclude_that_truth",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "a_non_strict_refusal_can_reject_equality",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "weighted_raw_gate_can_hide_a_full_weighted_certificate",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "division_based_weighted_raw_gate_can_differ_from_the_doubled_ceiling",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "a_weighted_source_prefix_can_exceed_the_full_weighted_bound",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "an_interval_straddling_the_cap_can_finish_at_or_below_it",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "an_interval_straddling_the_cap_can_finish_above_it",
+      "result": "sat",
+      "expected": "sat"
+    }
+  ]
+}

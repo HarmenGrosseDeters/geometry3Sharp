@@ -79,6 +79,28 @@ namespace geometry3Sharp.Tests
             Assert.Equal(free.Output.Count, free.PredictedPieces);
         }
 
+        [Theory]
+        [InlineData("merge.endpoint_budget")]
+        [InlineData("merge")]
+        public void Cancellation_AfterEndpointBudget_WinsOverRefusal(string phase)
+        {
+            using (var cts = new CancellationTokenSource()) {
+                var hook = new CancelAtLap(phase, cts);
+                var arr = new ExactMeshArrangement(Spheres()) {
+                    SelfIntersections = true, Cancellation = cts.Token,
+                    EnableEarlyPieceBudgetCheck = true, MaxPieces = 1
+                };
+                arr.PhaseMilliseconds = new Dictionary<string, long>(hook);
+                arr.Compute();
+                Assert.Equal(1, hook.Hits);
+                Assert.Equal(ExactMeshArrangement.StopReason.Cancelled, arr.Stopped);
+                Assert.Equal(0, arr.PieceLowerBound);
+                Assert.False(arr.HasPiecePrediction);
+                Assert.Empty(arr.Output);
+                Assert.False(arr.PhaseMilliseconds.ContainsKey("merge.crossings"));
+            }
+        }
+
         [Fact]
         public void Cancellation_DuringTheTriangulation_StopsWithoutOutput()
         {

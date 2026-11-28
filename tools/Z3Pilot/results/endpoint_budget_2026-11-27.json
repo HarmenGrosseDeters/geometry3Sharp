@@ -1,0 +1,91 @@
+{
+  "z3": "4.15.4",
+  "passed": true,
+  "obligations": [
+    {
+      "name": "a_known_vertex_subset_can_exceed_the_exact_piece_count",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "counting_candidates_discarded_during_preparation_can_refuse_a_valid_budget",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "endpoint_prefix_can_refuse_a_budget_the_exact_count_accepts",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "using_nonstrict_comparison_can_refuse_equality",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "raw_reference_filter_can_skip_a_certifying_scan",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "raw_budget_subtraction_can_overflow",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "weighting_certified_interior_endpoints_can_exceed_the_exact_count",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "weighting_can_certify_when_counting_each_endpoint_once_cannot",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "unweighted_raw_filter_can_hide_a_weighted_certificate",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "doubled_raw_references_can_hide_a_weighted_certificate",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "section_max_min_can_change_membership",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "coincident_section_endpoint_is_reachable",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "selecting_smaller_section_start_can_leave_other_section",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "proper_plane_section_endpoint_can_leave_source_edge",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "proper_coplanar_crossing_is_reachable",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "proper_coplanar_crossing_can_leave_receiving_edge",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "segment_can_cross_support_line_outside_receiving_edge",
+      "result": "sat",
+      "expected": "sat"
+    }
+  ]
+}

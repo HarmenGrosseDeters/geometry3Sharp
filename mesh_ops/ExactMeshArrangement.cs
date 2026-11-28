@@ -1270,6 +1270,9 @@ namespace g3
         /// Compute stops before the triangulation (Stopped is Budget, Output gets nothing); 0: no limit
         /// </summary>
         internal long MaxPieces;
+        internal bool EnableEarlyPieceBudgetCheck;
+        internal long PieceLowerBound { get; private set; }
+        internal bool HasPiecePrediction { get; private set; }
         /// <summary> Compute stops at the next phase or block of work once this is cancelled (Stopped is Cancelled) </summary>
         internal System.Threading.CancellationToken Cancellation;
         /// <summary> why the last Compute stopped early (None: it ran to the end) </summary>
@@ -1351,6 +1354,8 @@ namespace g3
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             Stopped = StopReason.None;
             PredictedPieces = 0;
+            PieceLowerBound = 0;
+            HasPiecePrediction = false;
             TiedRuns = 0;
             if (cancelled())
                 return;
@@ -1367,6 +1372,21 @@ namespace g3
                 return;
             merge_points();
             clock.Lap("merge.points");
+            // Region clipping can discard endpoints of embedded regions' flat-edge clips during preparation.
+            if (EnableEarlyPieceBudgetCheck && MaxPieces > 0 && !RegionClipping) {
+                long lowerBound = endpoint_budget_lower_bound();
+                clock.Lap("merge.endpoint_budget");
+                if (cancelled())
+                    return;
+                if (lowerBound > MaxPieces) {
+                    total.Lap("merge");
+                    if (!cancelled()) {
+                        PieceLowerBound = lowerBound;
+                        Stopped = StopReason.Budget;
+                    }
+                    return;
+                }
+            }
             int before = PointCount;
             gParallel.ForRange(Triangles.Count, (ti) => {
                 if (Cancellation.IsCancellationRequested == false)
@@ -1387,6 +1407,7 @@ namespace g3
                 touchedPoints = null;
                 return;
             }
+            HasPiecePrediction = true;
             if (MaxPieces > 0 && PredictedPieces > MaxPieces) {
                 Stopped = StopReason.Budget;
                 touchedPoints = null;
@@ -1432,14 +1453,72 @@ namespace g3
         // predict_pieces to the triangulation, which releases them
         int[][] touchedPoints;
 
+        // After the first merge, all known points have canonical ids. Later preparation keeps those points and
+        // adds the segment endpoints. Each distinct non-corner point requires at least one additional piece.
+        [MethodImpl(JitHints.Optimize)]
+        long endpoint_budget_lower_bound()
+        {
+            // Subtract from the budget to avoid summing an unbounded number of possibly duplicate references.
+            long remaining = MaxPieces;
+            for (int ti = 0; ti < Triangles.Count && remaining >= 0; ++ti) {
+                if ((ti & 127) == 0 && cancelled())
+                    return 0;
+                InputTriangle t = Triangles[ti];
+                if (!Culled[ti] && !t.Degenerate && triangulated(t))
+                    remaining -= 1L + t.Points.Count + 2L * t.Segments.Count;
+            }
+            if (remaining >= 0 || cancelled())
+                return 0;
+
+            long lowerBound = 0;
+            for (int ti = 0; ti < Triangles.Count; ++ti) {
+                if ((ti & 127) == 0 && cancelled())
+                    return 0;
+                InputTriangle t = Triangles[ti];
+                if (Culled[ti] || t.Degenerate || !triangulated(t))
+                    continue;
+                lowerBound++;
+                if (t.Points.Count > 0 || t.Segments.Count > 0) {
+                    HashSet<int> known = canonical_touched_points(t, true);
+                    if (known == null)
+                        return 0;
+                    int scanned = 0;
+                    foreach (Segment s in t.Segments) {
+                        if ((++scanned & 1023) == 0 && cancelled())
+                            return 0;
+                        known.Add(Canonical(s.P));
+                        known.Add(Canonical(s.Q));
+                    }
+                    for (int k = 0; k < 3; ++k)
+                        known.Remove(Canonical(t.Corners[k]));
+                    lowerBound += known.Count;
+                }
+                if (lowerBound > MaxPieces)
+                    return lowerBound;
+            }
+            return 0;
+        }
+
+        // Both the endpoint check and the full predictor start with the same canonical point set.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        HashSet<int> canonical_touched_points(InputTriangle t, bool cancellable)
+        {
+            var set = new HashSet<int>();
+            int scanned = 0;
+            foreach (int p in t.Points) {
+                if (cancellable && (++scanned & 1023) == 0 && cancelled())
+                    return null;
+                set.Add(Canonical(p));
+            }
+            return set;
+        }
+
         // the points of a touched input triangle that its triangulation inserts: the canonical ids of its points without
         // its corners, in the order of ComparePoints (deterministic: point ids are not, they are assigned in parallel)
         [MethodImpl(JitHints.Optimize)]
         int[] touched_points(InputTriangle t)
         {
-            var set = new HashSet<int>();
-            foreach (int p in t.Points)
-                set.Add(Canonical(p));
+            HashSet<int> set = canonical_touched_points(t, false);
             for (int k = 0; k < 3; ++k)
                 set.Remove(t.Corners[k]);
             var ordered = new int[set.Count];
