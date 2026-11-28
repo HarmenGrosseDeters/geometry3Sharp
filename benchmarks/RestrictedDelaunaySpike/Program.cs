@@ -207,6 +207,16 @@ namespace RestrictedDelaunaySpike
             }
             foreach (double psi in new[] { 15.0, 30, 45, 60, 90, 120, 135, 150, 160, 170, 175, 200, 240, 270, 300, 330 })
                 cases.Add(("lens", "lens_psi" + psi, () => Lens(psi, 400, 60), 1.0 / 30));
+            if (args.Contains("exact")) {
+                var stdout = Console.Out; Console.SetOut(System.IO.TextWriter.Null);
+                ExactMode.Run(Sphere(16, p => p), "warm-up", "warm-up", 1.0 / 10, Rotate, false);
+                Console.SetOut(stdout);
+                foreach (var c in cases) {
+                    if (only != null && !System.Text.RegularExpressions.Regex.IsMatch(c.name, only)) continue;
+                    ExactMode.Run(c.make(), c.group, c.name, c.rmax, Rotate, args.Contains("check"));
+                }
+                return;
+            }
             if (args.Contains("probe")) {
                 // JIT warm-up on the coarsest sphere, output dropped
                 var stdout = Console.Out; Console.SetOut(System.IO.TextWriter.Null);

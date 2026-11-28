@@ -816,7 +816,8 @@ namespace geometry3Sharp.Tests
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
         /// <summary> the files of stages 1 and 2 (the exact building blocks, then the arrangement and the Boolean as a whole) </summary>
-        public static readonly string[] Stage1 = { "mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs", "comp_geom/SnapRounding2.cs", "mesh_ops/ExactMeshArrangement.cs", "mesh_ops/ExactMeshArrangementRegions.cs", "mesh_ops/ExactMeshBoolean.cs" };
+        public static readonly string[] Stage1 = { "mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs", "comp_geom/SnapRounding2.cs", "mesh_ops/ExactMeshArrangement.cs", "mesh_ops/ExactMeshArrangementRegions.cs", "mesh_ops/ExactMeshBoolean.cs",
+            "mesh_ops/ExactRestrictedVoronoi.cs", "mesh_ops/RestrictedDelaunayRefinement.cs" };
 
         static readonly string[] ScopeRules = { DeterminismScopeAnalyzer.ApiId, DeterminismScopeAnalyzer.RestrictedId, DeterminismScopeAnalyzer.ConditionalId,
             DeterminismScopeAnalyzer.CastId, DeterminismScopeAnalyzer.DirectiveId, DeterminismScopeAnalyzer.SkipLocalsInitId, DeterminismScopeAnalyzer.UnusedId };
