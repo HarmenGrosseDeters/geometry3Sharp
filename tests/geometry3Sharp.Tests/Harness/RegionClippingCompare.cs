@@ -30,7 +30,7 @@ namespace geometry3Sharp.Tests
         public static Dictionary<string, object> Row(IList<DMesh3> meshes, Ops op, bool certificate = true, Action<ExactMeshBoolean> configureOn = null, Func<int[], bool> predicate = null, string predicateName = null)
         {
             var r = new Dictionary<string, object> { ["op"] = predicate != null ? "pred-" + predicateName : op.ToString().ToLowerInvariant(), ["meshes"] = meshes.Count, ["tris"] = meshes.Sum(m => m.TriangleCount) };
-            ExactMeshBoolean off = new ExactMeshBoolean(meshes.ToList(), op) { AllowOpenMeshes = true, WindingPredicate = predicate }, on = new ExactMeshBoolean(meshes.ToList(), op) { AllowOpenMeshes = true, RegionClipping = true, WindingPredicate = predicate };
+            ExactMeshBoolean off = new ExactMeshBoolean(meshes.ToList(), op) { AllowOpenMeshes = true, RegionClipping = false, WindingPredicate = predicate }, on = new ExactMeshBoolean(meshes.ToList(), op) { AllowOpenMeshes = true, RegionClipping = true, WindingPredicate = predicate };
             configureOn?.Invoke(on);        // (the positive control of the tests: a change that must be reported)
             bool okOff, okOn;
             var sw = Stopwatch.StartNew();

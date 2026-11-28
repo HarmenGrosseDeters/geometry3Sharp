@@ -460,7 +460,7 @@ namespace geometry3Sharp.Tests
             var a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 4 }.Generate().MakeDMesh();
             var b = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 4 }.Generate().MakeDMesh();
             MeshTransforms.Translate(b, new Vector3d(0.5, 0.25, 0.125));
-            BooleanCertificate cert = BooleanCertificate.Run(a, b, ExactMeshBoolean.Operations.Union, out ExactMeshBoolean eb);
+            BooleanCertificate cert = BooleanCertificate.Run(a, b, ExactMeshBoolean.Operations.Union, out ExactMeshBoolean eb, x => x.RegionClipping = false);   // (the file format has no regions)
             byte[] valid = CertificateFile.Write(cert);
             var inputs = new List<DMesh3> { a, b };
             Assert.Equal("", CertificateFile.Check(valid, inputs, eb.Result));

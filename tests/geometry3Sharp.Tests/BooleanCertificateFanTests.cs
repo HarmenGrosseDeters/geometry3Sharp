@@ -31,7 +31,7 @@ namespace geometry3Sharp.Tests
         }
 
         static BooleanCertificate Run(DMesh3 a, DMesh3 b, Ops op) =>
-            BooleanCertificate.Run(a, b, op, out _, x => { if (op == Ops.Intersection) x.CullOutsideA = false; });
+            BooleanCertificate.Run(a, b, op, out _, x => { x.RegionClipping = false; if (op == Ops.Intersection) x.CullOutsideA = false; });
 
         static DMesh3 FineBox(Vector3d center, double half, int edgeVertices) =>
             new GridBox3Generator() { Box = new Box3d(center, new Vector3d(half, half, half)), EdgeVertices = edgeVertices }.Generate().MakeDMesh();

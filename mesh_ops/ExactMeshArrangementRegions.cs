@@ -86,7 +86,10 @@ namespace g3
         /// </summary>
         internal int[] RegionOf { get; private set; }
 
-        void build_regions()
+        // eligible (RegionClipping, from find_intersections): the triangles that are in a candidate pair and share their exact plane (planeRep) with another such triangle; only they can have
+        // a coplanar partner, so only they are put into regions (a lean version: the others are regions of their own, their edges are boundary edges and clipped as before, and the exact
+        // planes of the triangles far from every other mesh are never computed). null: every triangle (BuildRegions alone, the tests).
+        void build_regions(bool[] eligible = null, int[] rep = null)
         {
             var parent = new int[Triangles.Count];
             for (int i = 0; i < parent.Length; ++i) parent[i] = i;
@@ -96,13 +99,13 @@ namespace g3
                 // the (at most) two triangles of each edge, in the order of the mesh's triangles (DMesh3 holds no edge of three)
                 var first = new Dictionary<long, int>(EdgeKeyComparer.Instance);
                 foreach (int ti in MeshTriangles[mi]) {
-                    if (triDegenerate[ti]) continue;
+                    if (triDegenerate[ti] || (eligible != null && eligible[ti] == false)) continue;
                     for (int k = 0; k < 3; ++k) {
                         long e = EdgeKey(triCorners[ti][k], triCorners[ti][(k + 1) % 3]);
                         int other;
                         if (first.TryGetValue(e, out other) == false)
                             first[e] = ti;
-                        else if (flat_edge(other, ti, triCorners[ti][k], triCorners[ti][(k + 1) % 3])) {
+                        else if (flat_edge(other, ti, triCorners[ti][k], triCorners[ti][(k + 1) % 3], rep)) {
                             join(parent, other, ti);
                             if (flatMask != null) {
                                 flatMask[ti] |= (byte)(1 << k);
@@ -133,11 +136,12 @@ namespace g3
         }
 
         // the edge a-b of triangle ti is a flat edge shared with triangle oi
-        bool flat_edge(int oi, int ti, int a, int b)
+        bool flat_edge(int oi, int ti, int a, int b, int[] rep)
         {
             // (a degenerate O has its third corner on the line a-b: Orient is 0 and the edge is not flat)
             InputTriangle T = Triangles[ti], O = Triangles[oi];
-            if (same_plane(T.P, O.P) == false) return false;
+            // (the exact plane of both: planeRep says it for the eligible triangles, the planes of the others are not computed)
+            if (rep != null ? rep[ti] != rep[oi] : same_plane(T.P, O.P) == false) return false;
             // O traverses the edge as b->a, and the third corners are strictly on opposite sides
             int c = -1, d = -1;
             bool reversed = false;

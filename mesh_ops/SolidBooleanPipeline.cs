@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Numerics;
 using System.Threading;
 using g3;
 
@@ -298,6 +299,28 @@ namespace gs
         /// <summary> with PairContacts: the collapses of an edge together with its twin edge (two edges each); 0 otherwise </summary>
         public int PairedCollapses;
         /// <summary>
+        /// with SeparateSelfContacts: the positions of the result where one solid touches itself (two or more vertices of one
+        /// solid at one position; a solid is an outer shell with its cavities), before and after the separation; 0 without the option
+        /// </summary>
+        public int SelfContactsFound, SelfContactsLeft;
+        /// <summary> with SeparateSelfContacts: the vertices moved </summary>
+        public int SelfContactVerticesMoved;
+        /// <summary>
+        /// with SeparateSelfContacts: the contact vertices not moved because the move would have been at or below 16 units in the
+        /// last place of their coordinates (Skipped), and the moves put back because a triangle then crossed another one or was
+        /// degenerate (UndoneCrossing) or turned over (UndoneFlipped)
+        /// </summary>
+        public int SelfContactVerticesSkipped, SelfContactMovesUndoneCrossing, SelfContactMovesUndoneFlipped;
+        /// <summary>
+        /// with SeparateSelfContacts: true if the moves were all put back because the final check made again after them found the result
+        /// worse (Solid > SolidWithContacts > SolidNotClean, eg a triangle that a move shrank below the tolerance of NotCleanReason without
+        /// making it exactly degenerate); the result is then the one without the option, SelfContactsLeft is SelfContactsFound and
+        /// SelfContactVerticesMoved is 0
+        /// </summary>
+        public bool SelfContactMovesRevertedAsWorse;
+        /// <summary> with SeparateSelfContacts: the largest move of a vertex (up to the distance, plus the rounding of the coordinates) </summary>
+        public double SelfContactMaxMove;
+        /// <summary>
         /// PairContactsMode Auto: the second reduction (pairing on) ran because the first result was not clean with contacts left; it
         /// is kept (PairPassKept) if its NotCleanReason is the same or empty and it has fewer triangles (or as many and fewer contacts). False if it did not run
         /// </summary>
@@ -306,7 +329,7 @@ namespace gs
         public int PairPassFirstTriangles;
         /// <summary> time of the second reduction (PairPassRan) with its final check, in milliseconds; part of TotalMilliseconds, not of ReductionMilliseconds </summary>
         public long PairPassMilliseconds;
-        /// <summary> time per stage in milliseconds: the input checks, the input repairs, the boolean, the reduction, the final check, and the sum </summary>
+        /// <summary> time per stage in milliseconds: the input checks, the input repairs, the boolean, the reduction, the final check (with SeparateSelfContacts including the separation), and the sum </summary>
         public long InputCheckMilliseconds, RepairMilliseconds, BooleanMilliseconds, ReductionMilliseconds, FinalCheckMilliseconds, TotalMilliseconds;
 
         // the fields a reduction sets (to put back those of the first reduction if the second one is not kept)
@@ -747,6 +770,31 @@ namespace gs
         /// MaxDeviationTwoSided Auto does nothing (pairing does not support it), On is InvalidInput as PairContacts
         /// </summary>
         public PairContactsModes PairContactsMode = PairContactsModes.Off;
+        /// <summary>
+        /// Default 0 (off: the result is the one without this option, bit for bit). Otherwise a length: where a solid of the
+        /// result touches itself at a vertex (two or more vertices of one solid at one position; a solid is an outer shell with
+        /// the cavities inside it, so a cavity that touches its outer shell or another of its cavities counts; eg a difference
+        /// whose tools touch each other at an edge or a corner inside the body), every vertex there moves into its own part of
+        /// the solid by up to this distance (back into its own fan of triangles, along the area-weighted direction to their
+        /// centroids; at most a quarter of its shortest edge; plus the rounding of the new coordinates, a few units in their last
+        /// place; a move at or below 16 units in the last place of the largest coordinate of the vertex is skipped), so the solid no longer touches
+        /// itself there. Such a result is a valid closed, manifold mesh, but a boundary representation that merges coincident
+        /// vertices (a mesh-to-solid conversion of a CAD system) sees a non-manifold vertex there and refuses it. Only contacts at
+        /// coincident vertices are found: a vertex that lies on an edge or a face of the same solid without a vertex there is not
+        /// (NotCleanReason still reports it). A move is put back if a triangle of the vertex then crosses another triangle beyond
+        /// what they share (an exact test; vertices at one position count as one), is degenerate (exact), or turns over (its
+        /// normal against the one before, in floating point); putting back repeats until a check finds nothing, so the result
+        /// is the state that was checked. A vertex put back stays put back, so a contact can be left although another choice of
+        /// moves would separate it (Report.SelfContactsLeft). A contact of another solid at the same position is separated as well (the vertices of this solid move away from it); contacts elsewhere between different solids are not touched. The
+        /// volume changes by about the moved distance times the area of the triangles around the moved vertices. The step runs
+        /// after the reduction and the pair pass; if a vertex moved, the final check is made again (Report.Clean, NotCleanReason,
+        /// ContactsResult, OnlyContacts, ResultKind): a result whose self-contacts are all separated and that is otherwise clean
+        /// is a Solid, one with contacts left stays SolidWithContacts (also one whose moves are all put back because the check made again after them was worse than before, eg a triangle shrunk below its tolerance: Report.SelfContactMovesRevertedAsWorse; the result is then the one without the option). Verification does not see the moves (NoInventedSurface measures the boolean result before the reduction, RoundingVolume is that of the rounding); they are bounded by the distance. FinalCheckMilliseconds includes the time of this step.
+        /// Report.SelfContactsFound / SelfContactsLeft / SelfContactVerticesMoved / SelfContactMaxMove /
+        /// SelfContactVerticesSkipped / SelfContactMovesUndoneCrossing / SelfContactMovesUndoneFlipped say what was done.
+        /// Negative or not finite: InvalidInput
+        /// </summary>
+        public double SeparateSelfContacts = 0;
 
         /// <summary> the returned solid, or null if Status is not Success </summary>
         public DMesh3 Result;
@@ -1154,6 +1202,8 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "MaxInventedSurfaceShare and MaxRoundingVolumeChange must not be negative or NaN", total);
             if (!(MinThickness >= 0) || double.IsInfinity(MinThickness))
                 return fail(PipelineStatus.InvalidInput, "MinThickness must be finite and not negative", total);
+            if (!(SeparateSelfContacts >= 0) || double.IsInfinity(SeparateSelfContacts))
+                return fail(PipelineStatus.InvalidInput, "SeparateSelfContacts must be finite and not negative", total);
             if (ThinInputs < ThinInputModes.Keep || ThinInputs > ThinInputModes.Refuse)
                 return fail(PipelineStatus.InvalidInput, "ThinInputs is not a defined value", total);
             if (Inputs == null || Inputs.Count == 0)
@@ -1453,11 +1503,237 @@ namespace gs
                 Report.PairPassMilliseconds = clock.ElapsedMilliseconds;
             }
 
+            // 6. the self-contacts of the result, separated (the final check is made again if a vertex moved)
+            if (SeparateSelfContacts > 0 && result.TriangleCount > 0) {
+                clock.Restart();
+                SeparateSelfContactsChecked(result, SeparateSelfContacts, Report, Cancellation);
+                if (Cancellation.IsCancellationRequested)
+                    return fail(PipelineStatus.Cancelled, "cancelled", total);
+                Report.FinalCheckMilliseconds += clock.ElapsedMilliseconds;
+            }
+
             Result = result;
             Status = PipelineStatus.Success;
             Report.TotalMilliseconds = total.ElapsedMilliseconds;
             return true;
         }
+
+        /// <summary>
+        /// The step of SeparateSelfContacts with its guard: report holds the final check of the mesh as it is. The moves are made
+        /// (SeparateSelfContactsOf), the final check is made again if a vertex moved, and if the result is worse than before
+        /// (WorseThan) all moves are put back and the final check of before is restored (SelfContactMovesRevertedAsWorse)
+        /// </summary>
+        internal static void SeparateSelfContactsChecked(DMesh3 result, double delta, SolidBooleanReport report, CancellationToken cancel)
+        {
+            var checkedBefore = new SolidBooleanReport();
+            checkedBefore.SetFinalCheck(report);
+            var movedFrom = new Dictionary<int, Vector3d>();
+            SeparateSelfContactsOf(result, delta, report, cancel, movedFrom);
+            if (cancel.IsCancellationRequested || report.SelfContactVerticesMoved == 0)
+                return;
+            FinalCheck(result, report);
+            if (WorseThan(report, checkedBefore)) {
+                // (the moves made the result worse: the tolerance test of NotCleanReason finds what the exact tests of the step do not)
+                foreach (var kv in movedFrom)
+                    result.SetVertex(kv.Key, kv.Value);
+                report.SetFinalCheck(checkedBefore);
+                report.SelfContactMovesRevertedAsWorse = true;
+                report.SelfContactVerticesMoved = 0;
+                report.SelfContactMaxMove = 0;
+                report.SelfContactsLeft = report.SelfContactsFound;
+            }
+        }
+
+        // the positions where two or more vertices of one solid lie (a solid: an outer shell with the cavities inside it,
+        // ComponentSolids; so a cavity that touches its outer shell or another cavity of it counts): per position the vertices
+        // of the solids that occur there more than once
+        internal static List<List<int>> SelfContacts(DMesh3 mesh)
+        {
+            var byPos = new Dictionary<Vector3d, List<int>>();
+            foreach (int v in mesh.VertexIndices()) {
+                if (mesh.GetVtxEdgeCount(v) == 0)
+                    continue;
+                Vector3d p = mesh.GetVertex(v);
+                var key = new Vector3d(p.x + 0.0, p.y + 0.0, p.z + 0.0);      // (+0.0: -0 and 0 are one position)
+                List<int> list;
+                if (!byPos.TryGetValue(key, out list))
+                    byPos[key] = list = new List<int>();
+                list.Add(v);
+            }
+            var result = new List<List<int>>();
+            ComponentSolids cs = null;
+            foreach (List<int> vs in byPos.Values) {
+                if (vs.Count < 2)
+                    continue;
+                if (cs == null)
+                    cs = ComponentSolids.Of(mesh);       // (only a mesh with a position of two vertices needs the solids)
+                var self = new List<int>();
+                foreach (int v in vs) {
+                    int n = 0;
+                    foreach (int w in vs)
+                        if (cs.SolidOfVertex(w) == cs.SolidOfVertex(v))
+                            n++;
+                    if (n > 1)
+                        self.Add(v);
+                }
+                if (self.Count > 0)
+                    result.Add(self);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Moves every vertex of a self-contact (SelfContacts) into its own part of the solid: back into its own fan (the
+        /// area-weighted direction to the centroids of its triangles), by delta, at most a quarter of its shortest edge; a vertex
+        /// whose move would be at or below 16 units in the last place of its largest coordinate stays. A move is put back if a
+        /// triangle of the vertex then crosses another triangle beyond what they share (vertices at one position count as one,
+        /// so a touch at another contact is allowed; CrossingTriangles, exact), is degenerate, or turned over. Putting back
+        /// repeats until a check finds nothing left to put back: every round puts back at least one move, so this ends, and
+        /// the state left is the one the last round checked. The counts go to the report (SelfContacts*)
+        /// </summary>
+        internal static void SeparateSelfContactsOf(DMesh3 mesh, double delta, SolidBooleanReport report, CancellationToken cancel = default(CancellationToken), Dictionary<int, Vector3d> movedFrom = null)
+        {
+            List<List<int>> contacts = SelfContacts(mesh);
+            report.SelfContactsFound = report.SelfContactsLeft = contacts.Count;
+            report.SelfContactVerticesMoved = report.SelfContactVerticesSkipped = 0;
+            report.SelfContactMovesUndoneCrossing = report.SelfContactMovesUndoneFlipped = 0;
+            report.SelfContactMaxMove = 0;
+            if (contacts.Count == 0)
+                return;
+            var old = new Dictionary<int, Vector3d>();          // moved vertex -> its position before
+            var oldNormal = new Dictionary<int, BigInteger[]>();    // triangle at a moved vertex -> its normal before (exact, scaled)
+            var target = new List<KeyValuePair<int, Vector3d>>();       // (every move is taken from the mesh before any of them, so the order of the vertices does not matter)
+            double largestStep = 0;
+            foreach (List<int> vs in contacts)
+                foreach (int v in vs) {
+                    // the direction: back into the own fan of the vertex, along the area-weighted direction to the centroids of
+                    // its triangles (along its own surface, away from the other sheet; a normal would be unreliable where thin
+                    // layers fold back on themselves)
+                    Vector3d p = mesh.GetVertex(v);
+                    double shortest = double.MaxValue;
+                    foreach (int w in mesh.VtxVerticesItr(v))
+                        shortest = Math.Min(shortest, p.Distance(mesh.GetVertex(w)));
+                    // (in units of the shortest edge, so that the sum neither under- nor overflows at tiny or huge coordinates, and is
+                    // the same bit for bit under scaling by 2^k)
+                    Vector3d n = Vector3d.Zero;
+                    if (shortest > 0 && shortest < double.MaxValue)
+                        foreach (int t in mesh.VtxTrianglesItr(v)) {
+                            Index3i tv = mesh.GetTriangle(t);
+                            Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+                            n += (((a + b + c) / 3 - p) / shortest) * (0.5 * ((b - a) / shortest).Cross((c - a) / shortest).Length);
+                        }
+                    double largest = Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z)));
+                    double len = n.Length;
+                    double step = Math.Min(delta, 0.25 * shortest);
+                    if (!(len > 0) || !(step > 16 * largest * 2.220446049250313e-16)) {
+                        report.SelfContactVerticesSkipped++;
+                        continue;
+                    }
+                    foreach (int t in mesh.VtxTrianglesItr(v))
+                        if (!oldNormal.ContainsKey(t))
+                            oldNormal[t] = ExactNormal(mesh, t);
+                    old[v] = p;
+                    target.Add(new KeyValuePair<int, Vector3d>(v, p + n * (step / len)));
+                    largestStep = Math.Max(largestStep, step);
+                }
+            foreach (var kv in target)
+                mesh.SetVertex(kv.Key, kv.Value);
+            if (old.Count > 0) {
+                // one tree over a copy of the moved mesh (same ids; a tree over the mesh itself refuses queries once a move is
+                // put back): a triangle stays within largestStep of its box there whatever is put back, so the queries grow
+                // their boxes by twice that and read the current coordinates from the mesh
+                var tree = new DMeshAABBTree3(new DMesh3(mesh, false, MeshComponents.None), true);
+                double pad = TreePad(largestStep);
+                // (every round puts back at least one move and checks all that remain: quadratic in the moved vertices in the worst case,
+                // linear in practice, where one round puts back what there is. Kept so: a state that is not checked is never returned)
+                while (old.Count > 0) {
+                    if (cancel.IsCancellationRequested) {
+                        // (a state that was not checked is not kept: every move still standing is put back)
+                        foreach (var kv in old)
+                            mesh.SetVertex(kv.Key, kv.Value);
+                        old.Clear();
+                        break;
+                    }
+                    var undoX = new HashSet<int>();
+                    var undoF = new HashSet<int>();
+                    foreach (int t in CrossingTriangles(mesh, old.Keys, tree, pad)) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        for (int j = 0; j < 3; ++j)
+                            if (old.ContainsKey(tv[j]))
+                                undoX.Add(tv[j]);
+                    }
+                    foreach (var kv in oldNormal)
+                        if (DotSign(ExactNormal(mesh, kv.Key), kv.Value) <= 0) {
+                            Index3i tv = mesh.GetTriangle(kv.Key);
+                            for (int j = 0; j < 3; ++j)
+                                if (old.ContainsKey(tv[j]) && !undoX.Contains(tv[j]))
+                                    undoF.Add(tv[j]);
+                        }
+                    if (undoX.Count == 0 && undoF.Count == 0)
+                        break;
+                    report.SelfContactMovesUndoneCrossing += undoX.Count;
+                    report.SelfContactMovesUndoneFlipped += undoF.Count;
+                    undoX.UnionWith(undoF);
+                    foreach (int v in undoX) {
+                        mesh.SetVertex(v, old[v]);
+                        old.Remove(v);
+                    }
+                }
+            }
+            report.SelfContactVerticesMoved = old.Count;
+            if (movedFrom != null)
+                foreach (var kv in old)
+                    movedFrom[kv.Key] = kv.Value;
+            foreach (var kv in old)
+                report.SelfContactMaxMove = Math.Max(report.SelfContactMaxMove, mesh.GetVertex(kv.Key).Distance(kv.Value));
+            report.SelfContactsLeft = SelfContacts(mesh).Count;
+        }
+
+        // the coordinate as an integer, times 2^1074 (exact: a double is an integer times 2^-1074)
+        static BigInteger Scaled(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (e > 0)
+                m |= 1L << 52;
+            BigInteger r = new BigInteger(m) << (e > 0 ? e - 1 : 0);
+            return bits < 0 ? -r : r;
+        }
+
+        // the exact normal (the cross product of two edges, times 2^2148) of a triangle: no rounding, no tolerance, no under- or overflow
+        internal static BigInteger[] ExactNormal(DMesh3 mesh, int t)
+        {
+            Index3i tv = mesh.GetTriangle(t);
+            Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+            BigInteger e1x = Scaled(b.x) - Scaled(a.x), e1y = Scaled(b.y) - Scaled(a.y), e1z = Scaled(b.z) - Scaled(a.z);
+            BigInteger e2x = Scaled(c.x) - Scaled(a.x), e2y = Scaled(c.y) - Scaled(a.y), e2z = Scaled(c.z) - Scaled(a.z);
+            return new[] { e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x };
+        }
+
+        internal static int DotSign(BigInteger[] u, BigInteger[] v)
+        {
+            return (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]).Sign;
+        }
+
+        // is the check of a result worse than that of before: a lower kind (clean before contacts only before another defect), or in the
+        // same kind another reason (a new class of defect), more positions with contacts, or more triangles that cross another
+        // (-1: not counted, more than the cap)
+        internal static bool WorseThan(SolidBooleanReport after, SolidBooleanReport before)
+        {
+            int ra = after.Clean ? 2 : after.OnlyContacts ? 1 : 0, rb = before.Clean ? 2 : before.OnlyContacts ? 1 : 0;
+            if (ra != rb)
+                return ra < rb;
+            if (after.NotCleanReason != before.NotCleanReason || after.ContactsResult > before.ContactsResult)
+                return true;
+            int ca = after.SelfIntersectingTriangles < 0 ? int.MaxValue : after.SelfIntersectingTriangles;
+            int cb = before.SelfIntersectingTriangles < 0 ? int.MaxValue : before.SelfIntersectingTriangles;
+            return ca > cb;
+        }
+
+        // how far the boxes of the stale tree of SeparateSelfContactsOf are grown: a triangle is within largestStep of its box there
+        // whatever is put back, and so is the one that is checked
+        internal static double TreePad(double largestStep) { return 2 * largestStep; }
 
         /// <summary>
         /// The triangles at the given vertices that cross another triangle of the mesh beyond what they share, where vertices
@@ -1782,54 +2058,13 @@ namespace gs
             var removed = new List<SolidBooleanThinSolid>();
             if (mesh.TriangleCount == 0)
                 return removed;
-            var cc = new MeshConnectedComponents(mesh);
-            cc.FindConnectedT();
-            int n = cc.Count;
-            var vol = new double[n];
-            var area = new double[n];
-            var open = new bool[n];
-            var boxes = new AxisAlignedBox3d[n];
-            var tris = new int[n][];
-            for (int c = 0; c < n; ++c) {
-                tris[c] = cc.Components[c].Indices;
-                // (the volume relative to a vertex of the component: far from the origin the terms of absolute coordinates
-                // cancel, and the sign of a thin shell could be noise)
-                Vector3d o = mesh.GetVertex(mesh.GetTriangle(tris[c][0]).a);
-                double v6 = 0, a2 = 0;
-                boxes[c] = AxisAlignedBox3d.Empty;
-                foreach (int t in tris[c]) {
-                    Index3i tv = mesh.GetTriangle(t);
-                    Vector3d p = mesh.GetVertex(tv.a), q = mesh.GetVertex(tv.b), r = mesh.GetVertex(tv.c);
-                    boxes[c].Contain(p); boxes[c].Contain(q); boxes[c].Contain(r);
-                    Vector3d pa = p - o, qa = q - o, ra = r - o;
-                    v6 += pa.Dot(qa.Cross(ra));
-                    a2 += (q - p).Cross(r - p).Length;
-                    for (int j = 0; j < 3 && !open[c]; ++j)
-                        open[c] = mesh.IsBoundaryEdge(mesh.GetTriEdge(t, j));
-                }
-                vol[c] = v6 / 6;
-                area[c] = a2 / 2;
-            }
-            // the solid of each component: an outer shell is its own; a cavity goes to the smallest outer shell that contains
-            // it, decided exactly (ShellIndex.Contains). A cavity and another shell share at most points where they touch, so the
-            // cavity is inside or outside the shell as a whole: one point of the cavity that is not on the shell decides (the
-            // probes are the cavity's vertices, exact points of the cavity)
-            var owner = new int[n];
-            var shellIndex = new Dictionary<int, ShellIndex>();
-            for (int c = 0; c < n; ++c) {
-                owner[c] = vol[c] > 0 ? c : -1;
-                if (vol[c] > 0)
-                    continue;
-                for (int o = 0; o < n; ++o) {
-                    if (!(vol[o] > 0) || (owner[c] >= 0 && vol[o] >= vol[owner[c]]) || !ShellIndex.BoxHolds(boxes[o], boxes[c]))
-                        continue;
-                    ShellIndex index;
-                    if (!shellIndex.TryGetValue(o, out index))
-                        shellIndex[o] = index = new ShellIndex(mesh, tris[o], boxes[o]);
-                    if (index.Contains(mesh, tris[c]))
-                        owner[c] = o;
-                }
-            }
+            ComponentSolids cs = ComponentSolids.Of(mesh);
+            int n = cs.Count;
+            double[] vol = cs.Volume, area = cs.Area;
+            bool[] open = cs.Open;
+            AxisAlignedBox3d[] boxes = cs.Box;
+            int[][] tris = cs.Triangles;
+            int[] owner = cs.Owner;
             var remove = new HashSet<int>();
             for (int o = 0; o < n; ++o) {
                 if (!(vol[o] > 0))
@@ -1858,6 +2093,87 @@ namespace gs
                 foreach (int t in tris[c])
                     mesh.RemoveTriangle(t, true, false);
             return removed;
+        }
+
+        /// <summary>
+        /// The connected components of a mesh (by edges) with their triangles, volume, area, box, whether they have a boundary
+        /// edge, and the solid they belong to: an outer shell (positive volume) is its own solid; a cavity belongs to the smallest
+        /// outer shell that contains it, decided exactly (ShellIndex.Contains; Owner -1: in no outer shell). Volumes are taken
+        /// relative to a vertex of each component (exact enough far from the origin).
+        /// </summary>
+        internal sealed class ComponentSolids
+        {
+            public int Count;
+            public int[][] Triangles;
+            public double[] Volume, Area;
+            public bool[] Open;
+            public AxisAlignedBox3d[] Box;
+            public int[] Owner;
+            /// <summary>
+            /// the component of each vertex (-1 for a vertex of no triangle); a vertex shared by two components that are not connected by
+            /// an edge (a bowtie) names the last one (such a result is flagged by the final check anyway)
+            /// </summary>
+            public int[] ComponentOfVertex;
+
+            public static ComponentSolids Of(DMesh3 mesh)
+            {
+                var cc = new MeshConnectedComponents(mesh);
+                cc.FindConnectedT();
+                int n = cc.Count;
+                var r = new ComponentSolids() {
+                    Count = n, Triangles = new int[n][], Volume = new double[n], Area = new double[n], Open = new bool[n],
+                    Box = new AxisAlignedBox3d[n], Owner = new int[n], ComponentOfVertex = new int[mesh.MaxVertexID] };
+                for (int v = 0; v < r.ComponentOfVertex.Length; ++v)
+                    r.ComponentOfVertex[v] = -1;
+                for (int c = 0; c < n; ++c) {
+                    int[] tris = r.Triangles[c] = cc.Components[c].Indices;
+                    // (the volume relative to a vertex of the component: far from the origin the terms of absolute coordinates
+                    // cancel, and the sign of a thin shell could be noise)
+                    Vector3d o = mesh.GetVertex(mesh.GetTriangle(tris[0]).a);
+                    double v6 = 0, a2 = 0;
+                    r.Box[c] = AxisAlignedBox3d.Empty;
+                    foreach (int t in tris) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        r.ComponentOfVertex[tv.a] = r.ComponentOfVertex[tv.b] = r.ComponentOfVertex[tv.c] = c;
+                        Vector3d p = mesh.GetVertex(tv.a), q = mesh.GetVertex(tv.b), w = mesh.GetVertex(tv.c);
+                        r.Box[c].Contain(p); r.Box[c].Contain(q); r.Box[c].Contain(w);
+                        Vector3d pa = p - o, qa = q - o, wa = w - o;
+                        v6 += pa.Dot(qa.Cross(wa));
+                        a2 += (q - p).Cross(w - p).Length;
+                        for (int j = 0; j < 3 && !r.Open[c]; ++j)
+                            r.Open[c] = mesh.IsBoundaryEdge(mesh.GetTriEdge(t, j));
+                    }
+                    r.Volume[c] = v6 / 6;
+                    r.Area[c] = a2 / 2;
+                }
+                // the solid of each component: an outer shell is its own; a cavity goes to the smallest outer shell that contains
+                // it, decided exactly (ShellIndex.Contains). A cavity and another shell share at most points where they touch, so the
+                // cavity is inside or outside the shell as a whole: one point of the cavity that is not on the shell decides (the
+                // probes are the cavity's vertices, exact points of the cavity)
+                var shellIndex = new Dictionary<int, ShellIndex>();
+                for (int c = 0; c < n; ++c) {
+                    r.Owner[c] = r.Volume[c] > 0 ? c : -1;
+                    if (r.Volume[c] > 0)
+                        continue;
+                    for (int o = 0; o < n; ++o) {
+                        if (!(r.Volume[o] > 0) || (r.Owner[c] >= 0 && r.Volume[o] >= r.Volume[r.Owner[c]]) || !ShellIndex.BoxHolds(r.Box[o], r.Box[c]))
+                            continue;
+                        ShellIndex index;
+                        if (!shellIndex.TryGetValue(o, out index))
+                            shellIndex[o] = index = new ShellIndex(mesh, r.Triangles[o], r.Box[o]);
+                        if (index.Contains(mesh, r.Triangles[c]))
+                            r.Owner[c] = o;
+                    }
+                }
+                return r;
+            }
+
+            /// <summary> the solid of the component of vertex v: its owner, or the component itself if it has none (-1: no triangle) </summary>
+            public int SolidOfVertex(int v)
+            {
+                int c = ComponentOfVertex[v];
+                return c < 0 ? -1 : Owner[c] >= 0 ? Owner[c] : c;
+            }
         }
 
         bool isSheet(int i)
