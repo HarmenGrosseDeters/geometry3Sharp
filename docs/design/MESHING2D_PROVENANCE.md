@@ -137,6 +137,12 @@ Implemented from the papers, after decision D14 (owner, 2026-11-01; `MESHING2D_S
   insertions. Grid vertices with bounded angles down to the grid's resolution: M. Bern, D. Eppstein, J. Gilbert, *Provably good mesh
   generation*, JCSS 1994 (abstract).
 
+## `m2.ring-interior`: `comp_geom/RingInterior2.cs` and `ConstrainedDelaunayMesh2.TryGetInteriorPoint`
+
+- **Exact strictly-interior point finder** (spec I4, F-49, F-50, decision D10; OGC SFA `PointOnSurface` semantics):
+  - Candidate certification: exact even-odd parity using `ExactPredicates.Orient2d` ([Sh97]) with half-open horizontal ray casting and explicit boundary rejection.
+  - Candidate generation: triangle incenter (offset form for UTM precision) and centroid, plus horizontal and vertical scanline midpoints on widest and quantile slabs, scored by exact power-of-two shifted boundary clearance; exact rational scanline intercept fallback (`BigInteger` via `ExactPoint3.Decompose` and `ExactPoint3.ToDoubleRounded`) with near-endpoint probes and active-edge sweep for narrow slivers or high-vertex rings. Clean-room implementation from spec I4/F-49/F-50 and D10.
+
 ## Corpus: public test inputs (data only)
 
 The corpus run (`Meshing2Benchmark corpus`, fetched by `benchmarks/Meshing2Benchmark/corpus/fetch.py` at run time into the git-ignored

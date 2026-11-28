@@ -56,6 +56,36 @@ namespace g3
             return Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false, SnapRounded = snap != null }.Run());
         }
 
+        /// <summary>
+        /// Finds a double-precision point certified strictly inside a closed ring under exact even-odd parity (spec I4, F-49, F-50, decision D10).
+        /// Accepts rings in either orientation, with or without a repeated closing vertex.
+        /// Every point returned with <c>true</c> is strictly inside the ring; returns <c>false</c> when the ring has no interior,
+        /// no binary64 point lies strictly inside it, or only isolated sub-ULP diagonal lattice points exist off the probed scanlines.
+        /// </summary>
+        /// <param name="ring">The ring vertices in order.</param>
+        /// <param name="point">When this method returns <c>true</c>, a point strictly inside <paramref name="ring"/>; otherwise default.</param>
+        /// <returns><c>true</c> if a strictly interior double-precision point was found; otherwise <c>false</c>.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="ring"/> is null.</exception>
+        /// <exception cref="ArgumentException">A coordinate is NaN, infinite, or exceeds <see cref="DelaunayMesh2.CoordinateLimit"/>.</exception>
+        public static bool TryGetInteriorPoint(IReadOnlyList<Vector2d> ring, out Vector2d point)
+            => RingInterior2.TryGetInteriorPoint(ring, out point);
+
+        /// <summary>
+        /// Finds a double-precision point certified strictly inside an indexed closed ring under exact even-odd parity (spec I4, F-49, F-50, decision D10).
+        /// Accepts rings in either orientation, with or without a repeated closing vertex.
+        /// Every point returned with <c>true</c> is strictly inside the ring; returns <c>false</c> when the ring has no interior,
+        /// no binary64 point lies strictly inside it, or only isolated sub-ULP diagonal lattice points exist off the probed scanlines.
+        /// </summary>
+        /// <param name="points">The point table referenced by <paramref name="ringIndices"/>.</param>
+        /// <param name="ringIndices">Vertex indices into <paramref name="points"/> forming the ring in order.</param>
+        /// <param name="point">When this method returns <c>true</c>, a point strictly inside the ring; otherwise default.</param>
+        /// <returns><c>true</c> if a strictly interior double-precision point was found; otherwise <c>false</c>.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="points"/> or <paramref name="ringIndices"/> is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">An index in <paramref name="ringIndices"/> is outside <paramref name="points"/>.</exception>
+        /// <exception cref="ArgumentException">A referenced coordinate is NaN, infinite, or exceeds <see cref="DelaunayMesh2.CoordinateLimit"/>.</exception>
+        public static bool TryGetInteriorPoint(IReadOnlyList<Vector2d> points, IReadOnlyList<int> ringIndices, out Vector2d point)
+            => RingInterior2.TryGetInteriorPoint(points, ringIndices, out point);
+
         /// <summary> runs the mesher on the snap-rounded input (D14) if a snap tolerance is set, and maps the result back to the input points </summary>
         internal static ConstrainedTriangulation2Result Snapped(ConstrainedMesh2Input input, double tolerance, CancellationToken cancel,
             Func<ConstrainedMesh2Input, SnapRounding2, ConstrainedTriangulation2Result> run)
