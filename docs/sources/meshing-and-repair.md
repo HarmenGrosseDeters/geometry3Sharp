@@ -93,6 +93,19 @@ at). Design and measurements: [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRA
 | Quality measures (min and max angle reported separately) | J. R. Shewchuk, *What is a good linear finite element?*, 2002 |
 | The guard of every operation: `TriangleDeviationBounds.IsWithin` with the patch bound, the exact self-intersection test, the final one-sided Hausdorff certification | this library (#280, `MeshHausdorffDistance`) |
 
+## Remesh quality post-pass (`RemeshQualityPass`, `RemeshQualityCoverage`)
+
+Implemented from the papers, no code taken over. Hu et al.'s implementation builds on CGAL (GPL); it was not looked at, and neither was any code of Wang et al. Design and measurements: [design/REMESH_QUALITY_PASS.md](../design/REMESH_QUALITY_PASS.md).
+
+| Part | Source |
+|---|---|
+| Worst-first local operations (collapse, split, flip, relocation), each made only if the smallest angle of its triangles rises, every new triangle within the error bound of the input | K. Hu, D.-M. Yan, D. Bommes, P. Alliez, B. Benes, *Error-Bounded and Feature Preserving Surface Remeshing with Minimal Angle Improvement*, IEEE TVCG 23(12), 2017 |
+| Vertex insertion, removal and relocation along feature curves (crease edge split onto the reference's crease, crease vertex collapsed into its crease neighbour, crease vertex moved along the crease) | Y. Wang, D.-M. Yan, X. Liu, C. Tang, J. Guo, X. Zhang, P. Wonka, *Isotropic Surface Remeshing without Large and Small Angles*, IEEE TVCG 25(7), 2019 |
+| Tangential relocation onto the reference, needle collapses and cap splits | M. Botsch, L. Kobbelt, *A Remeshing Approach to Multiresolution Modeling*, SGP 2004; M. Botsch, L. Kobbelt, *A Robust Procedure to Eliminate Degenerate Faces from Triangle Meshes*, VMV 2001 |
+| Small input angles cannot be removed, only isolated (the limit of acute crease sectors) | J. R. Shewchuk, *Delaunay Refinement Algorithms for Triangular Mesh Generation*, Computational Geometry 22, 2002 |
+| Reference-to-mesh coverage (two-sided band): a correspondence kept under local operations | R. Klein, G. Liebich, W. Strasser, *Mesh Reduction with Error Control*, IEEE Visualization 1996; the cascade of S. Sacht, A. Jacobson (SGP 2024) as in `ReducerReverseCoverage` |
+| The band guard, the exact self-intersection test, the crease band (Lipschitz and convexity bound of the distance to a set of segments) | this library (`TriangleDeviationBounds.IsWithin`, `TriangleTriangleFilter`; the crease bound in the design note) |
+
 ## Tetrahedral meshing (`MeshTetrahedralization`, `Delaunay3.RefinementSupport`, `docs/design/TET_MESHING.md`)
 
 Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (GPL / LGPL), CGAL (GPL) are not to be read or ported.

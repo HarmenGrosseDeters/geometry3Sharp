@@ -74,6 +74,7 @@ Architecture specifications, algorithm design notes, error-bound derivations, an
 | [PARTITIONED_REDUCTION_HANDOVER.md](PARTITIONED_REDUCTION_HANDOVER.md) | Historical handover for `PartitionedReducer` |
 | [CERTIFIED_REMESHING.md](CERTIFIED_REMESHING.md) | Certified surface remeshing by restricted Delaunay refinement (study) |
 | [REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md) | Upper bounds for remesher crease slivers |
+| [REMESH_QUALITY_PASS.md](REMESH_QUALITY_PASS.md) | Worst-first remesh quality post-pass (`RemeshQualityPass`): operations, certificates (band, crease band, two-sided coverage), measurements and limits |
 | [INVERSION_GUARD_SNAPSHOT.md](INVERSION_GUARD_SNAPSHOT.md) | Cost analysis of `RejectInvertingPasses` mesh snapshots |
 | [RESEARCH_REDUCER_REMESHER.md](RESEARCH_REDUCER_REMESHER.md) | Literature review on cost of guarantees in `Reducer` and remeshers |
 | [SELF_INTERSECTION_PATCH_CERTIFICATE.md](SELF_INTERSECTION_PATCH_CERTIFICATE.md) | Patch certificate prototype for self-intersection checks (closed) |

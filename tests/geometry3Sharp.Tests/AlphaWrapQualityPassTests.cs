@@ -71,6 +71,40 @@ namespace geometry3Sharp.Tests
             return hd.UpperBound;
         }
 
+        // the vertices (bits of the coordinates) and triangles of a mesh, in id order, hashed
+        static string MeshHash(DMesh3 m)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create()) {
+                var bytes = new List<byte>();
+                foreach (int v in m.VertexIndices()) {
+                    Vector3d p = m.GetVertex(v);
+                    bytes.AddRange(BitConverter.GetBytes(v));
+                    bytes.AddRange(BitConverter.GetBytes(BitConverter.DoubleToInt64Bits(p.x)));
+                    bytes.AddRange(BitConverter.GetBytes(BitConverter.DoubleToInt64Bits(p.y)));
+                    bytes.AddRange(BitConverter.GetBytes(BitConverter.DoubleToInt64Bits(p.z)));
+                }
+                foreach (int t in m.TriangleIndices()) {
+                    Index3i tv = m.GetTriangle(t);
+                    bytes.AddRange(BitConverter.GetBytes(t)); bytes.AddRange(BitConverter.GetBytes(tv.a));
+                    bytes.AddRange(BitConverter.GetBytes(tv.b)); bytes.AddRange(BitConverter.GetBytes(tv.c));
+                }
+                return BitConverter.ToString(sha.ComputeHash(bytes.ToArray())).Replace("-", "").Substring(0, 16);
+            }
+        }
+
+        /// <summary>
+        /// a pin of the pass's output on the default box wrap (vertices and triangles bit for bit): the pass's helpers are
+        /// shared with RemeshQualityPass, and its output must not change with that (or any other refactoring)
+        /// </summary>
+        [Fact]
+        public void ImproveWrapQuality_OutputPinned()
+        {
+            DMesh3 wrap, simp; double tol;
+            BoxWrap(DefaultBox, out wrap, out simp, out tol);
+            DMesh3 q = MeshRobustRepair.ImproveWrapQuality(simp, wrap, tol, true, () => false);
+            Assert.Equal("69845F1028FA3DCE", MeshHash(q));
+        }
+
         [Fact]
         public void ImproveWrapQuality_FewerSlivers_WithinTolerance_Clean_SameTopology()
         {

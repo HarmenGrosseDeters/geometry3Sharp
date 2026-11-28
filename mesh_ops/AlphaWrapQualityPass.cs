@@ -207,7 +207,7 @@ namespace gs
             return g;
         }
 
-        static AxisAlignedBox3d box(Vector3d a, Vector3d b, Vector3d c)
+        internal static AxisAlignedBox3d box(Vector3d a, Vector3d b, Vector3d c)
         {
             var bx = new AxisAlignedBox3d(a); bx.Contain(b); bx.Contain(c);
             return bx;
@@ -234,7 +234,7 @@ namespace gs
         }
 
         // the unit normal of the triangle, or false if it is degenerate (relative to its size)
-        static bool unit_normal(Vector3d a, Vector3d b, Vector3d c, out Vector3d n)
+        internal static bool unit_normal(Vector3d a, Vector3d b, Vector3d c, out Vector3d n)
         {
             n = (b - a).Cross(c - a);
             double l = Math.Max((b - a).LengthSquared, Math.Max((c - b).LengthSquared, (a - c).LengthSquared));
