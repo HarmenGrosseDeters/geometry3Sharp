@@ -39,7 +39,7 @@ namespace Meshing2Acceptance
         /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
-        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap };
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap, Feature.Steiner };
 
         /// <summary>
         /// Rows whose results are large (Steiner limits of 10 000 to 100 000, or dense refinement), or whose many crossing constraints
@@ -219,7 +219,7 @@ namespace Meshing2Acceptance
             Deferred("F-63", null, "Terrain simplification bound", "Q5: it belongs to TerrainGreedyTIN (roadmap C2(D))");
             Deferred("F-64", "a", "Smoothing a finished mesh", "Q4: O16 is out of the first version");
             Deferred("F-64", "b", "Bounded Voronoi after smoothing", "Q1: Voronoi output is out of the first version");
-            Mesh("F-64", "c", "Steiner point smoothing stays valid at 2^20", Feature.Steiner, M3, new B().Rect(1 << 20, 1 << 20, (1 << 20) + 10, (1 << 20) + 10).Seg((1 << 20) + 1, (1 << 20) + 1, (1 << 20) + 9, (1 << 20) + 1 + Math.Pow(2, -20)).Min(25), note: "O15: beyond this brief");
+            Mesh("F-64", "c", "Steiner point smoothing stays valid at 2^20", Feature.Steiner, M3, new B().Rect(1 << 20, 1 << 20, (1 << 20) + 10, (1 << 20) + 10).Seg((1 << 20) + 1, (1 << 20) + 1, (1 << 20) + 9, (1 << 20) + 1 + Math.Pow(2, -20)).Min(25).Smooth(5), note: "O15: 5 smoothing passes at 2^20 offset");
 
             // 2.7, 2.8
             Mesh("F-65", null, "Grid: rounding flips nothing", Feature.Grid, M3, Pairs().Min(30), Hundred, new Q(1, 16), tweak: e => e.MayMoveVertices = true, note: "O12: beyond this brief");

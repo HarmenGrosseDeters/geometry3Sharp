@@ -50,6 +50,10 @@ namespace Meshing2Acceptance
         public Func<Q, Q, Q> SizeFunction;
         /// <summary>The size function in the text format, which has only constants so far; a function without it cannot be written.</summary>
         public double? SizeConstant;
+        /// <summary>O14: post-refinement Steiner-point reduction; written to the text format only when true.</summary>
+        public bool ReduceSteiner;
+        /// <summary>O15: post-refinement Steiner-point smoothing passes; written to the text format only when positive.</summary>
+        public int SmoothingPasses;
 
         public int Count => X.Length;
     }

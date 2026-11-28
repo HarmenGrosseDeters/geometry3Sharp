@@ -1,6 +1,6 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 110 covered, 8 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 111 covered, 7 pending, 8 deferred by the owner's scope, 3 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
 - **covered**: runs now through the oracle (or the named test), on the registered production mesher.
@@ -141,6 +141,6 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-63 | Terrain simplification bound | deferred |  | Q5: it belongs to TerrainGreedyTIN (roadmap C2(D)) |
 | F-64/a | Smoothing a finished mesh | deferred |  | Q4: O16 is out of the first version |
 | F-64/b | Bounded Voronoi after smoothing | deferred |  | Q1: Voronoi output is out of the first version |
-| F-64/c | Steiner point smoothing stays valid at 2^20 | pending | m4.steiner-postprocess | O15: beyond this brief |
+| F-64/c | Steiner point smoothing stays valid at 2^20 | covered | f-64/c | O15: 5 smoothing passes at 2^20 offset |
 | F-65 | Grid: rounding flips nothing | pending | m4.grid | O12: beyond this brief |
 | F-66 | Public polygon fixtures (earcut, delaunator, poly2tri) | blocked |  | no mesh files in the repository; needs a fetch script pinned by URL and hash and a licence check per fixture. GOLDEN_FORMAT section 2 has the slot for them |
