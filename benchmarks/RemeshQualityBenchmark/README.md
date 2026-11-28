@@ -425,7 +425,7 @@ python3 benchmarks/RemeshBenchmark/fetch_data.py
 dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- thingi=benchmarks/RemeshBenchmark/data/meshes 'only=^[0-9]+$' post=0.005 runs=3 fidelity=0
 ```
 
-4 cores, net10.0, 2026-11-28 (after the review fixes); raw output [perf/post_pass_2026-11-28.txt](perf/post_pass_2026-11-28.txt):
+4 cores, net10.0, 2026-11-28 (after the review fixes), run in a session container (a GitHub-hosted re-run is to come); raw output, summaries only, [perf/post_pass_2026-11-28.txt](perf/post_pass_2026-11-28.txt):
 
 | variant (Thingi10K, 20) | p01 mean before / after | p01 median before / after | min angle lower | new self-int. pairs | result in band | sector bound < 20: cases; p01 mean of the others before / after | remesh s / pass s |
 |---|---:|---:|---:|---:|---:|---:|---:|
