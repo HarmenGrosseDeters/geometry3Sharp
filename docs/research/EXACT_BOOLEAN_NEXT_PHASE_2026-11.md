@@ -24,30 +24,30 @@ Every candidate area was tested against one rule: **never ship a promise that ca
 - **Agent Reliability & MCP (Area 5):** Recent 2026 systems (CADIR arXiv:2608.00891, `dsh-solidworks`/SolidPilot, AutoCAD-MCP, Axiomize MCP) converge on fail-closed transactions, typed refusal codes, independent deterministic verification gates, and explicit opt-in escalations, backed by evidence (Yu et al., arXiv:2605.27157) that LLMs ignore soft advisory warnings unless blocked hard.
 - **Exact `MeshKernel` (Area 6):** Nehring-Wirxel, Kern, Trettner, Kobbelt (EG/SGP 2025, paper only) combine walk-and-zipper half-space cutting with embedded 3D Seidel LP and an AABB proxy (15.5 ms avg vs. CGAL exact 1,830 ms with 314 crashes on 2,762 models).
 
-## 3. Pre-Implementation Spikes vs. Direct Implementation
+## 3. Pre-Implementation Spikes — Completed Verdicts (2026-11-28)
 
-Spikes are reserved strictly for items with genuine technical or ROI uncertainty:
+All four pre-implementation spikes have been executed on `master` (plus 30 Z3 formal proof obligations in `tools/Z3Pilot/boolean_next_phase_spikes.py`, passing CI in 11 s). Full measurements live in [EXACT_BOOLEAN_SPIKES_2026-11.md](EXACT_BOOLEAN_SPIKES_2026-11.md):
 
-| Workstream | Spike Needed? | Concrete Gate Question | Effort |
+| Workstream | Spike Status | Concrete Result & Locked Design Decision | Verdict |
 | :--- | :---: | :--- | :---: |
-| **`4C-0` (`abc-chained` post-`#1744`)** | **YES (Mandatory)** | Does `abc-chained` step 3 still lag Geogram/CGAL after `PreDecideCoplanar` + `#1744` + `#1720`, and does `4C-1` still clear $\ge 15\%$? | 1–2 h (runner) |
-| **`4B-0`, `1A/1B`, `5A–5C`, `2A`** | **No — build directly** | Mechanisms, exact math, and interfaces are already proven in the codebase. | Tier S–M |
-| **`4A-2-0` (`UnionMany` predictor)** | **YES (Mini-probe)** | What `box_overlap_degree` threshold separates dense packings from sparse/chain inputs (`helix`, `lattice`, non-sphere packings) with zero sparse regression? | 0.5 day |
-| **`3-0` (Differentiable CSG)** | **YES (Short spike)** | (a) Do closed-form $M_1$/$M_2$ gradients match central finite differences across `Similarity.All()` + flush contacts? (b) Does the untouched-triangle fast path cut overhead from 44–142% to <15–20%? | 1–2 days |
-| **`2B-0` (Triple-junction rounding)** | **YES (Mandatory Go/No-Go)** | Can Sheet-Decomposed Coupled Rounding produce clean, conformal, self-intersection-free `double` output at 3-material triple junctions & 4-material corners (acute angles, rotated UTM)? | 2–3 days |
+| **`4C-0` (`abc-chained` post-`#1744`)** | **DONE** (`run 46138598811`) | `ours` **32/36** all-steps-clean vs Geogram 3/36, CGAL 1/36; median `ours/geogram` = **`0.49×`** (77 shared steps); **`intersections.pairs` = `2.9%` on Step 3 (`4.6%` on Step 2)** (< 15% stop rule). | **`4C-1` NO-GO** |
+| **`4B-0`, `1A/1B`, `5A–5C`, `2A`** | **No spike needed** | Mechanisms, exact math, and interfaces are already proven in the codebase. | **Ready to build** |
+| **`4A-2-0` (`UnionMany` predictor)** | **DONE + Z3** | `batch16` 6.4×–11.0× faster on dense packings. Naive AABB/sub-box fail `lattice_216` & `diag_rods_144`; **`Sphere ∧ PCA-OBB`** achieves **24/24 perfect separation** (`max sparse = 6.0` vs `min dense = 11.6`, `1–38 ms`). | **`4A-2` GO** (`N >= 24 && deg >= 11.0`) |
+| **`3-0` (Differentiable CSG)** | **DONE + Z3** | $V, M_1, M_2, SE(3)$ match central FD to `1e-10..1e-8` (UTM `4.9e-7..1.45e-5`); 92–96% untouched tris → `fastV` = **`1.9%–2.4%`** of boolean (~88× faster), `fastVM1M2` = **`13.5%–16.4%`**; Z3 proved all 4 moment polynomial identities. | **`3` STRONG GO** |
+| **`2B-0` (`4A-1` DFS + `2B` rounding)** | **DONE + Z3** | `4A-1`: `mis=0, unv=0` on 861k pieces, DFS `50.9 ms` (needs Z3-proved **filtered degree-4 `Orient3d` fast path**). `2B`: Policy R1 stalls at `21/54`; **Policy R2 coupled seam moves** = **`48/48` (`100%`)** clean on all resolvable junctions; 3 `3mat_1ulp_coplanar` leftovers are `shared=3` collapsed double-faces (Z3-proved unresolvable → thin-cell collapse / refusal). | **`4A-1 + 2B` FULL GO** |
 
-## 4. Recommended Three-Phase Execution Sequence
+## 4. Recommended Three-Phase Execution Sequence (Post-Spikes)
 
 - **Phase 1 (Tier S/M, zero exact-kernel risk, highest production ROI):**
-  1. `4C-0` (`abc-chained` measurement) + `4B-0` (`flat_edge` `same_plane` fallback)
+  1. `4B-0` (`flat_edge` `same_plane` fallback)
   2. `1A + 1B` (`SolidBooleanPipeline.Verification` v2 + internal certificate hygiene)
   3. `5A–5C` (`SolidBooleanPipeline.Diagnose()` + `SolidBooleanRemediation` + `g3cli`/MCP `solid_boolean` & `sheet_extend`)
   4. `2A` (Opt-in Attribute & Provenance Propagation)
-- **Phase 2 (Tier M, unique technical differentiation):**
-  5. `3-0` → `3` (Exact Differentiable Volumetric CSG)
-  6. `4A-2-0` → `4A-2` (`SolidBooleanPipeline.UnionMany`) + `4C-1` (content-stamped self-join skip, only if `4C-0` confirms $\ge 15\%$)
-- **Phase 3 (Tier L, gate-controlled):**
-  7. `2B-0` spike → unified `4A-1` (Patch-Level Cell-Graph DFS) + `2B` (`ExactMeshPartition`)
+- **Phase 2 (Tier M, unique technical differentiation — both spikes passed):**
+  5. `3` (Exact Differentiable Volumetric CSG: $V, M_1, M_2, SE(3)$ + untouched-tri fast path + `SkipMeshOutput`)
+  6. `4A-2` (`SolidBooleanPipeline.UnionMany` with `Sphere ∧ PCA-OBB >= 11.0`; `4C-1` dropped by `4C-0`)
+- **Phase 3 (Tier L, Spike `2B-0` FULL GO — ready for formal design spec):**
+  7. Unified `4A-1` (Patch-Level Cell-Graph DFS + Z3-proved degree-4 `Orient3d` fast path) + `2B` (`ExactMeshPartition` with Policy R2 coupled seam moves + `shared=3` collapse/refusal)
 
 ## 5. Explicitly Parked Items & Reopen Triggers
 

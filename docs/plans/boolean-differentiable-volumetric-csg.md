@@ -2,25 +2,24 @@
 
 - **Umbrella study:** [EXACT_BOOLEAN_NEXT_PHASE_2026-11.md](../research/EXACT_BOOLEAN_NEXT_PHASE_2026-11.md) (Area 3)
 - **Prior prototype:** [EXACT_BOOLEAN_GRADIENTS_2026-11.md](../research/EXACT_BOOLEAN_GRADIENTS_2026-11.md), `mesh_ops/BooleanVolumeGradient.cs`, `benchmarks/BooleanVolumeGradient/README.md`
-- **Kind:** Phase 2 — short pre-implementation Spike `3-0` (1–2 days) followed by Tier-M public API implementation
+- **Kind:** Phase 2 — Spike `3-0` **PASSED (STRONG GO, 2026-11-28)**; ready for Tier-M public API implementation
 - **Tier:** M (builds on `ExactMeshBoolean.RetainClassification` + exact Hadamard integral formulas; no new geometric predicates or error bounds; $\nabla A$ explicitly excluded)
-- **Plan status:** draft, 2026-11-28 (Berlin).
+- **Plan status:** spike-verified (**STRONG GO**), ready for implementation, 2026-11-28 (Berlin). See [EXACT_BOOLEAN_SPIKES_2026-11.md](../research/EXACT_BOOLEAN_SPIKES_2026-11.md).
 
-## Current state
+## Current state (Post-Spike `3-0`)
 
 - `BooleanVolumeGradient` (`mesh_ops/BooleanVolumeGradient.cs`) computes exact volume gradients $\partial V / \partial x_v$ from the exact unrounded arrangement $E_s$ (before `MeshRoundingRepair`) via the Hadamard shape derivative over kept pieces, exposed in `g3cli boolean --volume-gradient`.
-- Measured overhead in [EXACT_BOOLEAN_GRADIENTS_2026-11.md](../research/EXACT_BOOLEAN_GRADIENTS_2026-11.md) is **44–142%** of the boolean wall time because every kept triangle (including untouched input triangles far from any intersection) runs the full exact piece-coordinate accumulation, and optimization loops currently pay for `SafeRounding` + mesh assembly on every gradient step even when only scalars/gradients are needed.
+- **Spike `3-0` empirical results (2026-11-28, `master`, `net10.0` Release, 5 reps median):**
+  - **Exact $V, M_1, M_2, SE(3)$ finite-difference agreement:** `1e-10..1e-8` across `identity`, `rotated`, and `scaled_2e-10`; `4.9e-7..1.45e-5` on `UTM_1e7_rot` (at $h = 10^{-3}$, where `1 ulp ≈ 9.3e-10` at `5.5e6`) — **zero missed intersection-curve terms**.
+  - **Untouched-triangle fast path (`49k + 49k` spheres):** **92.4%–95.8%** of kept pieces are untouched input triangles. Current `BooleanVolumeGradient` adds **137%–171%** overhead (`676–689 ms` vs. `402–412 ms` boolean) due to `BigInteger` `arr.Exact(id)` on every untouched triangle vertex. The untouched-triangle fast path cuts `fastV` to **`5.8–9.7 ms` (`1.9%–2.4%` of boolean — ~88× faster)** and full `V + M1 + M2` (`fastVM1M2`) to **`37.3–66.1 ms` (`13.5%–16.4%` of boolean — 11× faster than current volume-only gradient)**!
+  - **Unrounded optimization mode (`SkipRounding` + `fastV`):** **2.2×–3.9× faster per optimization step**.
 - **Conceptual audit result:**
   - **Volumetric moments ($V$, Center of Mass $M_1$, Inertia Tensor $M_2$, weighted depth/buoyancy/cut-fill integrals $\int_\Omega f(x)\,dx$) are 100% airtight:** by the Reynolds transport / divergence theorem, the intersection-curve boundary terms cancel identically across all continuous integrands $f(x)$! Only kept-face integrals are needed; flush-contact kinks are already detected and reported cleanly.
   - **Surface Area gradient ($\nabla A$) is explicitly PARKED:** it does NOT cancel along intersection curves — it requires Tier-L seam provenance, exhibits a $1/\sin\theta$ dihedral singularity at grazing intersections, and has non-smooth edge-on-face kinks.
 
 ## Goal
 
-1. **Spike `3-0` (1–2 days, gate before public API):**
-   - Derive and verify exact closed-form vertex gradients for **first moment $M_1 = \int_\Omega x\,dx$ (Center of Mass)** and **second moment $M_2 = \int_\Omega x x^T\,dx$ (Inertia Tensor)** against central finite differences across `Similarity.All()`, rotated UTM frames, and flush contacts (confirming zero missed seam terms).
-   - Measure the upper-bound speedup of the **untouched-triangle fast path** + **unrounded evaluation mode** (`SkipRoundingAndAssembly`) on `benchmarks/BooleanVolumeGradient` (target: cut gradient overhead from 44–142% to `< 15–20%` of boolean time, and cut per-iteration optimization time by avoiding `SafeRounding`).
-2. **Phase 2 Implementation (after `3-0` green):**
-   - Ship a fast, exact, public differentiable volumetric CSG engine supporting `Volume`, `CenterOfMass`, `InertiaTensor`, linear/polynomial depth integrals (buoyancy, cut-fill), **$SE(3)$ rigid-body pose pullbacks** ($\partial L / \partial t$, $\partial L / \partial \omega$ via exact skew-symmetric cross product), generic **parametric pullback** (`ChainRule(dx/dp)`), untouched-triangle fast path, deterministic parallel block reduction, and unrounded optimization loop mode (`ComputeGradientsOnly`).
+- Ship a fast, exact, public differentiable volumetric CSG engine supporting `Volume`, `CenterOfMass` ($M_1$), `InertiaTensor` ($M_2$), linear/polynomial depth integrals (buoyancy, cut-fill), **$SE(3)$ rigid-body pose pullbacks** ($\partial L / \partial t$, $\partial L / \partial \omega$ via exact skew-symmetric cross product), generic **parametric pullback** (`ChainRule(dx/dp)`), the spike-verified **untouched-triangle fast path** (`1.9%–2.4%` overhead for $V$, `13.5%–16.4%` for $V + M_1 + M_2$), deterministic parallel block reduction, and unrounded optimization loop mode (`SkipMeshOutput`).
 
 ## Scope
 
