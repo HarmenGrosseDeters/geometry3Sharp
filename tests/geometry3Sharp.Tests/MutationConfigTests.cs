@@ -23,7 +23,7 @@ namespace geometry3Sharp.Tests
             ["mesh_ops/ExactMeshGeodesicDistance.cs"] = new[] { "void Add(" },
             ["math/ExactPredicates.cs"] = new[] { "static void negate128(" },
             // (generated: a regeneration that moves the split fails here, then move the span of bisector-1 / -2)
-            ["math/Generated/BisectorPredicates.cs"] = new[] { "internal static int DetSitesNormal(" },
+            ["math/Generated/BisectorPredicates.cs"] = new[] { "internal static int DetSitesNormal(ref FixedPoint3 o," },
         };
 
         static string RepoRoot()
