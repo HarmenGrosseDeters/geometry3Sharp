@@ -70,6 +70,7 @@ namespace g3
         readonly System.Threading.CancellationToken cancel;
         readonly int emin;                  // the common exponent: coordinates and pixel width are integers times 2^emin
         readonly double w;
+        readonly int decimalPlaces;         // -1: binary64 k * w; 0..15: exact decimal k / 10^decimalPlaces (spec O12)
         readonly BigInteger W;              // the pixel width in units
         readonly BigInteger[] X, Y;         // twice the input coordinates, in units
         readonly long[] KX, KY;             // the pixel of each input point
@@ -79,10 +80,11 @@ namespace g3
         readonly long bucket;                // side of the spatial buckets, in pixels
         List<List<(long, long)>> chains;
 
-        SnapRounding2(ConstrainedMesh2Input input, double tolerance, System.Threading.CancellationToken cancel)
+        SnapRounding2(ConstrainedMesh2Input input, double tolerance, System.Threading.CancellationToken cancel, int decimalPlaces)
         {
             this.input = input; this.cancel = cancel;
             w = tolerance;
+            this.decimalPlaces = decimalPlaces;
             int n = input.Points.Count;
             // the common exponent of all coordinates and the pixel width
             var mant = new BigInteger[2 * n + 1];
@@ -142,10 +144,10 @@ namespace g3
         }
 
         /// <summary> Snap-rounds the input; throws ArgumentException for a tolerance that is not positive and finite or too small </summary>
-        public static SnapRounding2 Apply(ConstrainedMesh2Input input, double tolerance, System.Threading.CancellationToken cancel = default(System.Threading.CancellationToken))
+        public static SnapRounding2 Apply(ConstrainedMesh2Input input, double tolerance, System.Threading.CancellationToken cancel = default(System.Threading.CancellationToken), int decimalPlaces = -1)
         {
             if (!(tolerance > 0) || double.IsInfinity(tolerance)) throw new ArgumentException("SnapTolerance must be positive and finite");
-            var s = new SnapRounding2(input, tolerance, cancel);
+            var s = new SnapRounding2(input, tolerance, cancel, decimalPlaces);
             s.Compute();
             return s;
         }
@@ -877,12 +879,13 @@ namespace g3
 
         void Build()
         {
+            Grid = new SnapGrid(w, decimalPlaces);
             int n = input.Points.Count;
             var points = new List<Vector2d>(n);
             var rep = new Dictionary<(long, long), int>();
             for (int i = 0; i < n; ++i) {
                 var p = input.Points[i];
-                var c = new Vector2d(KX[i] * w, KY[i] * w);
+                var c = new Vector2d(Grid.Centre(KX[i]), Grid.Centre(KY[i]));
                 points.Add(c);
                 MaxDisplacement = Math.Max(MaxDisplacement, Math.Max(Math.Abs(c.x - p.x), Math.Abs(c.y - p.y)));
                 if (!rep.ContainsKey((KX[i], KY[i]))) rep.Add((KX[i], KY[i]), i);
@@ -890,7 +893,7 @@ namespace g3
             // extra hot pixels (crossings and restore) as new points, in a deterministic order
             var source = new Dictionary<(long, long), int>();
             for (int c = 0; c < chains.Count; ++c) foreach (var p in chains[c]) if (!rep.ContainsKey(p) && !source.ContainsKey(p)) source.Add(p, c);
-            foreach (var p in source.Keys.OrderBy(p => p.Item2).ThenBy(p => p.Item1)) { rep.Add(p, points.Count); points.Add(new Vector2d(p.Item1 * w, p.Item2 * w)); }
+            foreach (var p in source.Keys.OrderBy(p => p.Item2).ThenBy(p => p.Item1)) { rep.Add(p, points.Count); points.Add(new Vector2d(Grid.Centre(p.Item1), Grid.Centre(p.Item2))); }
 
             List<int> ChainOf(int a, int b)
             {
@@ -908,7 +911,6 @@ namespace g3
                     if (!list.Contains(o)) list.Add(o);
                 }
             }
-            Grid = new SnapGrid(w);
             var result = new ConstrainedMesh2Input { Points = points, HoleSeeds = new List<Vector2d>(), Regions = new List<Mesh2Region>() };
             SegmentChainStart = new int[input.Segments.Count + 1];
             for (int si = 0; si < input.Segments.Count; ++si) {
@@ -1038,7 +1040,7 @@ namespace g3
         public List<Vector2d> ChainPoints(int a, int b)
         {
             var key = a < b ? (a, b) : (b, a);
-            var chain = chains[routedIndex[key]].Select(p => new Vector2d(p.Item1 * w, p.Item2 * w)).ToList();
+            var chain = chains[routedIndex[key]].Select(p => new Vector2d(Grid.Centre(p.Item1), Grid.Centre(p.Item2))).ToList();
             if (key.Item1 != a) chain.Reverse();
             return chain;
         }
@@ -1046,13 +1048,31 @@ namespace g3
     }
 
     /// <summary>
-    /// The pixel grid of a snap tolerance (D14): pixels of width w centred on the points k w, half-open (closed left and bottom), anchored
-    /// at the origin. Every decision is exact: the coordinates and w as integers on their common power of two.
+    /// The pixel grid of a snap tolerance (D14, O12): pixels of width w centred on the points k w, half-open (closed left and bottom),
+    /// anchored at the origin. Every decision is exact: the coordinates and w as integers on their common power of two.
+    /// When <c>decimalPlaces</c> is in 0..15 (opt-in <c>OutputDecimalPlaces</c>, where 10^d &lt; 2^53 is exact in binary64),
+    /// <see cref="Centre"/> computes k / 10^d instead of k * w so every grid centre is the exact binary64 value of decimal rounding
+    /// to d places (no 1-ULP drift on export), while keeping <c>SnapTolerance</c> power-of-two scale invariant when disabled.
     /// </summary>
     internal sealed class SnapGrid
     {
         public readonly double W;
-        public SnapGrid(double w) { W = w; }
+        internal readonly double DecimalScale;
+        internal readonly int DecimalPlaces;
+
+        public SnapGrid(double w, int decimalPlaces = -1)
+        {
+            W = w;
+            DecimalPlaces = decimalPlaces;
+            DecimalScale = decimalPlaces >= 0 ? Pow10(decimalPlaces) : 0;
+        }
+
+        internal static double Pow10(int decimalPlaces)
+        {
+            double p = 1.0;
+            for (int i = 0; i < decimalPlaces; ++i) p *= 10.0;
+            return p;
+        }
 
         /// <summary>
         /// the pixel index of x: floor(x / w + 1/2), exactly. A filter first, else the exact quotient (<see cref="PixelExact"/>).
@@ -1086,7 +1106,11 @@ namespace g3
             return (long)q;
         }
 
-        public double Centre(long k) => k * W;
+        public double Centre(long k)
+        {
+            double v = DecimalScale > 0 ? k / DecimalScale : k * W;
+            return v == 0 ? 0.0 : v;
+        }
 
         /// <summary> the centre of the pixel holding the circumcentre of triangle abc, exactly (false for a degenerate triangle) </summary>
         public bool CircumcentrePixelCentre(Vector2d a, Vector2d b, Vector2d c, out Vector2d centre)

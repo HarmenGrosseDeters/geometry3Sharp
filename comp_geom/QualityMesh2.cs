@@ -69,13 +69,23 @@ namespace g3
         /// </summary>
         public double SnapTolerance;
 
-        /// <exception cref="ArgumentException">An option or the input is invalid (an angle outside [0, 60), a non-positive area).</exception>
+        /// <summary>
+        /// Optional decimal output grid precision (spec O12, F-65): when set to <c>d</c> in <c>0..15</c>, snaps the input and
+        /// every constructed or Steiner vertex onto the decimal grid of spacing <c>10^-d</c> with exact decimal centres
+        /// <c>k / 10^d</c> (bit-identical to <see cref="Math.Round(double, int)"/> to <c>d</c> places, so post-export decimal
+        /// rounding changes no coordinate and flips no triangle). <c>null</c> (default): disabled (uses <see cref="SnapTolerance"/>).
+        /// </summary>
+        public int? OutputDecimalPlaces;
+
+        /// <exception cref="ArgumentException">An option or the input is invalid (an angle outside [0, 60), a non-positive area, or conflicting SnapTolerance / OutputDecimalPlaces).</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><see cref="OutputDecimalPlaces"/> is outside <c>[0, 15]</c>.</exception>
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (double.IsNaN(MinAngle) || MinAngle < 0 || MinAngle >= 60) throw new ArgumentException("MinAngle must be at least 0 and below 60 degrees (decision D12)");
             if (MaxArea != null && !(MaxArea.Value > 0) || MaxArea != null && double.IsInfinity(MaxArea.Value)) throw new ArgumentException("MaxArea must be positive and finite");
             if (SteinerLimit != null && SteinerLimit.Value < 0) throw new ArgumentException("SteinerLimit must not be negative");
+            ConstrainedDelaunayMesh2.ResolveSnapGrid(SnapTolerance, OutputDecimalPlaces, out double snapTolerance, out int decimalPlaces);
             if (input.Regions != null)
                 foreach (var r in input.Regions)
                     if (r != null && r.MaxArea != null && !(r.MaxArea.Value > 0)) throw new ArgumentException("a region's MaxArea must be positive");
@@ -83,7 +93,7 @@ namespace g3
             // MESHING2D_HULL_GRID.md): appended as segments, their chains through hot pixels become the hull sources, so refinement
             // splits them in the envelopes of the true hull edges, as it splits segments
             int hullFrom = -1;
-            if (SnapTolerance > 0 && Refines(input) && !(input.Rings ?? new List<Mesh2Ring>()).Any(r => r != null && !r.Hole)) {
+            if (snapTolerance > 0 && Refines(input) && !(input.Rings ?? new List<Mesh2Ring>()).Any(r => r != null && !r.Hole)) {
                 // (the input checked first, as Snapped does, so that a bad input gets its own message, not one of the hull; review)
                 new ConstrainedDelaunayMesh2.Builder(input, true, cancellationToken).Validate();
                 var hull = ExactHull(input.Points);
@@ -95,14 +105,14 @@ namespace g3
                         Regions = input.Regions, Heights = input.Heights };
                 }
             }
-            return ConstrainedDelaunayMesh2.Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => {
+            return ConstrainedDelaunayMesh2.Snapped(input, snapTolerance, cancellationToken, (snapped, snap) => {
                 var builder = new ConstrainedDelaunayMesh2.Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false, SnapRounded = snap != null };
                 if (hullFrom >= 0) { builder.HullSegmentsFrom = snap.SegmentChainStart[hullFrom]; builder.HullSegmentsTo = snap.SegmentChainStart[input.Segments.Count]; }
                 var refiner = new Refiner(this, builder, snap);
                 builder.refine = refiner.Run;
                 builder.IsBad = refiner.BelowAngle;
                 return builder.Run();
-            });
+            }, decimalPlaces);
         }
 
         /// <summary> refinement runs: an angle, an area, a size, a region area, or conforming (as Refiner.Run decides) </summary>
