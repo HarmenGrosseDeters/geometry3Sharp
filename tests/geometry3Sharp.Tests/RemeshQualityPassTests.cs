@@ -158,7 +158,7 @@ namespace geometry3Sharp.Tests
             AssertCleanResult(start, m, reference, r, delta);
             Assert.True(r.Worst1PercentAfter > r.Worst1PercentBefore + 15, $"1 % rank {r.Worst1PercentBefore} -> {r.Worst1PercentAfter}");
             Assert.True(r.CreaseInsertions + r.CreaseRemovals > 0, "crease operations made");
-            Assert.True(m.TriangleCount <= Math.Floor(start.TriangleCount * 1.1));
+            Assert.True(m.TriangleCount <= Math.Floor(start.TriangleCount * 1.05));
             List<Segment3d> refCreases = SharpEdges(reference), outCreases = SharpEdges(m);
             Assert.True(CurveDistance(outCreases, refCreases) <= delta, "every crease of the result on a crease of the box");
             Assert.True(CurveDistance(refCreases, outCreases) <= delta, "every crease of the box kept");
@@ -571,6 +571,94 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary>
+        /// with the corners free (internal PinCreaseCorners = false, a crease vertex anywhere may be removed along its
+        /// creases) every crease edge of the result still lies within the band of the box's edges: the collapses' new crease
+        /// edges went through the crease band
+        /// </summary>
+        [Fact]
+        public void FreeCorners_CreaseEdgesStayInTheCreaseBand()
+        {
+            DMesh3 reference = BoxInput();
+            double size = reference.CachedBounds.DiagonalLength;
+            // (a band between a third of a corner needle's short edge, what cutting the corner moves the surface, and three
+            // quarters of it, what it moves the crease: only the crease band refuses)
+            foreach (int seed in new[] { 1, 2, 3, 4, 5, 6 }) {
+                DMesh3 start = Slivered(BoxRemeshed.Value, 80, seed);
+                double delta = 1.6e-3 * size;
+                DMesh3 m = new DMesh3(start);
+                var pass = new RemeshQualityPass(m, reference) { MaxDeviation = delta, PinCreaseCorners = false };
+                var r = pass.Compute();
+                AssertCleanResult(start, m, reference, r, delta);
+                Assert.True(r.CreaseRemovals > 0);
+                var outCreases = m.EdgeIndices().Select(e => m.GetEdgeV(e)).Where(ev => pass.IsCrease(ev.a, ev.b))
+                    .Select(ev => new Segment3d(m.GetVertex(ev.a), m.GetVertex(ev.b))).ToList();
+                Assert.True(CurveDistance(outCreases, SharpEdges(reference)) <= delta, $"seed {seed}: {CurveDistance(outCreases, SharpEdges(reference)) / delta} delta");
+            }
+        }
+
+        // a shallow tent (sides sloping 0.1 down from the ridge, so a 11 degree crease) along a ridge polyline, a strip of
+        // half-width w on both sides; at a bend the side points sit on the bisector, w / cos(turn / 2) out
+        static DMesh3 Tent(Vector3d[] ridge, double w, double slope)
+        {
+            var m = new DMesh3();
+            int n = ridge.Length;
+            int[] P = new int[n], L = new int[n], R = new int[n];
+            for (int i = 0; i < n; ++i) {
+                Vector3d din = i > 0 ? (ridge[i] - ridge[i - 1]).Normalized : (ridge[1] - ridge[0]).Normalized;
+                Vector3d dout = i < n - 1 ? (ridge[i + 1] - ridge[i]).Normalized : din;
+                Vector3d d = (din + dout).Normalized;
+                Vector3d nrm = new Vector3d(-d.y, d.x, 0);
+                double f = 1 / Math.Max(0.2, din.Dot(d));
+                P[i] = m.AppendVertex(ridge[i]);
+                L[i] = m.AppendVertex(ridge[i] + f * w * nrm - new Vector3d(0, 0, slope * w));
+                R[i] = m.AppendVertex(ridge[i] - f * w * nrm - new Vector3d(0, 0, slope * w));
+            }
+            void tri(int a, int b, int c)
+            {
+                Vector3d nn = (m.GetVertex(b) - m.GetVertex(a)).Cross(m.GetVertex(c) - m.GetVertex(a));
+                if (nn.z > 0) m.AppendTriangle(a, b, c); else m.AppendTriangle(a, c, b);
+            }
+            for (int i = 0; i + 1 < n; ++i) {
+                tri(P[i], P[i + 1], L[i + 1]); tri(P[i], L[i + 1], L[i]);
+                tri(P[i], R[i], R[i + 1]); tri(P[i], R[i + 1], P[i + 1]);
+            }
+            return m;
+        }
+
+        /// <summary>
+        /// a crease collapse whose new crease edge cuts a bend of the crease is refused by the crease band, also where the
+        /// surface band would allow it. The ridge of a shallow tent turns by 60 degrees at k (a corner, pinned) and by 40 at r
+        /// (sliding), with |kr| = 0.1 and |rx| = 0.4. Removing r into k (the needle on the short crease edge kr) makes the
+        /// crease edge kx, about 0.05 off the bend, while the surface moves by about 0.006: at a band of 0.02 only the crease band
+        /// refuses it. With a band of 1 the collapse is made (the precondition)
+        /// </summary>
+        [Fact]
+        public void CreaseCollapse_RefusedWhenTheNewCreaseEdgeCutsABend()
+        {
+            double c40 = Math.Cos(40 * MathUtil.Deg2Rad), s40 = Math.Sin(40 * MathUtil.Deg2Rad);
+            Vector3d k = Vector3d.Zero, r = new Vector3d(0.1, 0, 0), x = r + 0.4 * new Vector3d(c40, s40, 0), x2 = x + 0.4 * new Vector3d(c40, s40, 0);
+            Vector3d j = k + 0.6 * new Vector3d(-Math.Cos(60 * MathUtil.Deg2Rad), -Math.Sin(60 * MathUtil.Deg2Rad), 0);
+            DMesh3 tent = Tent(new[] { j - 0.6 * new Vector3d(Math.Cos(60 * MathUtil.Deg2Rad), Math.Sin(60 * MathUtil.Deg2Rad), 0), j, k, r, x, x2 }, 0.3, 0.1);
+            Assert.True(tent.CheckValidity(false, FailMode.ReturnOnly));
+            int rv = tent.VertexIndices().First(v => tent.GetVertex(v) == r);
+            RemeshQualityResult run(double delta, out DMesh3 m, out RemeshQualityPass pass)
+            {
+                m = new DMesh3(tent);
+                pass = new RemeshQualityPass(m, new DMesh3(tent)) { MaxDeviation = delta, CreaseAngleDegrees = 5, MaxPasses = 1,
+                    EnableFlips = false, EnableSplits = false, EnableRelocation = false };
+                return pass.Compute();
+            }
+            var wide = run(1, out DMesh3 mw, out RemeshQualityPass pw);
+            Assert.False(mw.IsVertex(rv), "precondition: with a band of 1 the bend vertex is removed");
+            var narrow = run(0.02, out DMesh3 mn, out RemeshQualityPass pn);
+            Assert.True(mn.IsVertex(rv) && mn.GetVertex(rv) == r, "the bend vertex stays");
+            Assert.True(narrow.RejectedByBand > 0);
+            // and every crease edge of the result is on the ridge or the boundary within the band
+            var outCreases = mn.EdgeIndices().Select(e => mn.GetEdgeV(e)).Where(ev => pn.IsCrease(ev.a, ev.b)).Select(ev => new Segment3d(mn.GetVertex(ev.a), mn.GetVertex(ev.b))).ToList();
+            Assert.True(CurveDistance(outCreases, SharpEdges(tent, 5)) <= 0.02);
+        }
+
         /// <summary> the angle measure does not depend on the corner order, bit for bit (the never-lower guarantee rests on it) </summary>
         [Fact]
         public void MinAngle_IndependentOfTheCornerOrder()
@@ -689,6 +777,167 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, run(40).Flips);     // (the turn is 34 degrees)
         }
 
+        /// <summary>
+        /// a flip whose new edge pierces a small vertical sheet under the ridge of the two triangles (an improving flip
+        /// otherwise) is refused by the exact test; without the guard it is made
+        /// </summary>
+        [Fact]
+        public void Flip_RefusedIfTheNewEdgePiercesTheMesh()
+        {
+            DMesh3 m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0.1)), b = m.AppendVertex(new Vector3d(1, 0, 0.1));
+            int c = m.AppendVertex(new Vector3d(0.5, 0.4, 0)), d = m.AppendVertex(new Vector3d(0.5, -0.4, 0));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(b, a, d);
+            // the sheet in the plane y = 0, below the ridge, around the point (0.5, 0, 0) the new edge (c, d) passes
+            int s0 = m.AppendVertex(new Vector3d(0.45, 0, 0.02)), s1 = m.AppendVertex(new Vector3d(0.55, 0, 0.02)), s2 = m.AppendVertex(new Vector3d(0.5, 0, -0.05));
+            m.AppendTriangle(s0, s1, s2);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(m));
+            RemeshQualityResult run(bool guard, out DMesh3 x)
+            {
+                x = new DMesh3(m);
+                return new RemeshQualityPass(x, new DMesh3(m)) { MaxDeviation = 1, CreaseAngleDegrees = 60, TargetMinAngleDegrees = 60, PreventSelfIntersections = guard,
+                    EnableRelocation = false, EnableCollapses = false, EnableSplits = false }.Compute();
+            }
+            var with = run(true, out DMesh3 kept);
+            Assert.Equal(0, with.Flips);
+            Assert.True(with.RejectedByIntersection > 0);
+            Assert.Equal(0, MeshRepairMetrics.SelfIntersections(kept));
+            var without = run(false, out DMesh3 flipped);
+            Assert.Equal(1, without.Flips);                                    // (the precondition: the flip is wanted)
+            Assert.True(MeshRepairMetrics.SelfIntersections(flipped) > 0);
+        }
+
+        /// <summary>
+        /// a relocation that would lower the smallest angle of its ring by less than MinGainDegrees (0.05 degrees here) is
+        /// not made either: the rule is a gain, not a tolerance
+        /// </summary>
+        [Fact]
+        public void Relocation_NotMadeIfItLowersTheRingAngleSlightly()
+        {
+            double[] deg = { 111, 142, 188, 225, 250, 339 }, rad = { 0.9, 2.5, 2.0, 1.2, 1.8, 1.25 };
+            var ringPts = deg.Select((dd, i) => new Vector3d(rad[i] * Math.Cos(dd * MathUtil.Deg2Rad), rad[i] * Math.Sin(dd * MathUtil.Deg2Rad), 0)).ToArray();
+            Vector3d q = ringPts.Aggregate(Vector3d.Zero, (acc, r) => acc + r) / ringPts.Length;
+            double at(Vector3d p) => Enumerable.Range(0, ringPts.Length).Min(i => RemeshQualityPass.MinAngle(p, ringPts[i], ringPts[(i + 1) % ringPts.Length]));
+            // the vertex on the segment (0, q) where its ring's angle is 0.05 above the centroid's (bisection)
+            double lo = 0, hi = 1, target = at(q) + 0.05;
+            for (int k = 0; k < 60; ++k) { double mid = 0.5 * (lo + hi); if (at(mid * q) > target) lo = mid; else hi = mid; }
+            Vector3d p0 = lo * q;
+            Assert.InRange(at(p0) - at(q), 0.01, 0.1);
+            DMesh3 m = new DMesh3();
+            int v = m.AppendVertex(p0);
+            var ring = ringPts.Select(x => m.AppendVertex(x)).ToArray();
+            for (int i = 0; i < ring.Length; ++i) m.AppendTriangle(v, ring[i], ring[(i + 1) % ring.Length]);
+            var r1 = new RemeshQualityPass(m, new DMesh3(m)) { MaxDeviation = 1, EnableFlips = false, EnableCollapses = false, EnableSplits = false }.Compute();
+            Assert.Equal(0, r1.Relocations);
+            Assert.Equal(p0, m.GetVertex(v));
+        }
+
+        /// <summary>
+        /// the crease edges a crease collapse makes are the removed vertex's other crease edges, moved to the kept vertex,
+        /// and they go through the crease band: on the box, removing a crease vertex next to a corner into its neighbour
+        /// along one edge gives the chord to the corner's ... (here: a vertex on an edge, its two crease neighbours)
+        /// </summary>
+        [Fact]
+        public void CollapseChords_AreTheRemovedVertexsOtherCreaseEdges_AndGoThroughTheBand()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 m = new DMesh3(BoxRemeshed.Value);
+            var pass = new RemeshQualityPass(m, reference) { MaxDeviation = 1e-3 };
+            pass.Prepare();
+            // a crease vertex with exactly two crease neighbours u, w
+            int v = m.VertexIndices().First(x => m.VtxVerticesItr(x).Count(y => pass.IsCrease(x, y)) == 2);
+            var nb = m.VtxVerticesItr(v).Where(y => pass.IsCrease(v, y)).ToArray();
+            int u = nb[0], w = nb[1];
+            var chords = new List<KeyValuePair<Vector3d, Vector3d>>();
+            pass.collapse_chords(u, v, m.GetVertex(u), chords);
+            Assert.Single(chords);
+            Assert.Equal(m.GetVertex(u), chords[0].Key);
+            Assert.Equal(m.GetVertex(w), chords[0].Value);
+            // (along a straight edge the chord is on the crease; moved 0.01 off it, it is not)
+            Assert.True(pass.chord_on_feature(chords[0].Key, chords[0].Value));
+            Vector3d off = new Vector3d(0, 0, 0.01);
+            Assert.False(pass.accept(new List<Index3i>(), new List<Triangle3d>(), new HashSet<int>(),
+                new List<KeyValuePair<Vector3d, Vector3d>> { new KeyValuePair<Vector3d, Vector3d>(chords[0].Key + off, chords[0].Value + off) }));
+            Assert.Equal(1, pass.Counters.RejectedByCrease);
+        }
+
+        /// <summary>
+        /// a triangle of exactly zero area (a vertex on the segment of two of its ring neighbours) is repaired: it has no
+        /// normal, so its new triangle is held to the ring's normal instead of being refused
+        /// </summary>
+        [Fact]
+        public void ZeroAreaTriangle_IsRepaired()
+        {
+            DMesh3 m = new DMesh3();
+            int n = 6;
+            var id = new int[n + 1, n + 1];
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) id[i, j] = m.AppendVertex(new Vector3d(i, j, 0));
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) { m.AppendTriangle(id[i, j], id[i + 1, j], id[i + 1, j + 1]); m.AppendTriangle(id[i, j], id[i + 1, j + 1], id[i, j + 1]); }
+            // vertex (3, 3) onto the midpoint of its neighbours (2, 3) and (3, 4): the triangle (2,3)-(3,3)-(3,4) is flat
+            int v = id[3, 3];
+            m.SetVertex(v, 0.5 * (m.GetVertex(id[2, 3]) + m.GetVertex(id[3, 4])));
+            Assert.Equal(0, MeshMinAngle(m));
+            Assert.True(m.TriangleIndices().Where(t => m.GetTriArea(t) > 0).All(t => m.GetTriNormal(t).z > 0), "the other triangles face up");
+            DMesh3 start = new DMesh3(m);
+            var r = new RemeshQualityPass(m, new DMesh3(start)) { MaxDeviation = 1e-3 }.Compute();
+            Assert.Equal(0, r.MinAngleBefore);
+            Assert.True(r.MinAngleAfter > 10, $"{r.MinAngleAfter}");
+            Assert.True(m.TriangleIndices().All(t => m.GetTriNormal(t).z > 0.99), "all face up");
+            Assert.True(r.ResultWithinBand);
+            // the same with relocations only, and with collapses only: each repairs it on its own (the ring's normal stands in
+            // for the flat triangle's)
+            foreach (bool move in new[] { true, false }) {
+                DMesh3 x = new DMesh3(start);
+                var rx = new RemeshQualityPass(x, new DMesh3(start)) { MaxDeviation = 1e-3, EnableFlips = false, EnableSplits = false,
+                    EnableRelocation = move, EnableCollapses = !move }.Compute();
+                Assert.True(rx.MinAngleAfter > 0, $"{(move ? "relocation" : "collapse")}: {rx.MinAngleAfter}");
+                Assert.True(x.TriangleIndices().All(t => x.GetTriNormal(t).z > 0.99));
+            }
+        }
+
+        /// <summary> a long skew crease segment over small cells is put into the cells along it only (no box blow-up) </summary>
+        [Fact]
+        public void CreaseGrid_LongSkewSegment_StaysSmall()
+        {
+            // a reference with many tiny sharp edges (a jagged strip) and one long diagonal boundary edge
+            DMesh3 r = new DMesh3();
+            int k = 400;
+            for (int i = 0; i <= k; ++i) { r.AppendVertex(new Vector3d(i * 0.0025, 0, (i % 2) * 0.0025)); r.AppendVertex(new Vector3d(i * 0.0025, 0.0025, (i % 2) * 0.0025)); }
+            for (int i = 0; i < k; ++i) { r.AppendTriangle(2 * i, 2 * i + 2, 2 * i + 3); r.AppendTriangle(2 * i, 2 * i + 3, 2 * i + 1); }
+            int far = r.AppendVertex(new Vector3d(0, 1, 1));
+            r.AppendTriangle(2 * k + 1, far, 1);     // (a long thin triangle: its edges are long skew boundary edges)
+            var pass = new RemeshQualityPass(new DMesh3(r), r) { MaxDeviation = 1e-3 };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            pass.Prepare();
+            Assert.True(sw.Elapsed.TotalSeconds < 2, $"{sw.Elapsed.TotalSeconds} s");
+            Assert.True(pass.FeatureCellCount < 200000, $"{pass.FeatureCellCount} cells");
+            // the cells along the long edge still find it
+            Vector3d mid = 0.5 * (r.GetVertex(1) + r.GetVertex(far));
+            Assert.True(pass.chord_on_feature(mid - 0.01 * (r.GetVertex(far) - r.GetVertex(1)), mid + 0.01 * (r.GetVertex(far) - r.GetVertex(1))));
+        }
+
+        /// <summary> CancelF = null means never cancelled; repeated Computes do not grow the mesh past MaxTriangleGrowth of the first </summary>
+        [Fact]
+        public void NullCancel_AndGrowthAcrossComputes()
+        {
+            DMesh3 reference = BoxInput();
+            DMesh3 start = Slivered(BoxRemeshed.Value, 60, 1);
+            double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
+            DMesh3 m = new DMesh3(start);
+            // (no collapses: the count only grows, by the splits the needles want, far more than the bound)
+            var pass = new RemeshQualityPass(m, reference) { MaxDeviation = delta, CancelF = null, MaxTriangleGrowth = 0.002, MaxPasses = 1, EnableCollapses = false };
+            int splits = 0;
+            for (int k = 0; k < 4; ++k) {
+                var r = pass.Compute();
+                Assert.NotEqual(RemeshQualityStatus.Cancelled, r.Status);
+                splits += r.Splits + r.CreaseInsertions;
+            }
+            Assert.True(splits > 0);
+            Assert.True(m.TriangleCount <= Math.Floor(start.TriangleCount * 1.002), $"{start.TriangleCount} -> {m.TriangleCount}");
+        }
+
         /// <summary> the exact self-intersection guard: a new triangle through another one is refused, a free one accepted </summary>
         [Fact]
         public void Accept_RefusesANewTriangleThroughTheMesh()
@@ -706,6 +955,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1, pass.Counters.RejectedByIntersection);
             var inside = new Triangle3d(c + new Vector3d(-0.01, 0, -0.01), c + new Vector3d(0.01, 0, -0.01), c + new Vector3d(0, 0, 0.01));
             Assert.True(pass.accept(ids, new List<Triangle3d> { inside }, new HashSet<int>(), new List<KeyValuePair<Vector3d, Vector3d>>()));
+            // two new triangles of one operation that cross each other (no shared vertex) are refused too
+            var x1 = new Triangle3d(c + new Vector3d(-0.01, 0, -0.01), c + new Vector3d(0.01, 0, -0.01), c + new Vector3d(0, 0, 0.01));
+            var x2 = new Triangle3d(c + new Vector3d(0, -0.01, -0.005), c + new Vector3d(0, 0.01, -0.005), c + new Vector3d(0, 0, 0.02));
+            int before = pass.Counters.RejectedByIntersection;
+            Assert.False(pass.accept(new List<Index3i> { new Index3i(int.MaxValue - 3, int.MaxValue - 2, int.MaxValue - 1), new Index3i(int.MaxValue - 6, int.MaxValue - 5, int.MaxValue - 4) },
+                new List<Triangle3d> { x1, x2 }, new HashSet<int>(), new List<KeyValuePair<Vector3d, Vector3d>>()));
+            Assert.Equal(before + 1, pass.Counters.RejectedByIntersection);
             // a new crease edge off the box's creases is refused by the crease band (checked first)
             var narrow = new RemeshQualityPass(m, reference) { MaxDeviation = 0.01 };
             narrow.Prepare();
@@ -756,8 +1012,20 @@ namespace geometry3Sharp.Tests
             double delta = 1e-3 * reference.CachedBounds.DiagonalLength;
             DMesh3 m0 = new DMesh3(start);
             var r0 = new RemeshQualityPass(m0, reference) { MaxDeviation = delta }.Compute();
+            // (TwoSided against the remeshed box, whose triangles the needles' points lie on: the coverage of a reference much
+            // coarser than the mesh, the 12 triangles of the box, needs more pieces than a certificate may use)
+            DMesh3 tref = BoxRemeshed.Value;
+            DMesh3 t0 = new DMesh3(start);
+            var rt0 = new RemeshQualityPass(t0, tref) { MaxDeviation = delta, TwoSided = true }.Compute();
+            Assert.True(rt0.Status == RemeshQualityStatus.Improved && rt0.ResultWithinBand && rt0.StartWithinBand);
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 ref1 = Invariance.Transformed(reference, s), start1 = Invariance.Transformed(start, s);
+                // (TwoSided too: the coverage cascade)
+                DMesh3 t = new DMesh3(start1);
+                var rt = new RemeshQualityPass(t, Invariance.Transformed(tref, s)) { MaxDeviation = s.ApplyLength(delta), TwoSided = true }.Compute();
+                if (s.IsExact) Assert.Equal("", Invariance.Difference(t0, Invariance.MappedBack(t, s)));
+                Assert.True(rt.Status == RemeshQualityStatus.Improved && rt.ResultWithinBand && t.IsClosed(), s.Name);
+                Assert.True(MeshMinAngle(t) >= MeshMinAngle(start1), s.Name);
                 DMesh3 m = new DMesh3(start1);
                 var r = new RemeshQualityPass(m, ref1) { MaxDeviation = s.ApplyLength(delta) }.Compute();
                 if (s.IsExact) {

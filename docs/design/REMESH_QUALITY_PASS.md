@@ -28,7 +28,7 @@ Each pass runs, in this order (every list sorted by the smallest angle, ties by 
    - Caps (largest angle above 120) are split at the foot of the altitude. No new triangle may have a smaller smallest or a larger largest angle.
    - Then needles: their edges are tried in the order crease edges first, then by decreasing length, each split at its midpoint, the first whose four
      new triangles' smallest angle rises is made. This is graded refinement next to short crease edges.
-   - On a crease edge the new point is put onto the reference's crease (Wang 2019, insertion). At most `MaxTriangleGrowth` (10 %) more triangles.
+   - On a crease edge the new point is put onto the reference's crease (Wang 2019, insertion). At most `MaxTriangleGrowth` (5 %, owner-approved) more triangles than at the first `Compute` of the instance.
 3. **Flips** of non-crease edges.
 4. **Relocations.**
    - A free vertex moves to the centroid of its ring in its tangent plane, followed onto the reference at its own offset.
@@ -43,8 +43,10 @@ Creases are mesh edges above `CreaseAngleDegrees` that lie within the band of a 
 An operation removes a set R of triangles and adds new ones; every other triangle keeps its id and geometry. It is made only if all of the following hold.
 
 ### 3.1 The smallest angle (exact monotonicity)
-The new triangles' smallest angle must be at least the smallest angle of R plus `MinGainDegrees` (0.1). A cap split instead needs a smallest angle of at
-least that of R and a smaller largest angle. The measure is `RemeshQualityPass.MinAngle`: atan2 of twice the area and the dot product, with the
+The smallest angle of the triangles that change must rise by at least `MinGainDegrees` (0.1). For a collapse these are the two deleted triangles, the
+triangles of the removed vertex, and the kept vertex's only if it moves: a kept vertex that stays leaves its other triangles as they are, and a bad
+triangle among them must not block the collapse (a crease vertex next to a corner whose fan holds the mesh's worst triangle,
+`CreaseCollapse_RefusedWhenTheNewCreaseEdgeCutsABend`). A cap split instead needs a smallest angle of at least that of R and a smaller largest angle. The measure is `RemeshQualityPass.MinAngle`: atan2 of twice the area and the dot product, with the
 corners sorted lexicographically first. So a triangle has the same value whatever corner order `DMesh3` stores, and the value checked is the value in
 the mesh. Hence
 
@@ -52,7 +54,10 @@ the mesh. Hence
 
 bit for bit, by induction over the operations. The first benchmark run, with an order-dependent acos measure, showed one case 1e-10 relative below
 (5.40386976337e-05 to 5.40386976253e-05 degrees, Thingi10K 39460). With the canonical measure the count is 0
-(`MinAngle_IndependentOfTheCornerOrder`). Normals may not turn by more than 30 degrees, and degenerate triangles are refused.
+(`MinAngle_IndependentOfTheCornerOrder`). Normals may not turn by more than 30 degrees, and no new triangle may be degenerate. An old triangle of zero
+area has no normal: its replacement is held to the area-weighted normal of the triangles the operation replaces (a collapse or relocation), to the
+other old triangle (a flip, a split); two flat old triangles refuse. So exactly flat needles are repaired (`ZeroAreaTriangle_IsRepaired`); before,
+every operation on them was refused. Edges of zero-area triangles are not creases, on the mesh or on the reference (their dihedral is noise).
 
 ### 3.2 The band, mesh to reference, and the crease band
 - Every new triangle passes `IsWithin(reference, MaxDeviation)`, as the Reducer's `MaxDeviation` does (floating point, no explicit rounding term).
@@ -69,7 +74,7 @@ bit for bit, by induction over the operations. The first benchmark run, with an 
   parallel to an edge at 0.009 and 0.011, the same.
 - The crease band is one-sided: an output crease edge near F does not imply that every removed crease point is near the output crease. An L-shaped
   crease with its corner removed shows it. The chord between points at s on the two legs is within s / 2 of F, while the corner is s / sqrt(2) from the
-  chord. This is one reason corners stay pinned by default. The reference-to-mesh direction comes from `TwoSided` (3.3), for the surface.
+  chord. This counterexample is the reason corners stay pinned by default (coordinator, 2026-11-28; it also answers the Z3 question of 5.5). The reference-to-mesh direction comes from `TwoSided` (3.3), for the surface.
 
 ### 3.3 The band, reference to mesh (`TwoSided`, `RemeshQualityCoverage`)
 Every covered reference triangle T keeps a set D(T) of current mesh triangle ids with the invariant
@@ -88,13 +93,21 @@ The certificate is the cascade of `ReducerReverseCoverage.Within`. It runs bread
 certificate, refused beyond. That bound sets the cost: on 104582 and 93370 the depth-first, unbounded cascade took 148 and 88 s, mostly in certificates
 that end refused at depth 10. With the bound they take 3.5 and 8.5 s, and 6739 instead of 6087 of the two meshes' reference triangles are uncovered.
 Tests: `Coverage_RefusesCuttingASpike_AcceptsAFlatChange`, `TwoSided_AcceptRefusesFlatteningASpike` (accepted one-sided, refused two-sided),
-`CoverageWithin_CornersNearButInteriorFar_NotCovered`.
+`CoverageWithin_CornersNearButInteriorFar_NotCovered`, and `TwoSided` in `Invariance_OverSimilarities`.
+
+**Limit: a reference much coarser than the mesh.** The certificate refines a reference triangle until a piece's corners are near one candidate, or its
+covering radius is below the band. Along every mesh edge inside a large reference triangle that takes pieces of the band's size, so a reference of
+the box's 12 triangles against a remesh at 0.08 needs far more than 256 pieces. Such reference triangles count as uncovered: `StartWithinBand` is
+false, and the pass keeps no promise for them, though it reports it. A remesh of a coarse CAD input gets the one-sided band only. Fixing it needs
+a certificate that accepts a piece covered by several coplanar candidates together (open item 5.4).
 
 ### 3.4 Self-intersections
 With `PreventSelfIntersections` (default), every new triangle is tested exactly against the other new ones and against the mesh triangles in its grid
 cells, except R (`TriangleTriangleFilter.IntersectsBeyondShared`, the exact test behind the filter). This is the same test as in `AlphaWrapQualityPass`,
-with its exception: zero-area triangles of the mesh are not tested against (a defect `NotCleanReason` reports already; the exact test is for proper
-triangles). A collapse whose two opposite vertices are joined already (a tetrahedron, a fold) is refused.
+with its exception: zero-area triangles of the mesh are not tested against. That is safe in practice: a new triangle that crosses such a triangle also
+crosses the proper triangle across its longest edge, which is tested, and a zero-area triangle in R is replaced by tested triangles. Only a chain of
+zero-area triangles can hide a crossing (a defect `NotCleanReason` reports anyway). A collapse whose two opposite vertices are joined already (a
+tetrahedron, a fold) is refused.
 
 ### 3.5 Certified flags
 At the start every triangle is tested with `IsWithin`; every new triangle is certified by construction. `StartWithinBand` / `ResultWithinBand` say
@@ -103,7 +116,12 @@ whether all triangles (and, with `TwoSided`, all reference triangles) are certif
 
 ### 3.6 Termination
 Each pass visits a list fixed at its start, so every pass ends. The passes stop when one makes no operation, or at `MaxPasses` (10). Splits are bounded
-by `MaxTriangleGrowth`.
+by `MaxTriangleGrowth`, counted from the first `Compute` of the instance (repeated `Compute`s do not grow the mesh further).
+
+### 3.7 The reference-crease grid
+Each reference crease segment is put into the cells along it, in pieces of at most a quarter cell, not into every cell of its box. A long skew segment
+over small cells (cells are 2 x the mean crease length, at least 1 / 256 of the box) would otherwise fill up to 257^3 cells
+(`CreaseGrid_LongSkewSegment_StaysSmall`).
 
 ## 4. Measurements
 
@@ -158,6 +176,7 @@ short feature removal, sharp edge detection noise).
    decision, with REMESHER_CREASE_SLIVERS.md.
 3. **Internal variants**, public names to be proposed. `PinCreaseCorners = false` moves corners, junctions and ends along the creases, each crease edge
    within the band. `MergeCreases = true` collapses strip edges between two creases. Measured in section 4.
-4. **Z3** (owner 2026-11-27, only if cheap). The monotonicity is the one-line induction of 3.1 once the measure is canonical, and the canonical measure
+4. **`TwoSided` against a coarse reference** (3.3): a certificate for pieces covered by several coplanar candidates.
+5. **Z3** (owner 2026-11-27, only if cheap). The monotonicity is the one-line induction of 3.1 once the measure is canonical, and the canonical measure
    is tested directly, so a solver adds nothing there. The crease-collapse implication suggested for a check does not hold in general (3.2, the L
    counterexample), so there is no obligation to prove. Not built.

@@ -121,8 +121,8 @@ namespace gs
         public bool EnableCreaseOperations = true;
         /// <summary> triangles with a larger largest angle are split </summary>
         internal double SplitCapsAboveDegrees = 120;
-        /// <summary> at most this many more triangles (relative) than at the start of Compute </summary>
-        public double MaxTriangleGrowth = 0.1;
+        /// <summary> at most this many more triangles (relative) than at the start of the first Compute of this instance </summary>
+        public double MaxTriangleGrowth = 0.05;
         public int MaxPasses = 10;
         /// <summary> subdivision depth of the band certificates </summary>
         internal int MaxDeviationDepth = 10;
@@ -144,7 +144,7 @@ namespace gs
         TriangleHashGrid grid;
         RemeshQualityCoverage coverage;
         double cosTurn, cosCorner;
-        int maxTriangles;
+        int maxTriangles, growthBase = -1;
         readonly HashSet<long> creases = new HashSet<long>();
         readonly HashSet<int> fixedVertices = new HashSet<int>();
         List<bool> certified;
@@ -198,6 +198,8 @@ namespace gs
             return m;
         }
 
+        bool cancelled() { return CancelF != null && CancelF(); }
+
         int operations()
         {
             return res.Flips + res.Collapses + res.Splits + res.Relocations + res.CreaseInsertions + res.CreaseRemovals;
@@ -218,7 +220,9 @@ namespace gs
             if (res == null) res = new RemeshQualityResult() { CertifiedBand = MaxDeviation };
             cosTurn = Math.Cos(MaxNormalTurnDegrees * MathUtil.Deg2Rad);
             cosCorner = Math.Cos(CornerAngleDegrees * MathUtil.Deg2Rad);
-            maxTriangles = MathUtil.FloorToIntSaturating(Mesh.TriangleCount * (1 + MaxTriangleGrowth));
+            // (the growth is counted from the first Compute: repeated Computes do not grow the mesh further)
+            if (growthBase < 0) growthBase = Mesh.TriangleCount;
+            maxTriangles = MathUtil.FloorToIntSaturating(growthBase * (1 + MaxTriangleGrowth));
             referenceTree = new DMeshAABBTree3(Reference, true);
             bounds = new TriangleDeviationBounds(Reference) { PatchBound = true };
             build_features();
@@ -249,7 +253,7 @@ namespace gs
             double sum = 0;
             foreach (int e in Reference.EdgeIndices()) {
                 Index2i et = Reference.GetEdgeT(e);
-                bool sharp = et.b < 0 || Reference.GetTriNormal(et.a).Dot(Reference.GetTriNormal(et.b)) < cos;
+                bool sharp = et.b < 0 || sharp_edge(Reference, et, cos);
                 if (!sharp) continue;
                 Index2i ev = Reference.GetEdgeV(e);
                 var s = new Segment3d(Reference.GetVertex(ev.a), Reference.GetVertex(ev.b));
@@ -259,14 +263,39 @@ namespace gs
             featureOrigin = Reference.CachedBounds.Min;
             featureCell = Math.Max(features.Count > 0 ? 2 * sum / features.Count : 1, Reference.CachedBounds.MaxDim / 256);
             if (!(featureCell > 0)) featureCell = 1;
+            // each segment in the cells along it, not in every cell of its box (a long skew segment over small cells): the
+            // pieces of at most a quarter cell each, every piece's box (at most 2 x 2 x 2 cells); so a segment is in every cell
+            // it passes through, and in at most 8 cells per quarter cell of its length (plus the clamped border)
+            var seen = new HashSet<Vector3i>();
             for (int i = 0; i < features.Count; ++i) {
-                var bx = new AxisAlignedBox3d(features[i].P0); bx.Contain(features[i].P1);
-                foreach (Vector3i c in cells(bx)) {
-                    List<int> l;
-                    if (!featureCells.TryGetValue(c, out l)) featureCells[c] = l = new List<int>();
-                    l.Add(i);
+                Segment3d sg = features[i];
+                int pieces = MathUtil.ToIntSaturating(Math.Min(1e6, Math.Ceiling(4 * sg.Length / featureCell))) + 1;
+                seen.Clear();
+                Vector3d prev = sg.P0;
+                for (int k = 1; k <= pieces; ++k) {
+                    Vector3d next = k == pieces ? sg.P1 : sg.P0 + ((double)k / pieces) * (sg.P1 - sg.P0);
+                    var bx = new AxisAlignedBox3d(prev); bx.Contain(next);
+                    foreach (Vector3i c in cells(bx)) {
+                        if (!seen.Add(c)) continue;
+                        List<int> l;
+                        if (!featureCells.TryGetValue(c, out l)) featureCells[c] = l = new List<int>();
+                        l.Add(i);
+                    }
+                    prev = next;
                 }
             }
+        }
+
+        // do the two triangles meet at more than the crease angle? An edge of a zero-area triangle (no normal) is not sharp:
+        // its "dihedral" is noise, and a crease there would pin the vertex that repairs it
+        static bool sharp_edge(DMesh3 m, Index2i et, double cos)
+        {
+            Vector3d n0, n1, a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            m.GetTriVertices(et.a, ref a, ref b, ref c);
+            if (!AlphaWrapQualityPass.unit_normal(a, b, c, out n0)) return false;
+            m.GetTriVertices(et.b, ref a, ref b, ref c);
+            if (!AlphaWrapQualityPass.unit_normal(a, b, c, out n1)) return false;
+            return n0.Dot(n1) < cos;
         }
 
         IEnumerable<Vector3i> cells(AxisAlignedBox3d bx)
@@ -383,7 +412,7 @@ namespace gs
             foreach (int e in Mesh.EdgeIndices()) {
                 Index2i et = Mesh.GetEdgeT(e), ev = Mesh.GetEdgeV(e);
                 if (et.b < 0) { creases.Add(key(ev.a, ev.b)); continue; }
-                if (Mesh.GetTriNormal(et.a).Dot(Mesh.GetTriNormal(et.b)) < cos && chord_on_feature(Mesh.GetVertex(ev.a), Mesh.GetVertex(ev.b)))
+                if (sharp_edge(Mesh, et, cos) && chord_on_feature(Mesh.GetVertex(ev.a), Mesh.GetVertex(ev.b)))
                     creases.Add(key(ev.a, ev.b));
             }
         }
@@ -462,6 +491,8 @@ namespace gs
         internal bool IsCertified(int t) { return t < certified.Count && certified[t]; }
         /// <summary> (benchmarks) the coverage of the last Compute (TwoSided), else null </summary>
         internal RemeshQualityCoverage Coverage { get { return coverage; } }
+        /// <summary> (tests) the occupied cells of the reference-crease grid </summary>
+        internal int FeatureCellCount { get { return featureCells.Count; } }
         /// <summary> (tests) the counters of the last Compute or Prepare </summary>
         internal RemeshQualityResult Counters { get { return res; } }
         /// <summary> (tests, benchmarks) is (a, b) a crease edge (after Compute) </summary>
@@ -505,7 +536,10 @@ namespace gs
                         Index3i ic = Mesh.GetTriangle(tc);
                         Triangle3d C = new Triangle3d(Mesh.GetVertex(ic.a), Mesh.GetVertex(ic.b), Mesh.GetVertex(ic.c));
                         // (a zero-area triangle of the mesh is skipped, as in AlphaWrapQualityPass: the exact test is for
-                        // proper triangles; such a triangle is already a defect NotCleanReason reports)
+                        // proper triangles. Safe in practice: a new triangle that crosses it crosses the proper triangle on the
+                        // other side of its longest edge too, which is tested, and a zero-area triangle in R is replaced, its
+                        // new triangles tested; only a chain of zero-area triangles can hide a crossing. Such a triangle is a
+                        // defect NotCleanReason reports already)
                         if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
                         if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C)) hit = true;
                     });
@@ -552,6 +586,21 @@ namespace gs
             return MinAngle(Mesh.GetVertex(t.a), Mesh.GetVertex(t.b), Mesh.GetVertex(t.c));
         }
 
+        // the area-weighted unit normal of the triangles (false if they have no area at all)
+        bool ring_normal(IEnumerable<int> tids, out Vector3d n)
+        {
+            n = Vector3d.Zero;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int t in tids) {
+                Mesh.GetTriVertices(t, ref a, ref b, ref c);
+                n += (b - a).Cross(c - a);
+            }
+            double l = n.Length;
+            if (!(l > 0)) return false;
+            n /= l;
+            return true;
+        }
+
         int opposite(int tid, int a, int b)
         {
             Index3i t = Mesh.GetTriangle(tid);
@@ -591,7 +640,7 @@ namespace gs
         bool flip_pass()
         {
             foreach (int eid in worst_first(Mesh.MaxEdgeID, true)) {
-                if (CancelF()) return false;
+                if (cancelled()) return false;
                 if (!Mesh.IsEdge(eid) || Mesh.IsBoundaryEdge(eid)) continue;
                 Index2i ev = Mesh.GetEdgeV(eid);
                 if (is_crease(ev.a, ev.b)) continue;
@@ -608,9 +657,11 @@ namespace gs
                 double nw = Math.Min(MinAngle(pc, pa, pd), MinAngle(pd, pb, pc));
                 if (!(nw >= cur + MinGainDegrees)) { res.RejectedByAngle++; continue; }
                 Vector3d n0, n1, m0, m1;
-                if (!AlphaWrapQualityPass.unit_normal(pa, pb, pc, out n0) || !AlphaWrapQualityPass.unit_normal(pb, pa, pd, out n1)
-                    || !AlphaWrapQualityPass.unit_normal(pc, pa, pd, out m0) || !AlphaWrapQualityPass.unit_normal(pd, pb, pc, out m1)
-                    || m0.Dot(n0) < cosTurn || m0.Dot(n1) < cosTurn || m1.Dot(n0) < cosTurn || m1.Dot(n1) < cosTurn) { res.RejectedByAngle++; continue; }
+                // (a flat old triangle has no normal: the new ones are held to the other old triangle's; both flat: refused)
+                bool h0 = AlphaWrapQualityPass.unit_normal(pa, pb, pc, out n0), h1 = AlphaWrapQualityPass.unit_normal(pb, pa, pd, out n1);
+                if (!AlphaWrapQualityPass.unit_normal(pc, pa, pd, out m0) || !AlphaWrapQualityPass.unit_normal(pd, pb, pc, out m1)
+                    || (h0 && (m0.Dot(n0) < cosTurn || m1.Dot(n0) < cosTurn)) || (h1 && (m0.Dot(n1) < cosTurn || m1.Dot(n1) < cosTurn))
+                    || (!h0 && !h1)) { res.RejectedByAngle++; continue; }
                 ids.Clear(); tris.Clear(); removed.Clear(); chords.Clear();
                 ids.Add(new Index3i(c, a, d)); tris.Add(new Triangle3d(pc, pa, pd));
                 ids.Add(new Index3i(d, b, c)); tris.Add(new Triangle3d(pd, pb, pc));
@@ -639,7 +690,7 @@ namespace gs
             }
             caps.Sort((x, y) => x.Key != y.Key ? -x.Key.CompareTo(y.Key) : x.Value.CompareTo(y.Value));
             foreach (var kv in caps) {
-                if (CancelF()) return false;
+                if (cancelled()) return false;
                 if (Mesh.TriangleCount + 2 > maxTriangles) return true;
                 int t = kv.Value;
                 if (!Mesh.IsTriangle(t)) continue;
@@ -657,7 +708,7 @@ namespace gs
             }
             if (!SplitNeedles) return true;
             foreach (int t in worst_triangles()) {
-                if (CancelF()) return false;
+                if (cancelled()) return false;
                 if (Mesh.TriangleCount + 2 > maxTriangles) return true;
                 if (!Mesh.IsTriangle(t)) continue;
                 Index3i tv = Mesh.GetTriangle(t);
@@ -723,12 +774,15 @@ namespace gs
             double oldMin = Math.Min(MinAngle(a, b, c), MinAngle(b, a, pd));
             double oldMax = Math.Max(MaxAngle(a, b, c), MaxAngle(b, a, pd));
             Vector3d o0, o1;
-            if (!AlphaWrapQualityPass.unit_normal(a, b, c, out o0) || !AlphaWrapQualityPass.unit_normal(b, a, pd, out o1)) { res.RejectedByAngle++; return false; }
+            // (a flat old triangle has no normal: its two halves are held to the other side's; both flat: refused)
+            bool h0 = AlphaWrapQualityPass.unit_normal(a, b, c, out o0), h1 = AlphaWrapQualityPass.unit_normal(b, a, pd, out o1);
+            if (!h0 && !h1) { res.RejectedByAngle++; return false; }
+            if (!h0) { o0 = o1; h0 = true; } else if (!h1) { o1 = o0; h1 = true; }
             double nwMin = double.MaxValue;
             for (int i = 0; i < 4; ++i) {
                 Triangle3d nt = tris[i];
                 Vector3d n;
-                if (!AlphaWrapQualityPass.unit_normal(nt.V0, nt.V1, nt.V2, out n) || n.Dot(i < 2 ? o0 : o1) < cosTurn) { res.RejectedByAngle++; return false; }
+                if (!AlphaWrapQualityPass.unit_normal(nt.V0, nt.V1, nt.V2, out n) || ((i < 2 ? h0 : h1) && n.Dot(i < 2 ? o0 : o1) < cosTurn)) { res.RejectedByAngle++; return false; }
                 double mn = MinAngle(nt.V0, nt.V1, nt.V2);
                 if (cap && !(mn >= oldMin && MaxAngle(nt.V0, nt.V1, nt.V2) < oldMax)) { res.RejectedByAngle++; return false; }
                 nwMin = Math.Min(nwMin, mn);
@@ -769,7 +823,7 @@ namespace gs
             // (keep, remove, position)
             var candidates = new List<KeyValuePair<double, (int keep, int rem, Vector3d q)>>(4);
             foreach (int t in order) {
-                if (CancelF()) return false;
+                if (cancelled()) return false;
                 if (!Mesh.IsTriangle(t)) continue;
                 Index3i tv = Mesh.GetTriangle(t);
                 Vector3d[] p = { Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c) };
@@ -809,23 +863,31 @@ namespace gs
                 foreach (int r in Mesh.VtxTrianglesItr(a)) removed.Add(r);
                 foreach (int r in Mesh.VtxTrianglesItr(b)) removed.Add(r);
                 Index2i et = Mesh.GetEdgeT(eid);
-                double cur = double.MaxValue;
-                foreach (int r in removed) cur = Math.Min(cur, min_angle(r));
+                bool ringHasNormal = ring_normal(removed, out Vector3d ringNormal);
                 candidates.Clear();
                 foreach (var o in opts) {
+                    // the angle rule over the triangles that change: the two deleted ones, those of the removed vertex, and
+                    // those of the kept vertex only if it moves (the others keep their geometry, so their angles cannot drop,
+                    // and a bad triangle among them must not block the collapse)
+                    bool keepMoves = o.q != Mesh.GetVertex(o.keep);
+                    double cur = Math.Min(min_angle(et.a), et.b >= 0 ? min_angle(et.b) : double.MaxValue);
                     double nw = double.MaxValue;
                     bool ok = true;
                     foreach (int r in removed) {
                         if (r == et.a || r == et.b) continue;
                         Index3i rv = Mesh.GetTriangle(r);
+                        bool changes = keepMoves || rv.a == o.rem || rv.b == o.rem || rv.c == o.rem;
+                        if (changes) cur = Math.Min(cur, min_angle(r));
                         Vector3d A = Mesh.GetVertex(rv.a), B = Mesh.GetVertex(rv.b), C = Mesh.GetVertex(rv.c);
                         Vector3d n0, n1;
-                        if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n0)) { ok = false; break; }
+                        // (a flat old triangle has no normal: its new one is held to the ring's normal instead)
+                        bool hasOld = AlphaWrapQualityPass.unit_normal(A, B, C, out n0);
+                        if (!hasOld) { n0 = ringNormal; hasOld = ringHasNormal; if (!hasOld) { ok = false; break; } }
                         if (rv.a == a || rv.a == b) A = o.q;
                         if (rv.b == a || rv.b == b) B = o.q;
                         if (rv.c == a || rv.c == b) C = o.q;
-                        if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n1) || n1.Dot(n0) < cosTurn) { ok = false; break; }
-                        nw = Math.Min(nw, MinAngle(A, B, C));
+                        if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n1) || (hasOld && n1.Dot(n0) < cosTurn)) { ok = false; break; }
+                        if (changes) nw = Math.Min(nw, MinAngle(A, B, C));
                     }
                     if (ok && nw >= cur + MinGainDegrees) candidates.Add(new KeyValuePair<double, (int, int, Vector3d)>(nw, o));
                     else res.RejectedByAngle++;
@@ -847,9 +909,7 @@ namespace gs
                         if (rv.c == a || rv.c == b) { C = q; rv.c = keep; }
                         ids.Add(rv); tris.Add(new Triangle3d(A, B, C));
                     }
-                    // the removed vertex's other crease edges become (keep, x)
-                    foreach (int x in crease_list(rem, creaseList))
-                        if (x != keep) chords.Add(new KeyValuePair<Vector3d, Vector3d>(q, Mesh.GetVertex(x)));
+                    collapse_chords(keep, rem, q, chords);
                     if (!accept(ids, tris, removed, chords)) continue;
                     crease_list(rem, creaseList);
                     DMesh3.EdgeCollapseInfo info;
@@ -869,6 +929,13 @@ namespace gs
             return true;
         }
 
+        // the new crease edges of collapsing rem into keep at q: the removed vertex's other crease edges become (keep, x)
+        internal void collapse_chords(int keep, int rem, Vector3d q, List<KeyValuePair<Vector3d, Vector3d>> chords)
+        {
+            foreach (int x in crease_list(rem, creaseList))
+                if (x != keep) chords.Add(new KeyValuePair<Vector3d, Vector3d>(q, Mesh.GetVertex(x)));
+        }
+
         Vector3d closest_on_reference(Vector3d p)
         {
             int t = referenceTree.FindNearestTriangle(p);
@@ -883,7 +950,7 @@ namespace gs
             var ring = new List<int>();
             var targets = new List<Vector3d>(2);
             foreach (int v in worst_first(Mesh.MaxVertexID, false)) {
-                if (CancelF()) return false;
+                if (cancelled()) return false;
                 if (!Mesh.IsVertex(v)) continue;
                 int cls = vertex_class(v);
                 if (cls == Pinned) continue;
@@ -930,6 +997,7 @@ namespace gs
                         if (nearest_feature(g, r, out q, out seg)) targets.Add(q);
                     }
                 }
+                bool ringHasNormal = ring_normal(ring, out Vector3d ringNormal);
                 foreach (Vector3d q in targets) {
                     if (q == p) continue;
                     double nw = double.MaxValue;
@@ -939,9 +1007,11 @@ namespace gs
                         Index3i tv = Mesh.GetTriangle(t);
                         Vector3d A = Mesh.GetVertex(tv.a), B = Mesh.GetVertex(tv.b), C = Mesh.GetVertex(tv.c);
                         Vector3d n0, n1;
-                        if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n0)) { ok = false; break; }
+                        // (a flat old triangle has no normal: its new one is held to the ring's normal instead)
+                        bool hasOld = AlphaWrapQualityPass.unit_normal(A, B, C, out n0);
+                        if (!hasOld) { n0 = ringNormal; hasOld = ringHasNormal; if (!hasOld) { ok = false; break; } }
                         if (tv.a == v) A = q; else if (tv.b == v) B = q; else C = q;
-                        if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n1) || n1.Dot(n0) < cosTurn) { ok = false; break; }
+                        if (!AlphaWrapQualityPass.unit_normal(A, B, C, out n1) || (hasOld && n1.Dot(n0) < cosTurn)) { ok = false; break; }
                         nw = Math.Min(nw, MinAngle(A, B, C));
                         ids.Add(tv); tris.Add(new Triangle3d(A, B, C)); removed.Add(t);
                     }

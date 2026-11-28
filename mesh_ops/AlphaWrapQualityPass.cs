@@ -213,7 +213,7 @@ namespace gs
             return bx;
         }
 
-        internal static double min_angle(Vector3d a, Vector3d b, Vector3d c)
+        static double min_angle(Vector3d a, Vector3d b, Vector3d c)
         {
             double A = angle(b - a, c - a), B = angle(a - b, c - b), C = angle(a - c, b - c);
             return Math.Min(A, Math.Min(B, C));
@@ -548,7 +548,7 @@ namespace gs
             return false;
         }
 
-        internal static double max_angle(Vector3d a, Vector3d b, Vector3d c)
+        static double max_angle(Vector3d a, Vector3d b, Vector3d c)
         {
             return Math.Max(angle(b - a, c - a), Math.Max(angle(a - b, c - b), angle(a - c, b - c)));
         }
