@@ -375,6 +375,8 @@ namespace gs
             var cross = new byte[n];
             var exit = new byte[n];
             int m = 0;
+            // Classify facets: drop disjoint polyhedra (sa >= 0 && sb >= 0),
+            // keeping crossing (sa * sb < 0) and exit (sa < 0 < sb) facet bitmasks.
             for (int ci = 0; ci < n; ++ci) {
                 int p = cand[ci];
                 bool disjoint = false;
@@ -396,40 +398,6 @@ namespace gs
                 active[m] = p; cross[m] = cm; exit[m] = em; m++;
             }
             return crossings_covered(active, cross, exit, m, a, b);
-        }
-
-        // C2: every exit crossing of a facet plane of an active polyhedron (in its closure, strictly between a and b)
-        // lies strictly inside another active polyhedron. A polyhedron with a facet >= 0 at both endpoints has empty
-        // intersection with the segment and is already dropped; if the segment leaves the union, its first uncovered
-        // point is an exit crossing (sa < 0 < sb) in the closure of the polyhedron it leaves.
-        bool crossings_covered(int[] active, byte[] cross, byte[] exit, int m, Vector3d a, Vector3d b)
-        {
-            var cover = new List<int>();
-            for (int i = 0; i < m; ++i) {
-                int em = exit[i];
-                if (em == 0) continue;
-                int p = active[i], cm = cross[i];
-                for (int f = 0; em != 0; ++f, em >>= 1) {
-                    if ((em & 1) == 0) continue;
-                    int o = (p * MaxFacets + f) * 3;
-                    IndirectPredicates.Orient3dLPIPrepared lpi;
-                    IndirectPredicates.Orient3dLPIPrepare(a, b, facets[o], facets[o + 1], facets[o + 2], out lpi);
-                    if (in_closure_lpi(p, cm & ~(1 << f), ref lpi) == false) continue;
-                    bool covered = false;
-                    foreach (int j in cover) {
-                        int p2 = active[j];
-                        if (p2 != p && boxes_meet(boxes[p], boxes[p2]) && inside_lpi(p2, cross[j], ref lpi)) { covered = true; break; }
-                    }
-                    if (covered == false) {
-                        for (int j = 0; j < m; ++j) {
-                            int p2 = active[j];
-                            if (p2 != p && boxes_meet(boxes[p], boxes[p2]) && inside_lpi(p2, cross[j], ref lpi)) { covered = true; cover.Add(j); break; }
-                        }
-                    }
-                    if (covered == false) return false;
-                }
-            }
-            return true;
         }
 
         /// <summary>
@@ -686,6 +654,40 @@ namespace gs
             int o = p * MaxFacets * 3;
             for (int f = 0; f < facetCount[p]; ++f, o += 3)
                 if (ExactPredicates.Orient3d(facets[o], facets[o + 1], facets[o + 2], x) >= 0) return false;
+            return true;
+        }
+
+        // C2: every exit crossing of a facet plane of an active polyhedron (in its closure, strictly between a and b)
+        // lies strictly inside another active polyhedron. A polyhedron with a facet >= 0 at both endpoints has empty
+        // intersection with the segment and is already dropped; if the segment leaves the union, its first uncovered
+        // point is an exit crossing (sa < 0 < sb) in the closure of the polyhedron it leaves.
+        bool crossings_covered(int[] active, byte[] cross, byte[] exit, int m, Vector3d a, Vector3d b)
+        {
+            var cover = new List<int>();
+            for (int i = 0; i < m; ++i) {
+                int em = exit[i];
+                if (em == 0) continue;
+                int p = active[i], cm = cross[i];
+                for (int f = 0; em != 0; ++f, em >>= 1) {
+                    if ((em & 1) == 0) continue;
+                    int o = (p * MaxFacets + f) * 3;
+                    IndirectPredicates.Orient3dLPIPrepared lpi;
+                    IndirectPredicates.Orient3dLPIPrepare(a, b, facets[o], facets[o + 1], facets[o + 2], out lpi);
+                    if (in_closure_lpi(p, cm & ~(1 << f), ref lpi) == false) continue;
+                    bool covered = false;
+                    foreach (int j in cover) {
+                        int p2 = active[j];
+                        if (p2 != p && boxes_meet(boxes[p], boxes[p2]) && inside_lpi(p2, cross[j], ref lpi)) { covered = true; break; }
+                    }
+                    if (covered == false) {
+                        for (int j = 0; j < m; ++j) {
+                            int p2 = active[j];
+                            if (p2 != p && boxes_meet(boxes[p], boxes[p2]) && inside_lpi(p2, cross[j], ref lpi)) { covered = true; cover.Add(j); break; }
+                        }
+                    }
+                    if (covered == false) return false;
+                }
+            }
             return true;
         }
 
