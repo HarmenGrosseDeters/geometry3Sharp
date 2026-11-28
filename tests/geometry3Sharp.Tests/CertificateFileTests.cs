@@ -22,8 +22,10 @@ namespace geometry3Sharp.Tests
         readonly ITestOutputHelper log;
         public CertificateFileTests(ITestOutputHelper log) { this.log = log; }
 
+        // (RegionClipping = false: the file format has no regions; a certificate of a region-clipped result is checked in process only, so the
+        // stand-alone verdict would differ from the in-process one)
         static BooleanCertificate Run(DMesh3 a, DMesh3 b, Ops op, out ExactMeshBoolean eb) =>
-            BooleanCertificate.Run(a, b, op, out eb, x => { if (op == Ops.Intersection) x.CullOutsideA = false; });
+            BooleanCertificate.Run(a, b, op, out eb, x => { x.RegionClipping = false; if (op == Ops.Intersection) x.CullOutsideA = false; });
 
         // the in-process verdict, as CertificateFile.Check words it
         static string InProcess(BooleanCertificate c)
