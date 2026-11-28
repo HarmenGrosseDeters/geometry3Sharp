@@ -568,7 +568,7 @@ namespace gs
         /// <see cref="InputRepairModes.ThickenOpenSheet"/> and <see cref="OpenSheetHalfThickness"/> == 0 (default 0.01, i.e., 2% wall thickness; must be finite and &gt; 0).
         /// </summary>
         public double RelativeOpenSheetHalfThickness = 0.01;
-        /// <summary> Miter limit forwarded to <see cref="MeshMiteredOffset.MiterLimit"/> when <see cref="InputRepair"/> is <see cref="InputRepairModes.ThickenOpenSheet"/> (default 4.0; must be finite and &gt;= 1). </summary>
+        /// <summary> Miter limit forwarded to <see cref="MeshMiteredOffset.MiterLimit"/> when <see cref="InputRepair"/> is <see cref="InputRepairModes.ThickenOpenSheet"/> (default 4.0; must be finite and in [1, 1e4]). </summary>
         public double OpenSheetMiterLimit = 4.0;
         /// <summary>
         /// the role of each input (entry i for Inputs[i]; null or a shorter list: the others are Solid). An input with the role Sheet
@@ -1246,8 +1246,8 @@ namespace gs
                     return fail(PipelineStatus.InvalidInput, "OpenSheetHalfThickness must be finite and >= 0", total);
                 if (OpenSheetHalfThickness == 0 && (!MathUtil.IsFinite(RelativeOpenSheetHalfThickness) || !(RelativeOpenSheetHalfThickness > 0)))
                     return fail(PipelineStatus.InvalidInput, "RelativeOpenSheetHalfThickness must be finite and > 0", total);
-                if (!MathUtil.IsFinite(OpenSheetMiterLimit) || !(OpenSheetMiterLimit >= 1.0))
-                    return fail(PipelineStatus.InvalidInput, "OpenSheetMiterLimit must be finite and >= 1", total);
+                if (!MathUtil.IsFinite(OpenSheetMiterLimit) || !(OpenSheetMiterLimit >= 1.0) || OpenSheetMiterLimit > 1e4)
+                    return fail(PipelineStatus.InvalidInput, "OpenSheetMiterLimit must be finite and in [1, 1e4]", total);
             }
 
             // 1. the snap to InputGrid (on copies), then the cheap check per input

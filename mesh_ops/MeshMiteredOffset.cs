@@ -28,9 +28,10 @@ namespace gs
     /// Input vertices are welded by exact position so unwelded soups (e.g. STL) are handled identically to welded meshes.
     /// Scale invariance: the input is processed in a power-of-two normalized frame centered on the triangle bounding box,
     /// so 2^k scalings of the mesh and Distance produce 2^k times the result bit for bit.
-    /// Output verification: when <see cref="SafeRounding"/> is true, the returned mesh is verified in world coordinates to be
-    /// closed, 2-manifold, positively oriented, and free of degenerate triangles and crossing self-intersections (exact
-    /// touching contacts where offset shells meet are split into manifold pairs and counted in <see cref="Contacts"/>).
+    /// Output verification: when <see cref="SafeRounding"/> is true, the boolean runs with strict rounding and the returned
+    /// mesh is verified in world coordinates to be closed, 2-manifold, positively oriented, and free of degenerate triangles
+    /// and crossing self-intersections (exact touching contacts where offset shells meet are split into manifold pairs and
+    /// counted in <see cref="Contacts"/>).
     /// Usage: set the fields, call <see cref="Compute"/>, and read <see cref="Result"/> and <see cref="Status"/>.
     /// <see cref="Compute"/> can be called repeatedly on the same instance after changing parameters.
     /// </summary>
@@ -55,17 +56,17 @@ namespace gs
             /// and degenerate triangles (when <see cref="SafeRounding"/> is true; exact touching contacts are counted in <see cref="Contacts"/>).
             /// </summary>
             Success = 0,
-            /// <summary> Null or empty mesh, all degenerate triangles, non-finite coordinates, or extent outside [2^-900, 2^900]. </summary>
+            /// <summary> Null or empty mesh, all degenerate triangles, slivers breaking closed-solid adjacency, non-finite coordinates, or extent outside [2^-900, 2^900]. </summary>
             InvalidInput = 1,
-            /// <summary> Outward or Inward mode was requested on a mesh that is not closed in the winding sense. </summary>
+            /// <summary> Outward or Inward mode was requested on a mesh that is not closed in the winding sense (open or inconsistently oriented). </summary>
             NotClosed = 2,
-            /// <summary> Outward or Inward mode was requested on a closed mesh with an inside-out shell or inconsistent orientation. </summary>
+            /// <summary> Outward or Inward mode was requested on a closed mesh with an inside-out shell. </summary>
             InsideOut = 3,
-            /// <summary> Invalid Mode, Distance &lt;= 0 or out of working scale [1e-12, 1e6/MiterLimit], or MiterLimit &lt; 1 or non-finite. </summary>
+            /// <summary> Invalid Mode, Distance &lt;= 0 or out of working scale [1e-12, 1e6/MiterLimit], or MiterLimit outside [1, 1e4]. </summary>
             InvalidParameters = 4,
             /// <summary> Inward inset consumed the entire solid cleanly (empty result). </summary>
             Empty = 5,
-            /// <summary> Exact arrangement / boolean, safe rounding, or world-coordinate cleanliness verification failed (see <see cref="Error"/>). </summary>
+            /// <summary> Exact arrangement / boolean, strict safe rounding, or world-coordinate cleanliness verification failed (see <see cref="Error"/>). </summary>
             Failed = 6,
             /// <summary> Cancelled via <see cref="Cancellation"/>. </summary>
             Cancelled = 7
@@ -78,13 +79,13 @@ namespace gs
         /// <summary> Positive offset distance (half-thickness in <see cref="OffsetModes.DoubleSided"/> mode). </summary>
         public double Distance;
         /// <summary>
-        /// Maximum miter extrusion ratio relative to <see cref="Distance"/> (must be &gt;= 1, default 4.0).
+        /// Maximum miter extrusion ratio relative to <see cref="Distance"/> (must be in [1, 1e4], default 4.0).
         /// Acute convex creases and corners whose exact miter distance exceeds MiterLimit * Distance are bevel-clamped.
         /// </summary>
         public double MiterLimit = 4.0;
-        /// <summary> Safe rounding and world-coordinate cleanliness verification (default true). </summary>
+        /// <summary> Strict safe rounding and world-coordinate cleanliness verification (default true). </summary>
         public bool SafeRounding = true;
-        /// <summary> Optional cancellation token propagated through polyhedron generation and <see cref="ExactMeshBoolean"/>. </summary>
+        /// <summary> Optional cancellation token propagated through polyhedron generation, <see cref="ExactMeshBoolean"/>, and world-space rounding repair. </summary>
         public CancellationToken Cancellation = CancellationToken.None;
 
         /// <summary> Result mesh on <see cref="OffsetStatus.Success"/> (empty mesh on <see cref="OffsetStatus.Empty"/>, null on failure). </summary>
@@ -104,6 +105,7 @@ namespace gs
         const double MaxExtent = 8.4527124981706439e270;  // 2^900
         const double MinRelativeDistance = 1e-12;
         const double MaxRelativeMiterDistance = 1e6;
+        const double MaxMiterLimit = 1e4;
         const double CoplanarDotThreshold = 1.0 - 1e-10;
 
         bool is_cancelled()
@@ -145,12 +147,13 @@ namespace gs
                 fail(OffsetStatus.InvalidParameters, "Distance must be finite and positive");
                 return false;
             }
-            if (!MathUtil.IsFinite(MiterLimit) || !(MiterLimit >= 1.0)) {
-                fail(OffsetStatus.InvalidParameters, "MiterLimit must be finite and >= 1");
+            if (!MathUtil.IsFinite(MiterLimit) || !(MiterLimit >= 1.0) || MiterLimit > MaxMiterLimit) {
+                fail(OffsetStatus.InvalidParameters, "MiterLimit must be finite and in [1, 1e4]");
                 return false;
             }
 
-            // Collect triangle-referenced vertices welded by exact position (so unwelded STL soups work identically).
+            // Collect non-degenerate triangles welded by exact position (so unwelded STL soups work identically).
+            // Skip coincident-vertex triangles BEFORE updating box so stray degenerate points cannot inflate extent.
             AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
             var posToIdx = new Dictionary<Vector3d, int>();
             var vertsOrig = new List<Vector3d>();
@@ -162,11 +165,11 @@ namespace gs
                     fail(OffsetStatus.InvalidInput, "mesh contains non-finite vertex coordinates");
                     return false;
                 }
+                if (a == b || b == c || c == a)
+                    continue;
                 int ia = map_vert_pos(a, posToIdx, vertsOrig, ref box);
                 int ib = map_vert_pos(b, posToIdx, vertsOrig, ref box);
                 int ic = map_vert_pos(c, posToIdx, vertsOrig, ref box);
-                if (ia == ib || ib == ic || ic == ia)
-                    continue;
                 tris.Add(new Index3i(ia, ib, ic));
             }
             if (tris.Count == 0) {
@@ -201,34 +204,15 @@ namespace gs
             for (int i = 0; i < nv; ++i)
                 workVerts[i] = scale_vec(vertsOrig[i] - origin, -scaleExp);
 
-            // For DoubleSided thickening, consistently orient each edge-connected manifold sheet component
-            // so opposing face windings on an open CAD sheet never leave missing crease wedges.
-            if (Mode == OffsetModes.DoubleSided)
-                orient_manifold_components_deterministically(tris);
-
-            var workMesh = new DMesh3();
-            for (int i = 0; i < nv; ++i) workMesh.AppendVertex(workVerts[i]);
-            for (int i = 0; i < tris.Count; ++i) workMesh.AppendTriangle(tris[i]);
-
-            if (Mode == OffsetModes.Outward || Mode == OffsetModes.Inward) {
-                if (!ExactMeshBoolean.IsWindingClosed(workMesh)) {
-                    fail(OffsetStatus.NotClosed, "Outward and Inward modes require a closed mesh");
-                    return false;
-                }
-                double vol = signed_volume(workVerts, tris);
-                if (!(vol > 0)) {
-                    fail(OffsetStatus.InsideOut, "closed mesh has non-positive signed volume");
-                    return false;
-                }
-            }
-
             bool doPos = Mode == OffsetModes.Outward || Mode == OffsetModes.DoubleSided;
             bool doNeg = Mode == OffsetModes.Inward || Mode == OffsetModes.DoubleSided;
 
-            // Validate triangles against collinearity/slivers and exact prism orientation before building adjacency.
+            // Validate triangles against collinearity/slivers and exact prism orientation before building topology.
+            // Orientation-invariant check (symmetric under flipping triangle winding and negating n), so in DoubleSided
+            // mode we can filter out slivers before consistent sheet orientation.
             int nt = tris.Count;
-            var faceNormal = new Vector3d[nt];
             var faceValid = new bool[nt];
+            var faceNormal = new Vector3d[nt];
             int validFaces = 0;
             for (int t = 0; t < nt; ++t) {
                 Index3i f = tris[t];
@@ -255,6 +239,32 @@ namespace gs
                 return false;
             }
 
+            // For DoubleSided thickening, consistently orient each edge-connected manifold sheet component over
+            // valid triangles only so slivers cannot block orientation propagation across creases.
+            if (Mode == OffsetModes.DoubleSided)
+                orient_manifold_components_deterministically(tris, faceValid, faceNormal);
+
+            // Build workMesh preserving ALL triangles (duplicating vertices on non-manifold edges or >32,766 valence
+            // so DMesh3.AppendTriangle never silently drops triangles; ExactMeshBoolean welds by exact position).
+            var workMesh = new DMesh3();
+            for (int i = 0; i < nv; ++i) workMesh.AppendVertex(workVerts[i]);
+            for (int i = 0; i < nt; ++i)
+                append_triangle_preserve_all(workMesh, workVerts, tris[i]);
+
+            if (Mode == OffsetModes.Outward || Mode == OffsetModes.Inward) {
+                if (!ExactMeshBoolean.IsWindingClosed(workMesh)) {
+                    fail(OffsetStatus.NotClosed, "Outward and Inward modes require a mesh closed in the winding sense");
+                    return false;
+                }
+                // Check component-anchored signed volume (avoids cancellation on separated small components);
+                // negative volume fails fast, while exact CountInsideOutCells checks every shell during the boolean.
+                double vol = anchored_signed_volume(workVerts, tris);
+                if (vol < 0) {
+                    fail(OffsetStatus.InsideOut, "closed mesh has negative signed volume");
+                    return false;
+                }
+            }
+
             // Build undirected edge adjacency over valid triangles (deterministic ascending triangle order).
             var edgeInc = new Dictionary<long, List<HalfEdgeInc>>();
             var vertTris = new List<int>[nv];
@@ -272,6 +282,15 @@ namespace gs
 
             var edgeKeys = new List<long>(edgeInc.Keys);
             edgeKeys.Sort();
+
+            // In Outward/Inward modes, if degenerate/sliver triangles were filtered out, verify the remaining
+            // valid faces are still winding-balanced so slivers never silently leave notched creases.
+            if ((Mode == OffsetModes.Outward || Mode == OffsetModes.Inward) && validFaces < nt) {
+                if (!edges_are_winding_balanced(edgeKeys, edgeInc)) {
+                    fail(OffsetStatus.InvalidInput, "closed mesh contains degenerate or sliver triangles that break surface adjacency");
+                    return false;
+                }
+            }
 
             // Canonicalize face normals across coplanar consistently-oriented manifold patches so rotated flat quads
             // share bit-identical offset planes and exact diagonal walls (avoiding 1-ulp coplanar normal drift).
@@ -298,12 +317,10 @@ namespace gs
             }
 
             // Partition each vertex's incident triangles into edge-connected umbrellas (handling bowtie vertices cleanly)
-            // and collect convex edge wedges & bevel half-spaces per (vertex, triangle).
+            // and store convex edges directly per vertex so umbrella counts and bevels are never truncated or cross-polluted.
             var vertTriAdj = new Dictionary<long, List<int>>();
-            var triPosBevels = doPos ? new List<(Vector3d n, double rhs)>[nt] : null;
-            var triNegBevels = doNeg ? new List<(Vector3d n, double rhs)>[nt] : null;
-            var vertTriPosConvexCount = doPos ? new Dictionary<long, int>() : null;
-            var vertTriNegConvexCount = doNeg ? new Dictionary<long, int>() : null;
+            var vertPosConvexEdges = doPos ? new List<ConvexEdgeInfo>[nv] : null;
+            var vertNegConvexEdges = doNeg ? new List<ConvexEdgeInfo>[nv] : null;
 
             // 2. Per-edge mitered (or bevel-clamped) convex wedges with explicit canonical-diagonal side walls.
             foreach (long key in edgeKeys) {
@@ -323,20 +340,33 @@ namespace gs
 
                     Vector3d pa = workVerts[e0.u], pb = workVerts[e0.v], pc0 = workVerts[e0.opp], pc1 = workVerts[e1.opp];
                     int orient = ExactPredicates.Orient3d(pa, pb, pc0, pc1);
-                    if (orient == 0)
+                    if (orient == 0) {
+                        // Exact 180-degree razor fold (opposing coplanar faces sharing a crease edge).
+                        if (faceNormal[e0.tri].Dot(faceNormal[e1.tri]) < -0.5) {
+                            if (doPos && emit_edge_wedge(combined, pa, pb, e0.u, e0.v, pc0, faceNormal[e0.tri], faceNormal[e1.tri],
+                                dWork, MiterLimit, isNegSide: false, out var bevelPos)) {
+                                polyCount++;
+                                record_vertex_convex_edge(vertPosConvexEdges, e0.u, e0.v, e0.tri, e1.tri, bevelPos);
+                            } else if (!doPos && doNeg && emit_edge_wedge(combined, pb, pa, e0.v, e0.u, pc0, -faceNormal[e0.tri], -faceNormal[e1.tri],
+                                dWork, MiterLimit, isNegSide: true, out var bevelNeg)) {
+                                polyCount++;
+                                record_vertex_convex_edge(vertNegConvexEdges, e0.u, e0.v, e0.tri, e1.tri, bevelNeg);
+                            }
+                        }
                         continue;
+                    }
 
                     if (orient < 0 && doPos) {
                         if (emit_edge_wedge(combined, pa, pb, e0.u, e0.v, pc0, faceNormal[e0.tri], faceNormal[e1.tri],
                             dWork, MiterLimit, isNegSide: false, out var bevelPlane)) {
                             polyCount++;
-                            record_convex_edge(e0.u, e0.v, e0.tri, e1.tri, bevelPlane, vertTriPosConvexCount, triPosBevels);
+                            record_vertex_convex_edge(vertPosConvexEdges, e0.u, e0.v, e0.tri, e1.tri, bevelPlane);
                         }
                     } else if (orient > 0 && doNeg) {
                         if (emit_edge_wedge(combined, pb, pa, e0.v, e0.u, pc0, -faceNormal[e0.tri], -faceNormal[e1.tri],
                             dWork, MiterLimit, isNegSide: true, out var bevelPlane)) {
                             polyCount++;
-                            record_convex_edge(e0.u, e0.v, e0.tri, e1.tri, bevelPlane, vertTriNegConvexCount, triNegBevels);
+                            record_vertex_convex_edge(vertNegConvexEdges, e0.u, e0.v, e0.tri, e1.tri, bevelPlane);
                         }
                     }
                 } else if (inc.Count >= 4 && (inc.Count % 2) == 0) {
@@ -345,7 +375,7 @@ namespace gs
                     int vRef = inc[0].u < inc[0].v ? inc[0].v : inc[0].u;
                     process_nonmanifold_edge(combined, workVerts, faceNormal, patchId, uRef, vRef, inc,
                         doPos, doNeg, dWork, MiterLimit, vertTriAdj,
-                        vertTriPosConvexCount, triPosBevels, vertTriNegConvexCount, triNegBevels, ref polyCount);
+                        vertPosConvexEdges, vertNegConvexEdges, ref polyCount);
                 }
             }
 
@@ -362,14 +392,15 @@ namespace gs
                     if (umb.Count < 3)
                         continue;
 
-                    if (doPos && count_umbrella_convex_edges(v, umb, vertTriPosConvexCount) >= 2) {
+                    var umbSet = new HashSet<int>(umb);
+                    if (doPos && collect_umbrella_convex_edges(vertPosConvexEdges[v], umbSet, out var posBevels) >= 2) {
                         if (emit_vertex_corner_clipped(combined, v, umb, workVerts, tris, faceNormal, +1.0,
-                            triPosBevels, dWork, MiterLimit))
+                            posBevels, dWork, MiterLimit))
                             polyCount++;
                     }
-                    if (doNeg && count_umbrella_convex_edges(v, umb, vertTriNegConvexCount) >= 2) {
+                    if (doNeg && collect_umbrella_convex_edges(vertNegConvexEdges[v], umbSet, out var negBevels) >= 2) {
                         if (emit_vertex_corner_clipped(combined, v, umb, workVerts, tris, faceNormal, -1.0,
-                            triNegBevels, dWork, MiterLimit))
+                            negBevels, dWork, MiterLimit))
                             polyCount++;
                     }
                 }
@@ -383,11 +414,13 @@ namespace gs
 
             // 4. Exact arrangement + winding-number boolean via ExactMeshBoolean.
             //    Outward and Inward keep workMesh as MeshA with CountInsideOutCells = true so multi-component
-            //    inside-out shells and inconsistently oriented solids are caught while true cavities are permitted.
+            //    inside-out shells are caught while true cavities are permitted. StrictRounding enforces clean rounding
+            //    (no dropped resolvable components or false contacts) when SafeRounding is enabled.
             ExactMeshBoolean booleanOp;
             if (Mode == OffsetModes.Outward) {
                 booleanOp = new ExactMeshBoolean(workMesh, combined, ExactMeshBoolean.Operations.Union) {
                     SafeRounding = SafeRounding,
+                    StrictRounding = SafeRounding,
                     AllowOpenMeshes = false,
                     CountInsideOutCells = true,
                     Cancellation = Cancellation
@@ -395,6 +428,7 @@ namespace gs
             } else if (Mode == OffsetModes.Inward) {
                 booleanOp = new ExactMeshBoolean(workMesh, combined, ExactMeshBoolean.Operations.Difference) {
                     SafeRounding = SafeRounding,
+                    StrictRounding = SafeRounding,
                     AllowOpenMeshes = false,
                     CountInsideOutCells = true,
                     Cancellation = Cancellation
@@ -402,6 +436,7 @@ namespace gs
             } else {
                 booleanOp = new ExactMeshBoolean(combined, new DMesh3(), ExactMeshBoolean.Operations.Union) {
                     SafeRounding = SafeRounding,
+                    StrictRounding = SafeRounding,
                     AllowOpenMeshes = false,
                     Cancellation = Cancellation
                 };
@@ -410,10 +445,6 @@ namespace gs
             if (!booleanOp.Compute()) {
                 if (booleanOp.Status == ExactMeshBoolean.BooleanStatus.Cancelled) {
                     fail(OffsetStatus.Cancelled, "cancelled during exact boolean");
-                    return false;
-                }
-                if (booleanOp.Status == ExactMeshBoolean.BooleanStatus.InconsistentOrientation) {
-                    fail(OffsetStatus.InsideOut, "closed input mesh has inconsistently oriented faces: " + booleanOp.Error);
                     return false;
                 }
                 fail(OffsetStatus.Failed, "exact boolean failed (" + booleanOp.Status + "): " + booleanOp.Error);
@@ -427,12 +458,17 @@ namespace gs
                 return false;
             }
 
+            if (SafeRounding && !booleanOp.RoundingClean) {
+                fail(OffsetStatus.Failed, "exact boolean rounding did not produce a clean result");
+                return false;
+            }
+
             DMesh3 res = booleanOp.Result;
             if (res == null || res.TriangleCount == 0) {
                 if (Mode == OffsetModes.Inward) {
                     Result = new DMesh3();
                     Status = OffsetStatus.Empty;
-                    RoundingClean = booleanOp.RoundingClean;
+                    RoundingClean = SafeRounding && booleanOp.RoundingClean;
                     return true;
                 }
                 fail(OffsetStatus.Failed, "exact boolean returned an empty mesh");
@@ -444,23 +480,34 @@ namespace gs
                 return false;
             }
 
-            // 5. World-coordinate cleanliness verification (catches rounding defects and UTM unscaling quantization).
+            // 5. World-coordinate cleanliness verification (catches UTM unscaling quantization defects).
             if (SafeRounding) {
                 string reason = MeshRobustRepair.NotCleanReason(res, checkSelfIntersections: true);
-                if (reason != "" && !is_pure_contacts_only(res, reason)) {
-                    // If unscaling back to a non-zero (e.g. UTM) origin quantized coordinates, run a world-coordinate rounding pass.
+                bool pureContacts = is_pure_contacts_only(res, reason);
+                bool worldRepairOk = true;
+                if (reason != "" && !pureContacts) {
                     if (origin != Vector3d.Zero) {
+                        if (is_cancelled()) {
+                            fail(OffsetStatus.Cancelled, "cancelled before world-coordinate rounding repair");
+                            return false;
+                        }
                         var repair = new MeshRoundingRepair(res);
-                        repair.Apply();
+                        bool repaired = repair.Apply();
+                        if (is_cancelled()) {
+                            fail(OffsetStatus.Cancelled, "cancelled during world-coordinate rounding repair");
+                            return false;
+                        }
+                        worldRepairOk = repaired && repair.RemovedResolvable == 0;
                         reason = MeshRobustRepair.NotCleanReason(res, checkSelfIntersections: true);
+                        pureContacts = is_pure_contacts_only(res, reason);
                     }
-                    if (reason != "" && !is_pure_contacts_only(res, reason)) {
-                        fail(OffsetStatus.Failed, "output failed cleanliness verification: " + reason);
+                    if (!worldRepairOk || (reason != "" && !pureContacts)) {
+                        fail(OffsetStatus.Failed, "output failed cleanliness verification: " + (reason != "" ? reason : "rounding removed resolvable component"));
                         return false;
                     }
                 }
                 if (res.TriangleCount == 0) {
-                    if (Mode == OffsetModes.Inward) {
+                    if (Mode == OffsetModes.Inward && worldRepairOk) {
                         Result = new DMesh3();
                         Status = OffsetStatus.Empty;
                         RoundingClean = true;
@@ -470,7 +517,7 @@ namespace gs
                     return false;
                 }
                 Contacts = count_contacts(res);
-                RoundingClean = booleanOp.RoundingClean && (reason == "" || is_pure_contacts_only(res, reason));
+                RoundingClean = booleanOp.RoundingClean && worldRepairOk && (reason == "" || pureContacts);
             } else {
                 Contacts = count_contacts(res);
                 RoundingClean = false;
@@ -486,6 +533,12 @@ namespace gs
         struct HalfEdgeInc
         {
             public int tri, u, v, opp;
+        }
+
+        struct ConvexEdgeInfo
+        {
+            public int triA, triB;
+            public (Vector3d n, double rhs)? bevel;
         }
 
         static bool is_pure_contacts_only(DMesh3 mesh, string reason)
@@ -513,6 +566,16 @@ namespace gs
             return contacts;
         }
 
+        static void append_triangle_preserve_all(DMesh3 dst, Vector3d[] verts, Index3i f)
+        {
+            if (dst.AppendTriangle(f) >= 0)
+                return;
+            int a = dst.AppendVertex(verts[f.a]);
+            int b = dst.AppendVertex(verts[f.b]);
+            int c = dst.AppendVertex(verts[f.c]);
+            dst.AppendTriangle(a, b, c);
+        }
+
         static int map_vert_pos(Vector3d pos, Dictionary<Vector3d, int> posToIdx, List<Vector3d> verts, ref AxisAlignedBox3d box)
         {
             if (posToIdx.TryGetValue(pos, out int idx))
@@ -534,15 +597,34 @@ namespace gs
             list.Add(new HalfEdgeInc { tri = tri, u = u, v = v, opp = opp });
         }
 
+        static bool edges_are_winding_balanced(List<long> edgeKeys, Dictionary<long, List<HalfEdgeInc>> edgeInc)
+        {
+            for (int i = 0; i < edgeKeys.Count; ++i) {
+                var inc = edgeInc[edgeKeys[i]];
+                if (inc.Count == 0) continue;
+                int u0 = inc[0].u < inc[0].v ? inc[0].u : inc[0].v;
+                int v0 = inc[0].u < inc[0].v ? inc[0].v : inc[0].u;
+                int balance = 0;
+                for (int j = 0; j < inc.Count; ++j) {
+                    if (inc[j].u == u0 && inc[j].v == v0) balance++;
+                    else if (inc[j].u == v0 && inc[j].v == u0) balance--;
+                }
+                if (balance != 0)
+                    return false;
+            }
+            return true;
+        }
+
         /// <summary>
-        /// Deterministically orients each manifold edge-connected component of an open sheet consistently so that
-        /// DoubleSided thickening treats creases identically regardless of per-triangle winding flips.
+        /// Deterministically orients each manifold edge-connected component of valid triangles consistently so that
+        /// DoubleSided thickening treats creases identically regardless of per-triangle winding flips or nearby slivers.
         /// </summary>
-        static void orient_manifold_components_deterministically(List<Index3i> tris)
+        static void orient_manifold_components_deterministically(List<Index3i> tris, bool[] faceValid, Vector3d[] faceNormal)
         {
             int nt = tris.Count;
             var edgeInc = new Dictionary<long, List<(int tri, int u, int v)>>(nt * 2);
             for (int t = 0; t < nt; ++t) {
+                if (!faceValid[t]) continue;
                 Index3i f = tris[t];
                 add_orient_edge(edgeInc, f.a, f.b, t);
                 add_orient_edge(edgeInc, f.b, f.c, t);
@@ -567,7 +649,7 @@ namespace gs
             var flipped = new bool[nt];
             var queue = new Queue<int>();
             for (int seed = 0; seed < nt; ++seed) {
-                if (visited[seed]) continue;
+                if (!faceValid[seed] || visited[seed]) continue;
                 visited[seed] = true;
                 queue.Enqueue(seed);
                 while (queue.Count > 0) {
@@ -588,6 +670,7 @@ namespace gs
                 if (flipped[t]) {
                     Index3i f = tris[t];
                     tris[t] = new Index3i(f.a, f.c, f.b);
+                    faceNormal[t] = -faceNormal[t];
                 }
             }
         }
@@ -687,38 +770,50 @@ namespace gs
             return ((long)v << 32) | (uint)tri;
         }
 
-        static void record_convex_edge(int u, int v, int t0, int t1, (Vector3d n, double rhs)? bevelPlane,
-            Dictionary<long, int> vertTriConvexCount, List<(Vector3d n, double rhs)>[] triBevels)
+        static void record_vertex_convex_edge(List<ConvexEdgeInfo>[] perVert, int u, int v, int t0, int t1,
+            (Vector3d n, double rhs)? bevelPlane)
         {
-            inc_vt_count(vertTriConvexCount, vt_key(u, t0));
-            inc_vt_count(vertTriConvexCount, vt_key(u, t1));
-            inc_vt_count(vertTriConvexCount, vt_key(v, t0));
-            inc_vt_count(vertTriConvexCount, vt_key(v, t1));
-            if (bevelPlane.HasValue) {
-                if (triBevels[t0] == null) triBevels[t0] = new List<(Vector3d, double)>();
-                if (triBevels[t1] == null) triBevels[t1] = new List<(Vector3d, double)>();
-                triBevels[t0].Add(bevelPlane.Value);
-                triBevels[t1].Add(bevelPlane.Value);
-            }
+            var info = new ConvexEdgeInfo { triA = t0, triB = t1, bevel = bevelPlane };
+            if (perVert[u] == null) perVert[u] = new List<ConvexEdgeInfo>(4);
+            if (perVert[v] == null) perVert[v] = new List<ConvexEdgeInfo>(4);
+            perVert[u].Add(info);
+            perVert[v].Add(info);
         }
 
-        static void inc_vt_count(Dictionary<long, int> map, long key)
+        static int collect_umbrella_convex_edges(List<ConvexEdgeInfo> edgesAtV, HashSet<int> umbSet,
+            out List<(Vector3d n, double rhs)> bevels)
         {
-            map.TryGetValue(key, out int c);
-            map[key] = c + 1;
+            bevels = null;
+            if (edgesAtV == null || edgesAtV.Count == 0)
+                return 0;
+            int count = 0;
+            for (int i = 0; i < edgesAtV.Count; ++i) {
+                var e = edgesAtV[i];
+                bool inA = umbSet.Contains(e.triA);
+                bool inB = umbSet.Contains(e.triB);
+                if (!inA && !inB)
+                    continue;
+                count++;
+                // Only apply an edge bevel plane to an umbrella when both incident faces belong to this umbrella
+                // (prevents cross-shell non-manifold bevels from clipping an unrelated touching shell's corner).
+                if (inA && inB && e.bevel.HasValue) {
+                    if (bevels == null) bevels = new List<(Vector3d, double)>(2);
+                    bevels.Add(e.bevel.Value);
+                }
+            }
+            return count;
         }
 
         /// <summary>
-        /// Handles an even-valence non-manifold edge (e.g. two shells touching along a shared edge) by sorting
-        /// incident half-edges cyclically around the directed axis (uRef -> vRef). Adjacent opposite-winding pairs
-        /// bounding interior sectors link their respective umbrellas; exterior sectors &gt; pi emit +n wedges, and
-        /// interior sectors &gt; pi emit -n wedges.
+        /// Handles an even-valence non-manifold edge (e.g. two shells touching along a shared edge) using exact
+        /// Orient3d radial sorting around the directed axis (uRef -> vRef). Adjacent opposite-winding pairs bounding
+        /// interior sectors link their respective shell umbrellas; exterior sectors &gt; pi emit +n wedges and interior
+        /// sectors &gt; pi emit -n wedges.
         /// </summary>
         static void process_nonmanifold_edge(DMesh3 combined, Vector3d[] workVerts, Vector3d[] faceNormal, int[] patchId,
             int uRef, int vRef, List<HalfEdgeInc> inc, bool doPos, bool doNeg, double dWork, double miterLimit,
             Dictionary<long, List<int>> vertTriAdj,
-            Dictionary<long, int> vertTriPosConvexCount, List<(Vector3d n, double rhs)>[] triPosBevels,
-            Dictionary<long, int> vertTriNegConvexCount, List<(Vector3d n, double rhs)>[] triNegBevels,
+            List<ConvexEdgeInfo>[] vertPosConvexEdges, List<ConvexEdgeInfo>[] vertNegConvexEdges,
             ref int polyCount)
         {
             int fwd = 0, rev = 0;
@@ -730,58 +825,80 @@ namespace gs
                 return;
 
             Vector3d pa = workVerts[uRef], pb = workVerts[vRef];
-            Vector3d axis = pb - pa;
-            double axisLen = axis.Length;
-            if (!(axisLen > 0)) return;
-            axis /= axisLen;
-            orthonormal_basis(axis, out Vector3d bx, out Vector3d by);
+            Vector3d refOpp = workVerts[inc[0].opp];
+            Vector3d refDir = refOpp - pa;
+            Vector3d edgeDir = pb - pa;
+            double edgeLenSq = edgeDir.LengthSquared;
+            if (!(edgeLenSq > 0)) return;
+            Vector3d refPerp = refDir - (refDir.Dot(edgeDir) / edgeLenSq) * edgeDir;
+            if (!(refPerp.LengthSquared > 0)) return;
 
-            var sorted = new List<(double angle, HalfEdgeInc he)>(inc.Count);
-            for (int i = 0; i < inc.Count; ++i) {
-                Vector3d d = workVerts[inc[i].opp] - pa;
-                d -= d.Dot(axis) * axis;
-                double ang = Math.Atan2(d.Dot(by), d.Dot(bx));
-                if (ang < 0) ang += 2.0 * Math.PI;
-                sorted.Add((ang, inc[i]));
-            }
-            sorted.Sort((a, b) => {
-                int cmp = a.angle.CompareTo(b.angle);
-                return cmp != 0 ? cmp : a.he.tri.CompareTo(b.he.tri);
-            });
+            var sorted = new List<HalfEdgeInc>(inc);
+            sorted.Sort((a, b) => compare_radial_exact(pa, pb, refOpp, refPerp, uRef, workVerts, a, b));
 
             int m = sorted.Count;
             for (int i = 0; i < m; ++i) {
                 var cur = sorted[i];
                 var nxt = sorted[(i + 1) % m];
-                bool curFwd = cur.he.u == uRef;
-                bool nxtFwd = nxt.he.u == uRef;
+                bool curFwd = cur.u == uRef;
+                bool nxtFwd = nxt.u == uRef;
                 if (curFwd == nxtFwd)
                     continue;
-                double span = nxt.angle - cur.angle;
-                if (span <= 0) span += 2.0 * Math.PI;
+
+                // Exact dihedral sign between cur -> nxt going CCW around (pa -> pb):
+                // Orient3d(pa, pb, cur.opp, nxt.opp) < 0 iff the CCW sector from cur to nxt is strictly > pi.
+                int sectorOrient = ExactPredicates.Orient3d(pa, pb, workVerts[cur.opp], workVerts[nxt.opp]);
+                bool sectorOverPi = sectorOrient < 0;
 
                 if (!curFwd && nxtFwd) {
                     // Interior sector from (vRef -> uRef) CCW to (uRef -> vRef): link into the same shell umbrella.
-                    link_umbrella_tris(vertTriAdj, uRef, cur.he.tri, nxt.he.tri);
-                    link_umbrella_tris(vertTriAdj, vRef, cur.he.tri, nxt.he.tri);
-                    if (doNeg && span > Math.PI + 1e-10 && patchId[cur.he.tri] != patchId[nxt.he.tri]) {
-                        if (emit_edge_wedge(combined, pb, pa, vRef, uRef, workVerts[nxt.he.opp],
-                            -faceNormal[nxt.he.tri], -faceNormal[cur.he.tri], dWork, miterLimit, isNegSide: true, out var bevelPlane)) {
+                    link_umbrella_tris(vertTriAdj, uRef, cur.tri, nxt.tri);
+                    link_umbrella_tris(vertTriAdj, vRef, cur.tri, nxt.tri);
+                    if (doNeg && sectorOverPi && patchId[cur.tri] != patchId[nxt.tri]) {
+                        if (emit_edge_wedge(combined, pb, pa, vRef, uRef, workVerts[nxt.opp],
+                            -faceNormal[nxt.tri], -faceNormal[cur.tri], dWork, miterLimit, isNegSide: true, out var bevelPlane)) {
                             polyCount++;
-                            record_convex_edge(uRef, vRef, nxt.he.tri, cur.he.tri, bevelPlane, vertTriNegConvexCount, triNegBevels);
+                            record_vertex_convex_edge(vertNegConvexEdges, uRef, vRef, nxt.tri, cur.tri, bevelPlane);
                         }
                     }
                 } else if (curFwd && !nxtFwd) {
-                    // Exterior sector from (uRef -> vRef) CCW to (vRef -> uRef): convex on +n when span > pi.
-                    if (doPos && span > Math.PI + 1e-10 && patchId[cur.he.tri] != patchId[nxt.he.tri]) {
-                        if (emit_edge_wedge(combined, pa, pb, uRef, vRef, workVerts[cur.he.opp],
-                            faceNormal[cur.he.tri], faceNormal[nxt.he.tri], dWork, miterLimit, isNegSide: false, out var bevelPlane)) {
+                    // Exterior sector from (uRef -> vRef) CCW to (vRef -> uRef): convex on +n when sector > pi.
+                    if (doPos && sectorOverPi && patchId[cur.tri] != patchId[nxt.tri]) {
+                        if (emit_edge_wedge(combined, pa, pb, uRef, vRef, workVerts[cur.opp],
+                            faceNormal[cur.tri], faceNormal[nxt.tri], dWork, miterLimit, isNegSide: false, out var bevelPlane)) {
                             polyCount++;
-                            record_convex_edge(uRef, vRef, cur.he.tri, nxt.he.tri, bevelPlane, vertTriPosConvexCount, triPosBevels);
+                            record_vertex_convex_edge(vertPosConvexEdges, uRef, vRef, cur.tri, nxt.tri, bevelPlane);
                         }
                     }
                 }
             }
+        }
+
+        static int compare_radial_exact(Vector3d pa, Vector3d pb, Vector3d refOpp, Vector3d refPerp, int uRef,
+            Vector3d[] workVerts, HalfEdgeInc a, HalfEdgeInc b)
+        {
+            if (a.tri == b.tri) return 0;
+            Vector3d oa = workVerts[a.opp], ob = workVerts[b.opp];
+            int ha = radial_half(pa, pb, refOpp, refPerp, oa);
+            int hb = radial_half(pa, pb, refOpp, refPerp, ob);
+            if (ha != hb) return ha.CompareTo(hb);
+            // Within the same half-plane [0, pi) or [pi, 2*pi), Orient3d(pa, pb, oa, ob) > 0 means ob is strictly CCW after oa.
+            int o = ExactPredicates.Orient3d(pa, pb, oa, ob);
+            if (o != 0) return o > 0 ? -1 : 1;
+            // Exact coplanar same-ray tie: order forward (uRef->vRef) before reverse (vRef->uRef) so touching shells alternate cleanly.
+            bool aFwd = a.u == uRef;
+            bool bFwd = b.u == uRef;
+            if (aFwd != bFwd) return aFwd ? -1 : 1;
+            return a.tri.CompareTo(b.tri);
+        }
+
+        static int radial_half(Vector3d pa, Vector3d pb, Vector3d refOpp, Vector3d refPerp, Vector3d opp)
+        {
+            int o = ExactPredicates.Orient3d(pa, pb, refOpp, opp);
+            if (o > 0) return 0; // (0, pi)
+            if (o < 0) return 1; // (pi, 2*pi)
+            // Coplanar with reference plane: ray 0 if same side as refPerp, else ray pi (half 1).
+            return (opp - pa).Dot(refPerp) >= 0 ? 0 : 1;
         }
 
         static List<List<int>> partition_vertex_umbrellas(int v, List<int> incTris, Dictionary<long, List<int>> vertTriAdj)
@@ -811,25 +928,49 @@ namespace gs
             return result;
         }
 
-        static int count_umbrella_convex_edges(int v, List<int> umbrella, Dictionary<long, int> vertTriConvexCount)
+        /// <summary>
+        /// Computes signed volume per edge-connected component anchored at each component's first vertex
+        /// to avoid floating-point cancellation on separated small components.
+        /// </summary>
+        static double anchored_signed_volume(Vector3d[] verts, List<Index3i> tris)
         {
-            int sum = 0;
-            for (int i = 0; i < umbrella.Count; ++i) {
-                if (vertTriConvexCount.TryGetValue(vt_key(v, umbrella[i]), out int c))
-                    sum += c;
+            int nv = verts.Length;
+            var parent = new int[nv];
+            for (int i = 0; i < nv; ++i) parent[i] = i;
+            for (int i = 0; i < tris.Count; ++i) {
+                Index3i f = tris[i];
+                dsu_union(parent, f.a, f.b);
+                dsu_union(parent, f.b, f.c);
             }
-            // Each convex edge in the umbrella contributes 1 to both incident triangles in the umbrella.
-            return sum / 2;
-        }
-
-        static double signed_volume(Vector3d[] verts, List<Index3i> tris)
-        {
+            var compAnchor = new int[nv];
+            for (int i = 0; i < nv; ++i) compAnchor[i] = -1;
             double sum = 0;
             for (int i = 0; i < tris.Count; ++i) {
                 Index3i f = tris[i];
-                sum += verts[f.a].Cross(verts[f.b]).Dot(verts[f.c]);
+                int root = dsu_find(parent, f.a);
+                if (compAnchor[root] < 0) compAnchor[root] = f.a;
+                Vector3d o = verts[compAnchor[root]];
+                Vector3d a = verts[f.a] - o;
+                Vector3d b = verts[f.b] - o;
+                Vector3d c = verts[f.c] - o;
+                sum += a.Cross(b).Dot(c);
             }
             return sum / 6.0;
+        }
+
+        static int dsu_find(int[] parent, int x)
+        {
+            while (parent[x] != x) {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            return x;
+        }
+
+        static void dsu_union(int[] parent, int a, int b)
+        {
+            int ra = dsu_find(parent, a), rb = dsu_find(parent, b);
+            if (ra != rb) parent[rb] = ra;
         }
 
         /// <summary>
@@ -909,18 +1050,21 @@ namespace gs
                     }
                 }
             } else {
-                // Exact or near-180-degree razor fold (n1 ~ -n2): emit orthogonal bevel cap pointing away from pc0.
+                // Exact or near-180-degree razor fold (n1 ~ -n2): emit orthogonal bevel cap at MiterLimit * d pointing away from pc0.
                 Vector3d edgeDir = pb - pa;
-                Vector3d outDir = n1.Cross(edgeDir);
+                double edgeLen = edgeDir.Length;
+                if (!(edgeLen > 0))
+                    return false;
+                Vector3d outDir = n1.Cross(edgeDir / edgeLen);
                 double oLen = outDir.Length;
                 if (!(oLen > 1e-12))
                     return false;
                 Vector3d u = outDir / oLen;
                 if (u.Dot(pc0 - pa) > 0)
                     u = -u;
-                Vector3d b1 = d * (n1 + u);
-                Vector3d b2 = d * (n2 + u);
-                bevelPlane = (u, d);
+                Vector3d b1 = d * (n1 + miterLimit * u);
+                Vector3d b2 = d * (n2 + miterLimit * u);
+                bevelPlane = (u, miterLimit * d);
                 profile.Add(b1);
                 profile.Add(b2);
             }
@@ -979,17 +1123,18 @@ namespace gs
         /// <summary>
         /// Emits the closed convex mitered corner polyhedron for a vertex umbrella via exact indexed half-space
         /// clipping in normalized local offset coordinates (delta / d). Handles arbitrary vertex valences (e.g.
-        /// high-valence cone apices) without collinear-horizon degeneracies or valence cutoffs.
+        /// high-valence cone apices) and gently curved surfaces without backward spikes or collinear-horizon defects.
         /// </summary>
         static bool emit_vertex_corner_clipped(DMesh3 dst, int v, List<int> umbrella, Vector3d[] workVerts,
             List<Index3i> tris, Vector3d[] faceNormals, double side,
-            List<(Vector3d n, double rhs)>[] triBevels, double d, double miterLimit)
+            List<(Vector3d n, double rhs)> edgeBevels, double d, double miterLimit)
         {
             // 1. Collect deduplicated face normals, edge bevel planes, and incident edge half-spaces for this umbrella.
             var normals = new List<Vector3d>(umbrella.Count);
             var planes = new List<(Vector3d n, double rhs)>(umbrella.Count * 2 + 4);
             var edgePlanes = new List<(Vector3d dir, double rhs)>(umbrella.Count + 2);
             Vector3d vPos = workVerts[v];
+            Vector3d normalSum = Vector3d.Zero;
 
             for (int i = 0; i < umbrella.Count; ++i) {
                 int tid = umbrella[i];
@@ -1001,35 +1146,56 @@ namespace gs
                 if (!dup) {
                     normals.Add(n);
                     planes.Add((n, 1.0));
+                    normalSum += n;
                 }
-
-                // Incident edges of tid touching v define the normal-cone half-spaces t_e . delta <= overlap,
-                // where a small bounded positive overlap inside each adjacent edge wedge eliminates 1-ulp
-                // grazing cracks on oblique/rotated faces while staying strictly inside the true offset solid.
-                Index3i f = tris[tid];
-                add_unique_edge_plane(edgePlanes, vPos, f.a == v ? workVerts[f.b] : workVerts[f.a], d);
-                add_unique_edge_plane(edgePlanes, vPos, f.c == v ? workVerts[f.b] : workVerts[f.c], d);
             }
             if (normals.Count < 3)
                 return false;
 
-            for (int i = 0; i < umbrella.Count; ++i) {
-                var bev = triBevels[umbrella[i]];
-                if (bev == null) continue;
-                for (int j = 0; j < bev.Count; ++j)
-                    add_unique_plane_norm(planes, bev[j].n, bev[j].rhs / d);
+            // Check whether n_avg is a strict supporting axis of the normal cone (n_avg . n_i > 1e-3 for all i).
+            // When true, clipping by (-n_avg) . delta <= 0 guarantees zero backward protrusion on shallow/curved
+            // surfaces while still allowing bounded positive overlap into adjacent edge wedges.
+            bool hasBackStop = false;
+            Vector3d nAvg = Vector3d.Zero;
+            double sumLen = normalSum.Length;
+            if (sumLen > 1e-6) {
+                nAvg = normalSum / sumLen;
+                hasBackStop = true;
+                for (int i = 0; i < normals.Count; ++i) {
+                    if (nAvg.Dot(normals[i]) <= 1e-3) {
+                        hasBackStop = false;
+                        break;
+                    }
+                }
             }
 
-            // 2. Start from a power-of-two cube [-B, +B]^3 in normalized (delta / d) space and clip by face, bevel, and edge planes.
+            double maxEdgeOverlap = hasBackStop ? 0.05 : 0.0;
+            for (int i = 0; i < umbrella.Count; ++i) {
+                Index3i f = tris[umbrella[i]];
+                add_unique_edge_plane(edgePlanes, vPos, f.a == v ? workVerts[f.b] : workVerts[f.a], d, maxEdgeOverlap);
+                add_unique_edge_plane(edgePlanes, vPos, f.c == v ? workVerts[f.b] : workVerts[f.c], d, maxEdgeOverlap);
+            }
+
+            if (edgeBevels != null) {
+                for (int i = 0; i < edgeBevels.Count; ++i)
+                    add_unique_plane_norm(planes, edgeBevels[i].n, edgeBevels[i].rhs / d);
+            }
+
+            // 2. Start from a power-of-two cube [-B, +B]^3 in normalized (delta / d) space and clip by face, bevel, back-stop, and edge planes.
             double B = 16.0;
             while (B < 4.0 * miterLimit) B *= 2.0;
+            double clipEps = Math.Max(1e-11, 1e-13 * B);
             var poly = ConvexPolyhedron.CreateBox(B);
             for (int i = 0; i < planes.Count; ++i) {
-                if (!poly.Clip(planes[i].n, planes[i].rhs))
+                if (!poly.Clip(planes[i].n, planes[i].rhs, clipEps))
+                    return false;
+            }
+            if (hasBackStop) {
+                if (!poly.Clip(-nAvg, 0.0, clipEps))
                     return false;
             }
             for (int i = 0; i < edgePlanes.Count; ++i) {
-                if (!poly.Clip(edgePlanes[i].dir, edgePlanes[i].rhs))
+                if (!poly.Clip(edgePlanes[i].dir, edgePlanes[i].rhs, clipEps))
                     return false;
             }
 
@@ -1056,20 +1222,21 @@ namespace gs
             double maxLen = Math.Sqrt(maxLenSq);
             if (maxLen > miterLimit * (1.0 + 1e-5)) {
                 Vector3d uCorner = farthest / maxLen;
-                if (!poly.Clip(uCorner, miterLimit))
+                if (!poly.Clip(uCorner, miterLimit, clipEps))
                     return false;
             }
 
             return poly.EmitScaled(dst, vPos, d);
         }
 
-        static void add_unique_edge_plane(List<(Vector3d dir, double rhs)> edgePlanes, Vector3d vPos, Vector3d otherPos, double d)
+        static void add_unique_edge_plane(List<(Vector3d dir, double rhs)> edgePlanes, Vector3d vPos, Vector3d otherPos,
+            double d, double maxOverlap)
         {
             Vector3d e = otherPos - vPos;
             double len = e.Length;
             if (!(len > 0)) return;
             Vector3d dir = e / len;
-            double overlap = Math.Min(0.1, 0.25 * (len / d));
+            double overlap = maxOverlap > 0 ? Math.Min(maxOverlap, 0.25 * (len / d)) : 0.0;
             for (int i = 0; i < edgePlanes.Count; ++i) {
                 if (edgePlanes[i].dir.Dot(dir) > CoplanarDotThreshold) {
                     if (overlap < edgePlanes[i].rhs)
@@ -1089,18 +1256,11 @@ namespace gs
             planes.Add((n, rhs));
         }
 
-        static void orthonormal_basis(Vector3d axis, out Vector3d bx, out Vector3d by)
-        {
-            Vector3d refVec = Math.Abs(axis.x) < 0.9 ? Vector3d.AxisX : Vector3d.AxisY;
-            bx = axis.Cross(refVec);
-            bx.Normalize();
-            by = axis.Cross(bx);
-        }
-
         /// <summary>
         /// Indexed convex polyhedron with watertight Sutherland-Hodgman half-space clipping.
-        /// Every edge cut is cached by canonical undirected vertex-index pair (min(u,v), max(u,v)) and the cap
-        /// face chains exact unmatched reversed half-edges, guaranteeing closed manifold output by construction.
+        /// Every edge cut is cached by canonical undirected vertex-index pair (min(u,v), max(u,v)), the cap
+        /// face chains exact unmatched reversed half-edges, and EmitScaled verifies exact closed edge balance
+        /// before appending to dst.
         /// </summary>
         sealed class ConvexPolyhedron
         {
@@ -1137,9 +1297,8 @@ namespace gs
                 return new ConvexPolyhedron(v, f);
             }
 
-            public bool Clip(Vector3d n, double rhs)
+            public bool Clip(Vector3d n, double rhs, double eps)
             {
-                const double Eps = 1e-11;
                 int nv = Verts.Count;
                 var dist = new double[nv];
                 var side = new sbyte[nv]; // -1 inside, 0 on plane, +1 outside
@@ -1156,8 +1315,8 @@ namespace gs
                     if (!used[i]) continue;
                     double d = n.Dot(Verts[i]) - rhs;
                     dist[i] = d;
-                    if (d > Eps) { side[i] = 1; anyOutside = true; }
-                    else if (d < -Eps) { side[i] = -1; anyInside = true; }
+                    if (d > eps) { side[i] = 1; anyOutside = true; }
+                    else if (d < -eps) { side[i] = -1; anyInside = true; }
                     else { side[i] = 0; }
                 }
 
@@ -1228,30 +1387,44 @@ namespace gs
                     int a = planeEdgeList[i].a;
                     int b = planeEdgeList[i].b;
                     if (!planeEdges.Contains(dir_edge_key(b, a))) {
+                        if (capNext.ContainsKey(b)) {
+                            Faces.Clear();
+                            return false;
+                        }
                         capNext[b] = a;
                         capStarts.Add(b);
                     }
                 }
 
-                if (capStarts.Count >= 3) {
-                    capStarts.Sort();
-                    var usedCap = new HashSet<int>();
-                    for (int i = 0; i < capStarts.Count; ++i) {
-                        int start = capStarts[i];
-                        if (usedCap.Contains(start)) continue;
-                        var loop = new List<int>(capStarts.Count);
-                        int cur = start;
-                        int guard = capStarts.Count + 2;
-                        while (guard-- > 0 && !usedCap.Contains(cur) && capNext.TryGetValue(cur, out int nxt)) {
-                            usedCap.Add(cur);
-                            loop.Add(cur);
-                            cur = nxt;
-                            if (cur == start)
-                                break;
-                        }
-                        if (cur == start && loop.Count >= 3)
-                            nextFaces.Add(loop);
+                if (capStarts.Count < 3) {
+                    Faces.Clear();
+                    return false;
+                }
+
+                capStarts.Sort();
+                var usedCap = new HashSet<int>();
+                for (int i = 0; i < capStarts.Count; ++i) {
+                    int start = capStarts[i];
+                    if (usedCap.Contains(start)) continue;
+                    var loop = new List<int>(capStarts.Count);
+                    int cur = start;
+                    int guard = capStarts.Count + 2;
+                    while (guard-- > 0 && !usedCap.Contains(cur) && capNext.TryGetValue(cur, out int nxt)) {
+                        usedCap.Add(cur);
+                        loop.Add(cur);
+                        cur = nxt;
+                        if (cur == start)
+                            break;
                     }
+                    if (cur != start || loop.Count < 3) {
+                        Faces.Clear();
+                        return false;
+                    }
+                    nextFaces.Add(loop);
+                }
+                if (usedCap.Count != capStarts.Count) {
+                    Faces.Clear();
+                    return false;
                 }
 
                 Faces = nextFaces;
@@ -1303,6 +1476,23 @@ namespace gs
             {
                 if (Faces.Count < 4)
                     return false;
+
+                // Verify closed edge balance before emitting so an uncapped polyhedron can never enter combined.
+                var edgeBalance = new Dictionary<long, int>(Faces.Count * 4);
+                for (int fi = 0; fi < Faces.Count; ++fi) {
+                    var face = Faces[fi];
+                    for (int i = 0; i < face.Count; ++i) {
+                        int a = face[i], b = face[(i + 1) % face.Count];
+                        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                        edgeBalance.TryGetValue(key, out int bal);
+                        edgeBalance[key] = bal + (a < b ? 1 : -1);
+                    }
+                }
+                foreach (var kv in edgeBalance) {
+                    if (kv.Value != 0)
+                        return false;
+                }
+
                 // Check positive volume before emitting so a degenerate flat slice is never appended.
                 double vol6 = 0;
                 Vector3d anchor = Verts[Faces[0][0]];

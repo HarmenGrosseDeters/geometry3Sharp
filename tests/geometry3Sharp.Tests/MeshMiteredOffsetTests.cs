@@ -635,24 +635,27 @@ namespace geometry3Sharp.Tests
             Assert.True(bowtieOp.Result.CachedBounds.Min.z <= -1.1 + 1e-6);
             Assert.True(bowtieOp.Result.CachedBounds.Max.z >= 1.1 - 1e-6);
 
-            // 2. Exact 180-degree razor fold (two folded sheets sharing edge x=0, z=0 with opposite normals)
-            var fold = new DMesh3();
-            int p0 = fold.AppendVertex(new Vector3d(0, 0, 0));
-            int p1 = fold.AppendVertex(new Vector3d(0, 1, 0));
-            int p2 = fold.AppendVertex(new Vector3d(1, 0, 0));
-            int p3 = fold.AppendVertex(new Vector3d(1, 1, 0));
-            int p4 = fold.AppendVertex(new Vector3d(1, 0, 1e-7));
-            int p5 = fold.AppendVertex(new Vector3d(1, 1, 1e-7));
-            // Lower sheet normal (0, 0, -1) and upper sheet normal ~(0, 0, +1) meeting along (p0, p1)
-            fold.AppendTriangle(p0, p1, p3);
-            fold.AppendTriangle(p0, p3, p2);
-            fold.AppendTriangle(p1, p0, p4);
-            fold.AppendTriangle(p1, p4, p5);
-            var foldOp = new MeshMiteredOffset { Mesh = fold, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1 };
-            Assert.True(foldOp.Compute(), foldOp.Error);
-            AssertClean(foldOp.Result, "180-degree razor fold");
-            Assert.True(foldOp.Result.CachedBounds.Min.x <= -0.1 + 1e-5,
-                $"expected bevel cap extending to x = -0.1, got {foldOp.Result.CachedBounds.Min.x}");
+            // 2. Exact 180-degree razor fold (z = 0 opposing coplanar sheets sharing edge x = 0, y in [0, 1])
+            var exactFold = new DMesh3();
+            int e0 = exactFold.AppendVertex(new Vector3d(0, 0, 0));
+            int e1 = exactFold.AppendVertex(new Vector3d(0, 1, 0));
+            int e2 = exactFold.AppendVertex(new Vector3d(1, 0, 0));
+            int e3 = exactFold.AppendVertex(new Vector3d(1, 1, 0));
+            int e4 = exactFold.AppendVertex(new Vector3d(0.8, 0, 0));
+            int e5 = exactFold.AppendVertex(new Vector3d(0.8, 1, 0));
+            exactFold.AppendTriangle(e0, e1, e3);
+            exactFold.AppendTriangle(e0, e3, e2);
+            exactFold.AppendTriangle(e1, e0, e4);
+            exactFold.AppendTriangle(e1, e4, e5);
+            var foldM1 = new MeshMiteredOffset { Mesh = exactFold, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1, MiterLimit = 1.0 };
+            Assert.True(foldM1.Compute(), foldM1.Error);
+            AssertClean(foldM1.Result, "exact 180-deg razor fold MiterLimit=1");
+            Assert.Equal(-0.1, foldM1.Result.CachedBounds.Min.x, 5);
+
+            var foldM2 = new MeshMiteredOffset { Mesh = exactFold, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1, MiterLimit = 2.0 };
+            Assert.True(foldM2.Compute(), foldM2.Error);
+            AssertClean(foldM2.Result, "exact 180-deg razor fold MiterLimit=2");
+            Assert.Equal(-0.2, foldM2.Result.CachedBounds.Min.x, 5);
 
             // 3. MiterLimit = 1.0 on unit cube chamfers all edges & corners cleanly
             var chamfer = new MeshMiteredOffset {
@@ -666,6 +669,109 @@ namespace geometry3Sharp.Tests
             // Volume strictly between un-chamfered sharp offset 1.4^3 = 2.744 and input + 6 face prisms = 1 + 1.2 = 2.2
             double vChamfer = Volume(chamfer.Result);
             Assert.True(vChamfer > 2.2 && vChamfer < 2.744, $"unexpected chamfered cube volume {vChamfer}");
+        }
+
+        static DMesh3 ShallowOpenDome(double slope)
+        {
+            var m = new DMesh3();
+            int c = m.AppendVertex(new Vector3d(0, 0, 0));
+            int px = m.AppendVertex(new Vector3d(1, 0, -slope));
+            int py = m.AppendVertex(new Vector3d(0, 1, -slope));
+            int nx = m.AppendVertex(new Vector3d(-1, 0, -slope));
+            int ny = m.AppendVertex(new Vector3d(0, -1, -slope));
+            m.AppendTriangle(c, px, py);
+            m.AppendTriangle(c, py, nx);
+            m.AppendTriangle(c, nx, ny);
+            m.AppendTriangle(c, ny, px);
+            return m;
+        }
+
+        [Fact]
+        public void GentlyCurvedSurfaces_NoBackwardSpikes()
+        {
+            // 1. Shallow open domes (s = 0.03 and s = 0.01): thickened by +-0.1 must stay tightly within [-slope - d, +d] (no backward spike!)
+            foreach (double slope in new[] { 0.03, 0.01 }) {
+                double d = 0.1;
+                var domeOp = new MeshMiteredOffset {
+                    Mesh = ShallowOpenDome(slope),
+                    Mode = MeshMiteredOffset.OffsetModes.DoubleSided,
+                    Distance = d,
+                    MiterLimit = 4.0
+                };
+                Assert.True(domeOp.Compute(), $"dome s={slope}: {domeOp.Error}");
+                AssertClean(domeOp.Result, $"dome s={slope}");
+                AxisAlignedBox3d bb = domeOp.Result.CachedBounds;
+                // Must not shoot backward below (-slope - d) or upward past +d * (1 + slope)
+                Assert.True(bb.Min.z >= -slope - d - 1e-4, $"dome s={slope} backward spike: Min.z={bb.Min.z}");
+                Assert.True(bb.Max.z <= d + 1e-3, $"dome s={slope} apex overshoot: Max.z={bb.Max.z}");
+                Assert.True(bb.Max.z >= d - 1e-4, $"dome s={slope} missing corner cap: Max.z={bb.Max.z}");
+            }
+
+            // 2. Smooth subdivided sphere (normalized cube, EdgeVertices=3): Outward and Inward stay clean and close to analytic radii
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube { Radius = 1.0, EdgeVertices = 3 }.Generate().MakeDMesh();
+            var spOut = new MeshMiteredOffset { Mesh = sphere, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1 };
+            Assert.True(spOut.Compute(), spOut.Error);
+            AssertClean(spOut.Result, "sphere outward");
+            Assert.True(spOut.Result.CachedBounds.Max.x <= 1.15 && spOut.Result.CachedBounds.Max.x >= 1.09);
+
+            var spIn = new MeshMiteredOffset { Mesh = sphere, Mode = MeshMiteredOffset.OffsetModes.Inward, Distance = 0.1 };
+            Assert.True(spIn.Compute(), spIn.Error);
+            AssertClean(spIn.Result, "sphere inward");
+            Assert.True(spIn.Result.CachedBounds.Max.x <= 0.92 && spIn.Result.CachedBounds.Max.x >= 0.85);
+        }
+
+        [Fact]
+        public void TouchingEdgeSolids_AttachedFin_And_Contacts()
+        {
+            // 1. Two closed cubes touching along a shared non-manifold edge ([0,1]^3 and [1,2]x[1,2]x[0,1])
+            DMesh3 edgeTouch = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 secondCube = Box(new Vector3d(1, 1, 0), new Vector3d(2, 2, 1));
+            var vmap = new Dictionary<int, int>();
+            foreach (int vid in secondCube.VertexIndices())
+                vmap[vid] = edgeTouch.AppendVertex(secondCube.GetVertex(vid));
+            foreach (int tid in secondCube.TriangleIndices()) {
+                Index3i t = secondCube.GetTriangle(tid);
+                edgeTouch.AppendTriangle(vmap[t.a], vmap[t.b], vmap[t.c]);
+            }
+            var etOut = new MeshMiteredOffset { Mesh = edgeTouch, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1 };
+            Assert.True(etOut.Compute(), etOut.Error);
+            AssertClean(etOut.Result, "edge-touching cubes outward");
+            // Two overlapping [-0.1, 1.1]^3 and [0.9, 2.1]^2 x [-0.1, 1.1]: overlap is [0.9,1.1]^2 x [-0.1,1.1] = 0.2*0.2*1.2 = 0.048
+            // Total volume = 2 * 1.2^3 - 0.048 = 3.456 - 0.048 = 3.408
+            Assert.Equal(3.408, Volume(etOut.Result), 5);
+
+            var etIn = new MeshMiteredOffset { Mesh = edgeTouch, Mode = MeshMiteredOffset.OffsetModes.Inward, Distance = 0.1 };
+            Assert.True(etIn.Compute(), etIn.Error);
+            AssertClean(etIn.Result, "edge-touching cubes inward");
+            // Two disjoint shrunk cubes 0.8^3 each => total volume 2 * 0.512 = 1.024
+            Assert.Equal(1.024, Volume(etIn.Result), 5);
+
+            // 4. Closed cube + attached open fin sharing a cube edge (via duplicated vertices) must be rejected as NotClosed
+            DMesh3 cubePlusFin = Box(Vector3d.Zero, Vector3d.One);
+            int fa = cubePlusFin.AppendVertex(new Vector3d(1, 0, 0));
+            int fb = cubePlusFin.AppendVertex(new Vector3d(1, 1, 0));
+            int fc = cubePlusFin.AppendVertex(new Vector3d(2, 0.5, 0));
+            cubePlusFin.AppendTriangle(fa, fb, fc);
+            var finOp = new MeshMiteredOffset { Mesh = cubePlusFin, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1 };
+            Assert.False(finOp.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.NotClosed, finOp.Status);
+
+            // 5. Exact touching contact: two disjoint cubes [0,1]^3 and [1.5, 2.5] x [1.5, 2.5] x [0, 1]
+            //    offset outward by d = 0.25 => [-0.25, 1.25]^3 and [1.25, 2.75]^2 x [-0.25, 1.25] meet along the exact edge x=1.25, y=1.25
+            DMesh3 contactCubes = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 cOther = Box(new Vector3d(1.5, 1.5, 0), new Vector3d(2.5, 2.5, 1));
+            var cmap = new Dictionary<int, int>();
+            foreach (int vid in cOther.VertexIndices()) cmap[vid] = contactCubes.AppendVertex(cOther.GetVertex(vid));
+            foreach (int tid in cOther.TriangleIndices()) {
+                Index3i t = cOther.GetTriangle(tid);
+                contactCubes.AppendTriangle(cmap[t.a], cmap[t.b], cmap[t.c]);
+            }
+            var contactOp = new MeshMiteredOffset { Mesh = contactCubes, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            Assert.True(contactOp.Compute(), contactOp.Error);
+            Assert.True(contactOp.RoundingClean);
+            Assert.True(contactOp.Contacts > 0, $"expected exact edge contact Contacts > 0, got {contactOp.Contacts}");
+            Assert.Equal(2.0 * 3.375, Volume(contactOp.Result), 6);
+            Assert.Empty(SolidBooleanPipeline.CrossingTrianglesOfAll(contactOp.Result));
         }
 
         [Fact]
@@ -708,7 +814,45 @@ namespace geometry3Sharp.Tests
             AssertClean(sliverOp.Result, "plate with sliver");
             Assert.Equal(0.2, Volume(sliverOp.Result), 7);
 
-            // 4. Extremely small Distance (1e-20 * extent) is refused as InvalidParameters (never silently returns un-offset input)
+            // 4. Stray coincident-vertex triangle far away at (1e10, 0, 0) does not pollute box extent
+            DMesh3 cubeWithStray = Box(Vector3d.Zero, Vector3d.One);
+            int sp0 = cubeWithStray.AppendVertex(new Vector3d(1e10, 0, 0));
+            int sp1 = cubeWithStray.AppendVertex(new Vector3d(1e10, 0, 0));
+            int sp2 = cubeWithStray.AppendVertex(new Vector3d(1e10, 0, 0));
+            cubeWithStray.AppendTriangle(sp0, sp1, sp2);
+            var strayOp = new MeshMiteredOffset { Mesh = cubeWithStray, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            Assert.True(strayOp.Compute(), strayOp.Error);
+            AssertClean(strayOp.Result, "cube with far coincident triangle");
+            Assert.Equal(3.375, Volume(strayOp.Result), 7);
+
+            // 5. Closed cube whose edge is broken by a zero-area collinear bridge triangle fails with InvalidInput (never silently notches)
+            DMesh3 bridgeCube = Box(Vector3d.Zero, Vector3d.One);
+            // Find edge (0,0,0)-(1,0,0) on z=0 face and replace one triangle with two triangles + collinear bridge
+            int vOrigin = -1, vX = -1, splitTid = -1, vOpp = -1;
+            foreach (int vid in bridgeCube.VertexIndices()) {
+                Vector3d p = bridgeCube.GetVertex(vid);
+                if (p == new Vector3d(0, 0, 0)) vOrigin = vid;
+                if (p == new Vector3d(1, 0, 0)) vX = vid;
+            }
+            foreach (int tid in bridgeCube.TriangleIndices()) {
+                Index3i t = bridgeCube.GetTriangle(tid);
+                if ((t.a == vOrigin && t.b == vX) || (t.b == vOrigin && t.c == vX) || (t.c == vOrigin && t.a == vX)) {
+                    splitTid = tid;
+                    vOpp = (t.a != vOrigin && t.a != vX) ? t.a : (t.b != vOrigin && t.b != vX) ? t.b : t.c;
+                    break;
+                }
+            }
+            Assert.True(splitTid >= 0);
+            bridgeCube.RemoveTriangle(splitTid, false, false);
+            int vm = bridgeCube.AppendVertex(new Vector3d(0.5, 0, 0));
+            bridgeCube.AppendTriangle(vOrigin, vm, vOpp);
+            bridgeCube.AppendTriangle(vm, vX, vOpp);
+            bridgeCube.AppendTriangle(vOrigin, vX, vm); // collinear bridge restoring winding closure
+            var bridgeOp = new MeshMiteredOffset { Mesh = bridgeCube, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.2 };
+            Assert.False(bridgeOp.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidInput, bridgeOp.Status);
+
+            // 6. Extremely small Distance (1e-20 * extent) is refused as InvalidParameters (never silently returns un-offset input)
             var tinyIn = new MeshMiteredOffset { Mesh = Box(Vector3d.Zero, Vector3d.One), Mode = MeshMiteredOffset.OffsetModes.Inward, Distance = 1e-20 };
             Assert.False(tinyIn.Compute());
             Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, tinyIn.Status);
@@ -765,6 +909,13 @@ namespace geometry3Sharp.Tests
                 if (sim.IsExact)
                     Assert.Equal("", Invariance.Difference(baseline.Result, back));
             }
+
+            // 1b. Vertex/triangle permutation invariance (Invariance.Permuted)
+            var permOp = new MeshMiteredOffset { Mesh = Invariance.Permuted(bracket, seed: 42), Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = d };
+            Assert.True(permOp.Compute(), permOp.Error);
+            AssertClean(permOp.Result, "permuted L-bracket");
+            Assert.Equal(v0, Volume(permOp.Result), 7);
+            Assert.True(MaxSurfaceDistance(baseline.Result, permOp.Result) < 1e-9);
 
             // 2. Outward and Inward closed cube across Similarity.All()
             DMesh3 cube = Box(Vector3d.Zero, Vector3d.One);
@@ -901,6 +1052,10 @@ namespace geometry3Sharp.Tests
 
             op.Distance = 0.1;
             op.MiterLimit = 0.5;
+            Assert.False(op.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, op.Status);
+
+            op.MiterLimit = 1e5;
             Assert.False(op.Compute());
             Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, op.Status);
             op.MiterLimit = 4.0;
