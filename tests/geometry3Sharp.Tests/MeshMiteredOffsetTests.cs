@@ -45,7 +45,7 @@ namespace geometry3Sharp.Tests
             if (reason != "") {
                 var pairs = MeshRepairMetrics.SelfIntersectionPairs(m);
                 var crossings = SolidBooleanPipeline.CrossingTrianglesOfAll(m);
-                Assert.True(false, $"{label}: not clean: {reason} (tris={m.TriangleCount}, verts={m.VertexCount}, pairs={pairs.Count}, crossings={crossings.Count})");
+                Assert.Fail($"{label}: not clean: {reason} (tris={m.TriangleCount}, verts={m.VertexCount}, pairs={pairs.Count}, crossings={crossings.Count})");
             }
         }
 
@@ -862,6 +862,150 @@ namespace geometry3Sharp.Tests
             Assert.False(tinyOut.Compute());
             Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, tinyOut.Status);
             Assert.Null(tinyOut.Result);
+
+            // 7. Sub-ulp Distance at UTM coordinates (1e-11 at 5.7e6) is refused as InvalidParameters (never silently drops X/Y offsets)
+            DMesh3 utmCube = Box(new Vector3d(632000, 5712000, 0), new Vector3d(632001, 5712001, 1));
+            var utmTiny = new MeshMiteredOffset { Mesh = utmCube, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 1e-11 };
+            Assert.False(utmTiny.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, utmTiny.Status);
+
+            // 8. Closed mesh with a disjoint closed ultra-thin sliver box component refuses with InvalidInput (never leaves component un-offset)
+            DMesh3 withSliverComp = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 sliverBox = Box(new Vector3d(2, 0, 0), new Vector3d(3, 1e-13, 1e-13));
+            var smap = new Dictionary<int, int>();
+            foreach (int vid in sliverBox.VertexIndices()) smap[vid] = withSliverComp.AppendVertex(sliverBox.GetVertex(vid));
+            foreach (int tid in sliverBox.TriangleIndices()) {
+                Index3i t = sliverBox.GetTriangle(tid);
+                withSliverComp.AppendTriangle(smap[t.a], smap[t.b], smap[t.c]);
+            }
+            var sliverCompOp = new MeshMiteredOffset { Mesh = withSliverComp, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1 };
+            Assert.False(sliverCompOp.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidInput, sliverCompOp.Status);
+
+            // 9. SolidBooleanPipeline ThickenOpenSheet with relative thickness ignores stray coincident-vertex triangles
+            DMesh3 plateWithStray = OpenFlatPlate(0, 1, 0, 1, 0);
+            int st0 = plateWithStray.AppendVertex(new Vector3d(1e10, 0, 0));
+            int st1 = plateWithStray.AppendVertex(new Vector3d(1e10, 0, 0));
+            int st2 = plateWithStray.AppendVertex(new Vector3d(1e10, 0, 0));
+            plateWithStray.AppendTriangle(st0, st1, st2);
+            var strayPipe = new SolidBooleanPipeline(Box(new Vector3d(0, 0, -0.5), new Vector3d(1, 1, 0)), plateWithStray, ExactMeshBoolean.Operations.Union) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.ThickenOpenSheet,
+                RelativeOpenSheetHalfThickness = 0.05
+            };
+            Assert.True(strayPipe.Compute(), strayPipe.Error);
+            Assert.True(strayPipe.Report.Clean, strayPipe.Report.NotCleanReason);
+            Assert.True(strayPipe.Result.CachedBounds.Max.z < 0.2, $"stray triangle inflated relative thickness: Max.z={strayPipe.Result.CachedBounds.Max.z}");
+        }
+
+        // Convex hip roof solid: base rectangle [-2, 4] x [-1, 1] at z = -sqrt(3), ridge from (0, 0, 0) to (2, 0, 0).
+        // Two 60-deg side faces (nA, nB = (0, +-sqrt(3)/2, 1/2)) meet 30-deg hip faces at x < 0 (nC = (-1/2, 0, sqrt(3)/2)) and x > 2.
+        static DMesh3 ConvexHipRoof()
+        {
+            double s3 = Math.Sqrt(3.0);
+            // Ridge endpoints (0, 0, 0) and (2, 0, 0). At z = -s3:
+            //   nA . (x, y, -s3) = 0 => y = 1; nB => y = -1
+            //   nC . (x, y, -s3) = 0 => -0.5 x + 0.5*s3*(-s3) = 0 => x = -3; right hip => x = +5
+            var m = new DMesh3();
+            int r0 = m.AppendVertex(new Vector3d(0, 0, 0));
+            int r1 = m.AppendVertex(new Vector3d(2, 0, 0));
+            int b0 = m.AppendVertex(new Vector3d(-3, -1, -s3));
+            int b1 = m.AppendVertex(new Vector3d(5, -1, -s3));
+            int b2 = m.AppendVertex(new Vector3d(5, 1, -s3));
+            int b3 = m.AppendVertex(new Vector3d(-3, 1, -s3));
+            // Bottom (-z)
+            m.AppendTriangle(b0, b3, b2);
+            m.AppendTriangle(b0, b2, b1);
+            // Side -y (outward normal (0, -s3/2, 1/2))
+            m.AppendTriangle(b0, b1, r1);
+            m.AppendTriangle(b0, r1, r0);
+            // Side +y (outward normal (0, +s3/2, 1/2))
+            m.AppendTriangle(b2, b3, r0);
+            m.AppendTriangle(b2, r0, r1);
+            // Left hip -x (outward normal (-1/2, 0, s3/2))
+            m.AppendTriangle(b3, b0, r0);
+            // Right hip +x (outward normal (+1/2, 0, s3/2))
+            m.AppendTriangle(b1, b2, r1);
+            return m;
+        }
+
+        [Fact]
+        public void VeryAcuteCones_And_AsymmetricHipRoof()
+        {
+            // 1. Very acute cones whose exact apex exceeds boundLimit = 8.0 must bevel-clamp cleanly (never silently drop corner!)
+            double d = 0.1;
+            DMesh3 needleCone = AcuteCone(18, 7.0, height: 2.0);
+            var needleOp = new MeshMiteredOffset { Mesh = needleCone, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = d, MiterLimit = 4.0 };
+            Assert.True(needleOp.Compute(), needleOp.Error);
+            AssertClean(needleOp.Result, "7-deg needle cone");
+            Assert.Equal(2.0 + 4.0 * d, needleOp.Result.CachedBounds.Max.z, 3);
+
+            DMesh3 sharpPyr = AcuteCone(4, 10.0, height: 2.0);
+            var pyrOp = new MeshMiteredOffset { Mesh = sharpPyr, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = d, MiterLimit = 2.0 };
+            Assert.True(pyrOp.Compute(), pyrOp.Error);
+            AssertClean(pyrOp.Result, "10-deg 4-sided pyramid");
+            Assert.Equal(2.0 + 2.0 * d, pyrOp.Result.CachedBounds.Max.z, 3);
+
+            // 2. Asymmetric convex hip roof: ridge miter (0, 0, 2*d) would protrude 73% above 30-deg hip plane nC unless clipped
+            DMesh3 roof = ConvexHipRoof();
+            var roofOp = new MeshMiteredOffset { Mesh = roof, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = d, MiterLimit = 4.0 };
+            Assert.True(roofOp.Compute(), roofOp.Error);
+            AssertClean(roofOp.Result, "asymmetric hip roof");
+            // Every output vertex must satisfy the shifted left hip plane (-0.5*x + sqrt(3)/2*z <= d) and right hip plane
+            Vector3d nLeftHip = new Vector3d(-0.5, 0, 0.5 * Math.Sqrt(3.0));
+            Vector3d nRightHip = new Vector3d(0.5, 0, 0.5 * Math.Sqrt(3.0));
+            foreach (int vid in roofOp.Result.VertexIndices()) {
+                Vector3d p = roofOp.Result.GetVertex(vid);
+                Assert.True(nLeftHip.Dot(p) <= d + 1e-5, $"hip roof protrusion above left hip plane: {nLeftHip.Dot(p)} > {d}");
+                Assert.True(nRightHip.Dot(p - new Vector3d(2, 0, 0)) <= d + 1e-5, $"hip roof protrusion above right hip plane");
+            }
+            // Exact ridge height must still reach 2*d = 0.2
+            Assert.Equal(2.0 * d, roofOp.Result.CachedBounds.Max.z, 5);
+        }
+
+        [Fact]
+        public void ExtremeHollowScales_And_OpenHemisphereRim()
+        {
+            // 1. Extreme scales 2^-500 and 2^500 on HollowBox(2, 1) stay clean and bit-exact under 2^k scaling
+            DMesh3 hollow = HollowBox(2.0, 1.0);
+            var hBase = new MeshMiteredOffset { Mesh = hollow, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            Assert.True(hBase.Compute(), hBase.Error);
+            foreach (int exp in new[] { -500, 500 }) {
+                var scaled = new DMesh3(hollow);
+                foreach (int vid in scaled.VertexIndices()) {
+                    Vector3d p = scaled.GetVertex(vid);
+                    scaled.SetVertex(vid, new Vector3d(ExactPoint3.ScaleB(p.x, exp), ExactPoint3.ScaleB(p.y, exp), ExactPoint3.ScaleB(p.z, exp)));
+                }
+                var hOp = new MeshMiteredOffset { Mesh = scaled, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = ExactPoint3.ScaleB(0.25, exp) };
+                Assert.True(hOp.Compute(), $"hollow 2^{exp}: {hOp.Error}");
+                Assert.Equal(MeshMiteredOffset.OffsetStatus.Success, hOp.Status);
+                Assert.True(hOp.RoundingClean);
+                // Scale result back by 2^-exp and verify bit-for-bit identity with hBase
+                var back = new DMesh3(hOp.Result);
+                foreach (int vid in back.VertexIndices()) {
+                    Vector3d p = back.GetVertex(vid);
+                    back.SetVertex(vid, new Vector3d(ExactPoint3.ScaleB(p.x, -exp), ExactPoint3.ScaleB(p.y, -exp), ExactPoint3.ScaleB(p.z, -exp)));
+                }
+                Assert.Equal("", Invariance.Difference(hBase.Result, back));
+            }
+
+            // 4. Open curved hemisphere cut at z = 0 thickened DoubleSided: flush rim (no downward spikes past -d)
+            DMesh3 fullSphere = new Sphere3Generator_NormalizedCube { Radius = 1.0, EdgeVertices = 3 }.Generate().MakeDMesh();
+            var hemi = new DMesh3();
+            var hmap = new Dictionary<int, int>();
+            foreach (int tid in fullSphere.TriangleIndices()) {
+                Index3i t = fullSphere.GetTriangle(tid);
+                Vector3d a = fullSphere.GetVertex(t.a), b = fullSphere.GetVertex(t.b), c = fullSphere.GetVertex(t.c);
+                if (a.z < -1e-9 || b.z < -1e-9 || c.z < -1e-9) continue;
+                int ia = hmap.TryGetValue(t.a, out int ma) ? ma : (hmap[t.a] = hemi.AppendVertex(a));
+                int ib = hmap.TryGetValue(t.b, out int mb) ? mb : (hmap[t.b] = hemi.AppendVertex(b));
+                int ic = hmap.TryGetValue(t.c, out int mc) ? mc : (hmap[t.c] = hemi.AppendVertex(c));
+                hemi.AppendTriangle(ia, ib, ic);
+            }
+            var hemiOp = new MeshMiteredOffset { Mesh = hemi, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.05 };
+            Assert.True(hemiOp.Compute(), hemiOp.Error);
+            AssertClean(hemiOp.Result, "open hemisphere");
+            Assert.True(hemiOp.Result.CachedBounds.Min.z >= -0.05 - 1e-3,
+                $"open hemisphere rim spike below z=-0.05: Min.z={hemiOp.Result.CachedBounds.Min.z}");
         }
 
         static double MaxSurfaceDistance(DMesh3 a, DMesh3 b)

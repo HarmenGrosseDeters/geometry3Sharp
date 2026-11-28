@@ -2968,9 +2968,18 @@ namespace gs
                     bool hasTri = false;
                     foreach (int tid in input.TriangleIndices()) {
                         Index3i t = input.GetTriangle(tid);
-                        b.Contain(input.GetVertex(t.a));
-                        b.Contain(input.GetVertex(t.b));
-                        b.Contain(input.GetVertex(t.c));
+                        Vector3d va = input.GetVertex(t.a);
+                        Vector3d vb = input.GetVertex(t.b);
+                        Vector3d vc = input.GetVertex(t.c);
+                        if (!va.IsFinite || !vb.IsFinite || !vc.IsFinite) {
+                            robustRefusal = "open input contains non-finite vertex coordinates";
+                            return null;
+                        }
+                        if (va == vb || vb == vc || vc == va)
+                            continue;
+                        b.Contain(va);
+                        b.Contain(vb);
+                        b.Contain(vc);
                         hasTri = true;
                     }
                     double diag = 0;
