@@ -218,6 +218,7 @@ namespace g3
             // deterministic stochastic walk: constrained triangulations need not be globally Delaunay, so varying the first edge tried
             // prevents cycling while staying deterministic; the result is exact regardless of the path taken
             uint state = 2463534242u ^ ((uint)t * 2654435761u);
+            if (state == 0) state = 2463534242u;
             long limit = 4L * slots + 16;
             bool found = false;
             for (long step = 0; step < limit; ++step) {
@@ -266,10 +267,79 @@ namespace g3
             return true;
         }
 
+        /// <summary>
+        /// Hinted exact point location for the exact rational centroid (a + b + c) / 3 in the full hull triangulation behind the mesh.
+        /// Immune to double rounding of the centroid on thin, huge, subnormal, or mixed-scale triangles.
+        /// </summary>
+        internal bool TryLocateCentroidMinArea(Vector2d a, Vector2d b, Vector2d c, double?[] areas, ref int hintSlot, out double? minArea, out int triangleId)
+        {
+            minArea = null;
+            triangleId = -1;
+            if (triangles.Length == 0) return false;
+            int slots = fullV.Length / 3;
+            int t = hintSlot >= 0 && hintSlot < slots && !Ghost(hintSlot) ? hintSlot : 0;
+            while (t < slots && Ghost(t)) ++t;
+            if (t == slots) return false;
+            uint state = 2463534242u ^ ((uint)t * 2654435761u);
+            if (state == 0) state = 2463534242u;
+            long limit = 4L * slots + 16;
+            bool found = false;
+            for (long step = 0; step < limit; ++step) {
+                state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+                int start = (int)(state % 3), moved = -1;
+                for (int j = 0; j < 3; ++j) {
+                    int e = 3 * t + (start + j) % 3;
+                    if (DelaunayMesh2.OrientCentroid2d(fullP[fullV[e]], fullP[fullV[Next(e)]], a, b, c) < 0) { moved = e; break; }
+                }
+                if (moved < 0) { found = true; break; }
+                t = fullH[moved] / 3;
+                if (Ghost(t)) return false;
+            }
+            if (!found) {
+                t = -1;
+                for (int s = 0; s < slots && t < 0; ++s) if (!Ghost(s) && ContainsSlotCentroid(s, a, b, c)) t = s;
+                if (t < 0) return false;
+            }
+            hintSlot = t;
+            int best = int.MaxValue;
+            double? bestArea = null;
+            void Consider(int s)
+            {
+                if (Ghost(s)) return;
+                int id = slotId[s];
+                if (id < 0) return;
+                if (id < best) best = id;
+                if (areas != null) {
+                    var ar = areas[id];
+                    if (ar != null && (bestArea == null || ar.Value < bestArea.Value)) bestArea = ar;
+                }
+            }
+            Consider(t);
+            for (int k = 0; k < 3; ++k) {
+                int e = 3 * t + k, v = fullV[e];
+                if (DelaunayMesh2.CentroidEqualsVertex(fullP[v], a, b, c)) {
+                    int start = leaving[v], h = start;
+                    do { Consider(h / 3); h = fullH[Prev(h)]; } while (h != start);
+                }
+                if (DelaunayMesh2.OrientCentroid2d(fullP[v], fullP[fullV[Next(e)]], a, b, c) == 0) Consider(fullH[e] / 3);
+            }
+            if (best == int.MaxValue) return false;
+            triangleId = best;
+            minArea = bestArea;
+            return true;
+        }
+
         bool ContainsSlot(int s, Vector2d p)
         {
             for (int k = 0; k < 3; ++k)
                 if (ExactPredicates.Orient2d(fullP[fullV[3 * s + k]], fullP[fullV[3 * s + (k + 1) % 3]], p) < 0) return false;
+            return true;
+        }
+
+        bool ContainsSlotCentroid(int s, Vector2d a, Vector2d b, Vector2d c)
+        {
+            for (int k = 0; k < 3; ++k)
+                if (DelaunayMesh2.OrientCentroid2d(fullP[fullV[3 * s + k]], fullP[fullV[3 * s + (k + 1) % 3]], a, b, c) < 0) return false;
             return true;
         }
     }

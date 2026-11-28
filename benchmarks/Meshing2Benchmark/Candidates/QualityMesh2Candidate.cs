@@ -28,15 +28,14 @@ namespace Meshing2Acceptance
             }
             ConstrainedTriangulation2Result result;
             if (input.TriangleAreas.Count > 0) {
-                var areaByTriple = new System.Collections.Generic.Dictionary<(int, int, int), double>();
-                foreach (var ta in input.TriangleAreas) {
-                    var triple = SortTriple(ta.A, ta.B, ta.C);
-                    if (!areaByTriple.TryGetValue(triple, out double cur) || ta.MaxArea < cur) areaByTriple[triple] = ta.MaxArea;
-                }
                 if (input.Segments.Count == 0 && input.Rings.Count == 0 && input.HoleSeeds.Count == 0 && input.Regions.Count == 0) {
                     var pts = new Vector2d[input.Count];
                     for (int i = 0; i < input.Count; ++i) pts[i] = new Vector2d(input.X[i], input.Y[i]);
                     var initial = new DelaunayMesh2().Compute(pts);
+                    if (initial.Mesh == null) {
+                        return new Mesh2Output { Status = Mesh2Status.Failed, FailureKind = initial.FailureKind.ToString() };
+                    }
+                    var areaByTriple = BuildAreaByTriple(input.TriangleAreas, initial.Mesh.InputToVertex);
                     var perTri = new double?[initial.Mesh.TriangleCount];
                     for (int t = 0; t < perTri.Length; ++t) {
                         var tri = initial.Mesh.Triangles[t];
@@ -48,10 +47,18 @@ namespace Meshing2Acceptance
                     if (initial.Mesh == null) {
                         result = initial;
                     } else {
+                        var areaByTriple = BuildAreaByTriple(input.TriangleAreas, initial.Mesh.InputToVertex);
+                        var regionMaxArea = new System.Collections.Generic.Dictionary<int, double?>();
+                        foreach (var reg in input.Regions) regionMaxArea[reg.Label] = reg.MaxArea;
                         var perTri = new double?[initial.Mesh.TriangleCount];
                         for (int t = 0; t < perTri.Length; ++t) {
                             var tri = initial.Mesh.Triangles[t];
-                            if (areaByTriple.TryGetValue(SortTriple(tri.a, tri.b, tri.c), out double maxA)) perTri[t] = maxA;
+                            double? bound = null;
+                            if (areaByTriple.TryGetValue(SortTriple(tri.a, tri.b, tri.c), out double maxA)) bound = maxA;
+                            int label = initial.Mesh.TriangleLabels[t];
+                            if (label != 0 && regionMaxArea.TryGetValue(label, out double? regA) && regA != null)
+                                bound = bound == null ? regA : Math.Min(bound.Value, regA.Value);
+                            perTri[t] = bound;
                         }
                         result = mesher.Refine(initial.Mesh, perTri);
                     }
@@ -66,6 +73,21 @@ namespace Meshing2Acceptance
                 output.SteinerLimitReached = result.Mesh.SteinerLimitReached;
             }
             return output;
+        }
+
+        static System.Collections.Generic.Dictionary<(int, int, int), double> BuildAreaByTriple(
+            System.Collections.Generic.List<TriangleAreaInput> triangleAreas,
+            System.Collections.Generic.IReadOnlyList<int> inputToVertex)
+        {
+            var map = new System.Collections.Generic.Dictionary<(int, int, int), double>();
+            foreach (var ta in triangleAreas) {
+                int a = ta.A >= 0 && ta.A < inputToVertex.Count ? inputToVertex[ta.A] : ta.A;
+                int b = ta.B >= 0 && ta.B < inputToVertex.Count ? inputToVertex[ta.B] : ta.B;
+                int c = ta.C >= 0 && ta.C < inputToVertex.Count ? inputToVertex[ta.C] : ta.C;
+                var triple = SortTriple(a, b, c);
+                if (!map.TryGetValue(triple, out double cur) || ta.MaxArea < cur) map[triple] = ta.MaxArea;
+            }
+            return map;
         }
 
         static (int, int, int) SortTriple(int a, int b, int c)

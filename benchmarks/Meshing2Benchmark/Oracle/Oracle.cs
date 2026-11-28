@@ -4045,15 +4045,18 @@ namespace Meshing2Acceptance
                 bool anySize = input.MaxArea != null || input.SizeFunction != null || labelArea != null || hasTriangleAreas;
                 if (!anySize || o.SteinerLimitReached) return;
                 Q? maxArea = input.MaxArea == null ? (Q?)null : Q.FromDouble(input.MaxArea.Value);
-                (Pt a, Pt b, Pt c, Q area)[] triAreas = null;
+                List<(Pt a, Pt b, Pt c, Q area)> triAreas = null;
                 if (hasTriangleAreas) {
-                    triAreas = new (Pt, Pt, Pt, Q)[input.TriangleAreas.Count];
-                    for (int k = 0; k < triAreas.Length; ++k) {
+                    triAreas = new List<(Pt, Pt, Pt, Q)>(input.TriangleAreas.Count);
+                    for (int k = 0; k < input.TriangleAreas.Count; ++k) {
                         var ta = input.TriangleAreas[k];
                         Pt pa = inPts[ta.A], pb = inPts[ta.B], pc = inPts[ta.C];
-                        if (Exact.Orient(pa, pb, pc) < 0) { var tmp = pb; pb = pc; pc = tmp; }
-                        triAreas[k] = (pa, pb, pc, Q.FromDouble(ta.MaxArea));
+                        int orient = Exact.Orient(pa, pb, pc);
+                        if (orient == 0) continue;
+                        if (orient < 0) { var tmp = pb; pb = pc; pc = tmp; }
+                        triAreas.Add((pa, pb, pc, Q.FromDouble(ta.MaxArea)));
                     }
+                    if (triAreas.Count == 0) triAreas = null;
                 }
                 for (int i = 0; i < o.Triangles.Length; ++i) {
                     var t = o.Triangles[i];
@@ -4065,9 +4068,8 @@ namespace Meshing2Acceptance
                     if (triAreas != null) {
                         Pt centroid = Centroid(t);
                         centroidCache = centroid;
-                        for (int k = 0; k < triAreas.Length; ++k) {
+                        for (int k = 0; k < triAreas.Count; ++k) {
                             var ta = triAreas[k];
-                            if (Exact.Orient(ta.a, ta.b, ta.c) == 0) continue;
                             if (Exact.Orient(ta.a, ta.b, centroid) >= 0 && Exact.Orient(ta.b, ta.c, centroid) >= 0 && Exact.Orient(ta.c, ta.a, centroid) >= 0)
                                 bound = bound == null ? ta.area : Q.Min(bound.Value, ta.area);
                         }

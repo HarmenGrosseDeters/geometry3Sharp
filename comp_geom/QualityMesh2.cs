@@ -34,6 +34,8 @@ namespace g3
     /// yet: a triangle whose circumcentre lies behind a locked segment is left as it is, so its neighbourhood may keep triangles
     /// below the angle or above the area (listed in <see cref="ConstrainedMesh2.BadTriangles"/> when below the angle). Meeting
     /// the bounds there is the open work item m3.locks.</para>
+    /// <para>Existing triangulations can be refined further via <see cref="Refine(TriangulationMesh2, IReadOnlyList{double?}, CancellationToken)"/>
+    /// and <see cref="Refine(ConstrainedMesh2, IReadOnlyList{double?}, CancellationToken)"/> with optional per-triangle maximum areas (spec I8, O17).</para>
     /// </remarks>
     public sealed class QualityMesh2
     {
@@ -96,18 +98,8 @@ namespace g3
             ValidateOptions();
             var areas = ValidateTriangleAreas(triangleMaxAreas, mesh.TriangleCount);
             cancellationToken.ThrowIfCancellationRequested();
-            if (mesh.TriangleCount == 0) {
-                var verts = new Vector2d[mesh.Vertices.Count];
-                for (int i = 0; i < verts.Length; ++i) {
-                    var p = mesh.Vertices[i];
-                    verts[i] = new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y);
-                }
-                var map = new int[mesh.InputToVertex.Count];
-                for (int i = 0; i < map.Length; ++i) map[i] = mesh.InputToVertex[i];
-                var empty = new ConstrainedMesh2(verts, verts.Length, map, new Index3i[0], new Index3i[0], new int[0], new Mesh2Subsegment[0],
-                    null, new int[0], new int[0], new int[0], new Vector2d[0], 0);
-                return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, empty, new string[0]);
-            }
+            if (mesh.TriangleCount == 0)
+                return RefineEmptyMesh(mesh.Vertices, mesh.Vertices.Count, mesh.InputToVertex, null, cancellationToken);
             var input = new ConstrainedMesh2Input { Points = mesh.Vertices.ToList() };
             var areaMap = areas == null ? null : new TriangleAreaMap(mesh, areas);
             return ComputeCore(input, areaMap, cancellationToken);
@@ -130,19 +122,8 @@ namespace g3
             ValidateOptions();
             var areas = ValidateTriangleAreas(triangleMaxAreas, mesh.TriangleCount);
             cancellationToken.ThrowIfCancellationRequested();
-            if (mesh.TriangleCount == 0) {
-                var verts = new Vector2d[mesh.Vertices.Count];
-                for (int i = 0; i < verts.Length; ++i) {
-                    var p = mesh.Vertices[i];
-                    verts[i] = new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y);
-                }
-                var map = new int[mesh.InputToVertex.Count];
-                for (int i = 0; i < map.Length; ++i) map[i] = mesh.InputToVertex[i];
-                double[] heights = mesh.Heights == null ? null : mesh.Heights.ToArray();
-                var empty = new ConstrainedMesh2(verts, mesh.InputCount, map, new Index3i[0], new Index3i[0], new int[0], new Mesh2Subsegment[0],
-                    heights, new int[0], new int[0], new int[0], new Vector2d[0], 0);
-                return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, empty, new string[0]);
-            }
+            if (mesh.TriangleCount == 0)
+                return RefineEmptyMesh(mesh.Vertices, mesh.InputCount, mesh.InputToVertex, mesh.Heights, cancellationToken);
 
             bool hasTriangleAreas = areas != null;
             bool willRefine = MinAngle > 0 || MaxArea != null || SizeFunction != null || Conforming || hasTriangleAreas;
@@ -215,8 +196,20 @@ namespace g3
                 labelToTag.Add(l, regions.Count);
             }
 
+            // Canonicalize D17 near-duplicate alias slots (i < InputCount with InputToVertex[i] != i) to their representative's
+            // coordinates so pass 2 never splits an already-merged alias across a snap pixel boundary or resurrects it as a vertex.
+            var points = new List<Vector2d>(mesh.Vertices.Count);
+            for (int i = 0; i < mesh.Vertices.Count; ++i) {
+                if (i < mesh.InputCount) {
+                    int rep = mesh.InputToVertex[i];
+                    points.Add(rep >= 0 && rep < mesh.Vertices.Count ? mesh.Vertices[rep] : mesh.Vertices[i]);
+                } else {
+                    points.Add(mesh.Vertices[i]);
+                }
+            }
+
             var input = new ConstrainedMesh2Input {
-                Points = mesh.Vertices.ToList(),
+                Points = points,
                 Segments = segments,
                 Regions = regions,
                 Heights = mesh.Heights?.ToList()
@@ -233,14 +226,19 @@ namespace g3
                         builder.PreloadedSources = mesh.SavedSources;
                         builder.SegmentSourceIds = segSourceIds;
                     }
+                    if (mesh.ExistedBeforeRefinement != null) builder.PreloadedBeforeRefinement = mesh.ExistedBeforeRefinement;
                     if (hasExtraHull) builder.ExtraHullFrom = hullFrom;
-                } else if (hasExtraHull && willRefine) {
-                    builder.HullSegmentsFrom = snap.SegmentChainStart[hullFrom];
-                    builder.HullSegmentsTo = snap.SegmentChainStart[input.Segments.Count];
+                } else if (hasExtraHull) {
+                    if (willRefine) {
+                        builder.HullSegmentsFrom = snap.SegmentChainStart[hullFrom];
+                        builder.HullSegmentsTo = snap.SegmentChainStart[input.Segments.Count];
+                    } else {
+                        builder.ExtraHullFrom = snap.SegmentChainStart[hullFrom];
+                    }
                 }
                 int classifyHint = -1;
-                builder.ClassifyTag = g => {
-                    if (!mesh.TryLocateMinArea(g, null, ref classifyHint, out _, out int origT)) return -1;
+                builder.ClassifyTriangle = (pa, pb, pc) => {
+                    if (!mesh.TryLocateCentroidMinArea(pa, pb, pc, null, ref classifyHint, out _, out int origT)) return -1;
                     int label = mesh.TriangleLabels[origT];
                     return label == 0 ? 0 : labelToTag[label];
                 };
@@ -259,6 +257,51 @@ namespace g3
             }
             var mappedMesh = result.Mesh.WithInputMapping(mesh.InputCount, composedMap, keepMetadata: SnapTolerance == 0);
             return new ConstrainedTriangulation2Result(result.Status, result.FailureKind, mappedMesh, result.Diagnostics, result.ProblemCoordinate, result.FailureDetail);
+        }
+
+        ConstrainedTriangulation2Result RefineEmptyMesh(IReadOnlyList<Vector2d> vertices, int inputCount, IReadOnlyList<int> inputToVertex, IReadOnlyList<double> heights, CancellationToken cancellationToken)
+        {
+            var points = new List<Vector2d>(vertices.Count);
+            for (int i = 0; i < vertices.Count; ++i) {
+                var p = SnapTolerance > 0 && i < inputCount && inputToVertex[i] >= 0 && inputToVertex[i] < vertices.Count ? vertices[inputToVertex[i]] : vertices[i];
+                points.Add(new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y));
+            }
+            if (SnapTolerance > 0) {
+                var emptyInput = new ConstrainedMesh2Input {
+                    Points = points,
+                    Heights = heights?.ToList()
+                };
+                var snappedRes = ConstrainedDelaunayMesh2.Snapped(emptyInput, SnapTolerance, cancellationToken, (snapped, snap) => {
+                    var sv = new Vector2d[snapped.Points.Count];
+                    for (int i = 0; i < sv.Length; ++i) {
+                        var p = snapped.Points[i];
+                        sv[i] = new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y);
+                    }
+                    var smap = new int[sv.Length];
+                    var first = new Dictionary<Vector2d, int>();
+                    for (int i = 0; i < sv.Length; ++i) {
+                        if (!first.TryGetValue(sv[i], out int f)) first.Add(sv[i], f = i);
+                        smap[i] = f;
+                    }
+                    var smesh = new ConstrainedMesh2(sv, sv.Length, smap, new Index3i[0], new Index3i[0], new int[0], new Mesh2Subsegment[0],
+                        snapped.Heights == null ? null : snapped.Heights.ToArray(), new int[0], new int[0], new int[0], new Vector2d[0], 0);
+                    return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, smesh, new string[0]);
+                });
+                if (snappedRes.Mesh == null) return snappedRes;
+                var composed = new int[inputCount];
+                for (int i = 0; i < inputCount; ++i) {
+                    int m = inputToVertex[i];
+                    composed[i] = m >= 0 && m < snappedRes.Mesh.InputToVertex.Count ? snappedRes.Mesh.InputToVertex[m] : -1;
+                }
+                return new ConstrainedTriangulation2Result(snappedRes.Status, snappedRes.FailureKind,
+                    snappedRes.Mesh.WithInputMapping(inputCount, composed, keepMetadata: false),
+                    snappedRes.Diagnostics, snappedRes.ProblemCoordinate, snappedRes.FailureDetail);
+            }
+            var map = new int[inputToVertex.Count];
+            for (int i = 0; i < map.Length; ++i) map[i] = inputToVertex[i];
+            var empty = new ConstrainedMesh2(points.ToArray(), inputCount, map, new Index3i[0], new Index3i[0], new int[0], new Mesh2Subsegment[0],
+                heights == null ? null : heights.ToArray(), new int[0], new int[0], new int[0], new Vector2d[0], 0);
+            return new ConstrainedTriangulation2Result(Triangulation2Status.Empty, Triangulation2FailureKind.None, empty, new string[0]);
         }
 
         void ValidateOptions()
@@ -316,7 +359,7 @@ namespace g3
             });
         }
 
-        /// <summary> Per-triangle area lookup on an existing mesh, using hinted exact point location. </summary>
+        /// <summary> Per-triangle area lookup on an existing mesh, using hinted exact point location at the exact rational centroid. </summary>
         internal sealed class TriangleAreaMap
         {
             readonly TriangulationMesh2 triMesh;
@@ -327,10 +370,10 @@ namespace g3
             internal TriangleAreaMap(TriangulationMesh2 mesh, double?[] areas) { triMesh = mesh; this.areas = areas; }
             internal TriangleAreaMap(ConstrainedMesh2 mesh, double?[] areas) { conMesh = mesh; this.areas = areas; }
 
-            internal double? At(Vector2d point)
+            internal double? At(Vector2d a, Vector2d b, Vector2d c)
             {
-                if (triMesh != null) return triMesh.TryLocateMinArea(point, areas, ref hint, out var area) ? area : null;
-                return conMesh.TryLocateMinArea(point, areas, ref hint, out var cArea, out _) ? cArea : null;
+                if (triMesh != null) return triMesh.TryLocateCentroidMinArea(a, b, c, areas, ref hint, out var area) ? area : null;
+                return conMesh.TryLocateCentroidMinArea(a, b, c, areas, ref hint, out var cArea, out _) ? cArea : null;
             }
         }
 
@@ -754,7 +797,7 @@ namespace g3
             /// <summary> without outer rings the hull is the boundary (D13): its edges become constraints, so it does not grow </summary>
             ConstrainedTriangulation2Result ConstrainHull()
             {
-                if (b.outerRings > 0 || b.OuterRingsCollapsed || b.ClassifyTag != null) return null;
+                if (b.outerRings > 0 || b.OuterRingsCollapsed || b.ClassifyTriangle != null) return null;
                 var pieces = new List<ConstrainedDelaunayMesh2.Builder.Piece>();
                 // (on the grid the hull edges came in as snapped segments, hull sources already: only the flood below)
                 for (int t = 0; t < k.TriangleSlots && !b.HullFromSegments; ++t) {
@@ -870,14 +913,14 @@ namespace g3
             void CheckTags()
             {
                 ++operations;
-                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0 || b.ClassifyTag != null) return;
+                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0 || b.ClassifyTriangle != null) return;
                 if (k.TriangleSlots >= DenseCheckBelowTriangles && (operations & (operations - 1)) != 0) return;
                 CheckTagsNow();
             }
 
             void CheckTagsNow()
             {
-                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0 || b.ClassifyTag != null) return;
+                if (!CheckTagsForTests || (b.input.HoleSeeds?.Count ?? 0) > 0 || b.ClassifyTriangle != null) return;
                 var inside = b.InsideFromScratch();
                 // The rule "a ghost neighbour counts as outside" in Collect reads -1 and not the ghost's stored tag, because every ghost's tag
                 // is -1; with that invariant the two are the same (so are ignoring the ghost, since the sliver is also tagged from the sides
@@ -998,6 +1041,17 @@ namespace g3
             /// <summary> tests only: every vertex encroachment Encroached looks at (the subsegment's ends, the vertex, whether it is exempt) </summary>
             [ThreadStatic] internal static List<(Vector2d U, Vector2d W, Vector2d V, bool Exempt)> ApexLogForTests;
 
+            /// <summary> Vertex v existed before the first quality refinement pass (input point or crossing, not a Steiner point of this or an earlier pass). </summary>
+            bool ExistedBeforeRefinement(int v)
+            {
+                if (v >= firstSteiner) return false;
+                if (b.PreloadedBeforeRefinement != null && v != k.Infinite) {
+                    int rep = k.Representative[v];
+                    if (rep >= 0 && rep < b.PreloadedBeforeRefinement.Length) return b.PreloadedBeforeRefinement[rep];
+                }
+                return true;
+            }
+
             /// <summary>
             /// The small-angle rule (MESHING2D_SMALL_ANGLES.md, owner decision 2026-11-06; in the conforming mode with the Delaunay check of Encroached, MESHING2D_SMALL_ANGLES_CONFORMING.md, owner decision 2026-11-08): subsegment e is
             /// not split for vertex v when all of these hold.
@@ -1020,7 +1074,7 @@ namespace g3
                 if (options.Conforming && lenses || !(sin2Min > 0) || SmallAngleExemptionForTests == false || k.Seg[e] < 0) return false;
                 // v is a vertex refinement made on one source c, nothing else: not an input vertex, not a crossing, no third source
                 // (Shewchuk 2002 section 6.2 splits for a parent that is an input vertex or lies on a nonincident segment)
-                if (v < firstSteiner) return false;
+                if (ExistedBeforeRefinement(v)) return false;
                 var sv = SourcesAt(v);
                 if (sv.Count != 1) return false;
                 int c = sv[0];
@@ -1237,8 +1291,7 @@ namespace g3
                     if (ra != null) maxArea = maxArea == null ? ra : Math.Min(maxArea.Value, ra.Value);
                 }
                 if (triangleAreas != null) {
-                    var g = a0 + ScaleB((q0 + r0) * (1.0 / 3.0), ex);
-                    var ta = triangleAreas.At(g);
+                    var ta = triangleAreas.At(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]));
                     if (ta != null) maxArea = maxArea == null ? ta : Math.Min(maxArea.Value, ta.Value);
                 }
                 // (a margin of 2^-40 below the bound: the area in doubles may round down below it while the exact area is above)
@@ -2127,7 +2180,7 @@ namespace g3
                 double fraction = 0.5;
                 // concentric shells around the vertices that existed before refinement (input points and crossings): where segments
                 // meet at a small angle, their splits then lie on common circles and do not encroach each other (Shewchuk 2002)
-                bool uInput = u < firstSteiner, wInput = w < firstSteiner;
+                bool uInput = ExistedBeforeRefinement(u), wInput = ExistedBeforeRefinement(w);
                 if (uInput != wInput && length > 0) {
                     // the power of two nearest to half the length, from the bits (no Log or Pow: their last bit may differ by runtime)
                     ExactPoint3.Decompose(length / 2, out var mant, out int em);

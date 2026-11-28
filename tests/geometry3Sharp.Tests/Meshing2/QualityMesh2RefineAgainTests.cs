@@ -157,6 +157,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Triangulation2Status.Success, res.Status);
             Assert.Equal(initial.TriangleCount, res.Mesh.TriangleCount);
             Assert.Equal(pts.Length, res.Mesh.Vertices.Count);
+            var input = new Mesh2Input { X = pts.Select(p => p.x).ToArray(), Y = pts.Select(p => p.y).ToArray() };
+            var report = Oracle.Check(input, ToOutput(res), new OracleExpect { Milestone = Milestone.M2 });
+            Assert.True(report.Ok, report.ToString());
         }
 
         [Fact]
@@ -639,6 +642,207 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(refBase.Mesh.Vertices[i].y * s.Scale, refMoved.Mesh.Vertices[i].y);
                 }
             }
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(20.0)]
+        public void Refine_ConstrainedMesh2_OffGridSnapTolerance_PreservesAllCellsAndTagInvariant(double minAngle)
+        {
+            // Blocker 1 regression: off-grid outer boundary [0,10]x[0.04,10.04] with interior point (5, 0.06) and off-grid hole
+            // snapped onto grid 0.1 must not delete sliver triangles along shifted boundaries or create unconstrained boundary notches
+            var input = new ConstrainedMesh2Input {
+                Points = new List<Vector2d> {
+                    new Vector2d(0, 0.04), new Vector2d(10, 0.04), new Vector2d(10, 10.04), new Vector2d(0, 10.04),
+                    new Vector2d(5, 0.06),
+                    new Vector2d(3.04, 3.04), new Vector2d(6.04, 3.04), new Vector2d(6.04, 6.04), new Vector2d(3.04, 6.04)
+                },
+                Rings = new List<Mesh2Ring> {
+                    new Mesh2Ring(new[] { 0, 1, 2, 3 }, hole: false, marker: 1),
+                    new Mesh2Ring(new[] { 5, 6, 7, 8 }, hole: true, marker: 2)
+                }
+            };
+            var cdt = new ConstrainedDelaunayMesh2().Compute(input);
+            Assert.Equal(Triangulation2Status.Success, cdt.Status);
+            Assert.Equal(91.0, TotalArea(cdt.Mesh), 10);
+
+            const double tol = 0.1;
+            var refined = new QualityMesh2 { MinAngle = minAngle, SnapTolerance = tol, Conforming = minAngle > 0 }.Refine(cdt.Mesh);
+            Assert.Equal(Triangulation2Status.Success, refined.Status);
+            // Snapped square [0,10]^2 minus snapped hole [3,6]^2 has exact area 91
+            Assert.Equal(91.0, TotalArea(refined.Mesh), 9);
+            Assert.True(refined.Mesh.TryLocate(new Vector2d(5.0, 0.03), out _), "bottom sliver inside snapped domain must not be deleted");
+            Assert.False(refined.Mesh.TryLocate(new Vector2d(4.5, 4.5), out _), "hole must remain empty");
+
+            // Every domain boundary edge (Neighbours[t][k] == -1) must be a constrained subsegment
+            var subEdges = new HashSet<(int, int)>();
+            foreach (var s in refined.Mesh.Subsegments) subEdges.Add(s.A < s.B ? (s.A, s.B) : (s.B, s.A));
+            for (int t = 0; t < refined.Mesh.TriangleCount; ++t) {
+                var tr = refined.Mesh.Triangles[t];
+                var nb = refined.Mesh.Neighbours[t];
+                for (int k = 0; k < 3; ++k) {
+                    if (nb[k] >= 0) continue;
+                    int u = tr[(k + 1) % 3], v = tr[(k + 2) % 3];
+                    Assert.Contains(u < v ? (u, v) : (v, u), subEdges);
+                }
+            }
+        }
+
+        [Fact]
+        public void Refine_ThinAndMixedScaleTriangles_ExactCentroidNeverDropsTriangles()
+        {
+            // Blocker 2 regression: double-rounded centroid of (0,0),(1+2^-52,3),(1,3) falls strictly outside the triangle;
+            // exact centroid orientation must locate it inside the triangle (DelaunayMesh2 keeps exact-distinct vertices).
+            double eps52 = Math.Pow(2, -52);
+            var ultraThin = new[] { new Vector2d(0, 0), new Vector2d(1.0 + eps52, 3.0), new Vector2d(1.0, 3.0) };
+            var ultraTri = new DelaunayMesh2().Compute(ultraThin).Mesh;
+            Assert.Equal(1, ultraTri.TriangleCount);
+            Assert.True(DelaunayMesh2.OrientCentroid2d(ultraThin[0], ultraThin[1], ultraThin[0], ultraThin[1], ultraThin[2]) > 0);
+            Assert.True(DelaunayMesh2.OrientCentroid2d(ultraThin[1], ultraThin[2], ultraThin[0], ultraThin[1], ultraThin[2]) > 0);
+            Assert.True(DelaunayMesh2.OrientCentroid2d(ultraThin[2], ultraThin[0], ultraThin[0], ultraThin[1], ultraThin[2]) > 0);
+            int uHint = -1;
+            Assert.True(ultraTri.TryLocateCentroidMinArea(ultraThin[0], ultraThin[1], ultraThin[2], new double?[] { 0.5 }, ref uHint, out var uArea));
+            Assert.Equal(0.5, uArea);
+
+            // Thin triangle above AutoToleranceFactor (2^-41) in ConstrainedDelaunayMesh2 -> Refine must keep it non-empty
+            double eps38 = Math.Pow(2, -38);
+            var thinPts = new List<Vector2d> { new Vector2d(0, 0), new Vector2d(1.0 + eps38, 3.0), new Vector2d(1.0, 3.0) };
+            var thinCdt = new ConstrainedDelaunayMesh2().Compute(new ConstrainedMesh2Input {
+                Points = thinPts,
+                Rings = new List<Mesh2Ring> { new Mesh2Ring(new[] { 0, 1, 2 }, hole: false) }
+            });
+            Assert.Equal(Triangulation2Status.Success, thinCdt.Status);
+            Assert.Equal(1, thinCdt.Mesh.TriangleCount);
+
+            var thinRef = new QualityMesh2 { MinAngle = 0, Conforming = false }.Refine(thinCdt.Mesh);
+            Assert.Equal(Triangulation2Status.Success, thinRef.Status);
+            Assert.Equal(1, thinRef.Mesh.TriangleCount);
+
+            // Mixed-scale valid triangle within CoordinateLimit (2^-500 and 2^200)
+            double tiny = Math.Pow(2, -500), huge = Math.Pow(2, 200);
+            var mixedPts = new List<Vector2d> { new Vector2d(0, 0), new Vector2d(tiny, 0), new Vector2d(huge, 3.0 * huge) };
+            var mixedTri = new DelaunayMesh2().Compute(mixedPts).Mesh;
+            Assert.Equal(1, mixedTri.TriangleCount);
+            int hint = -1;
+            Assert.True(mixedTri.TryLocateCentroidMinArea(mixedPts[0], mixedPts[1], mixedPts[2], new double?[] { 42.0 }, ref hint, out var area));
+            Assert.Equal(42.0, area);
+        }
+
+        [Fact]
+        public void Refine_ConstrainedMesh2_D17NearDuplicateAlias_StaysIdempotentUnderSnap()
+        {
+            // Major 3 regression: point 1 merges into point 0 under auto-tolerance in pass 1 (keeping its own D17 coordinate);
+            // refining with SnapTolerance = 0.1 must NOT split alias slot 1 across the x = 0.05 pixel boundary or resurrect it.
+            var input = new ConstrainedMesh2Input {
+                Points = new List<Vector2d> {
+                    new Vector2d(0.05 - 2e-13, 0),
+                    new Vector2d(0.05 + 2e-13, 0),
+                    new Vector2d(0.08, 0),
+                    new Vector2d(1, 0),
+                    new Vector2d(0, 1)
+                }
+            };
+            var pass1 = new ConstrainedDelaunayMesh2().Compute(input);
+            Assert.Equal(Triangulation2Status.Success, pass1.Status);
+            Assert.Equal(0, pass1.Mesh.InputToVertex[1]);
+
+            var pass2 = new QualityMesh2 { MinAngle = 20, SnapTolerance = 0.1, Conforming = true }.Refine(pass1.Mesh);
+            Assert.Equal(Triangulation2Status.Success, pass2.Status);
+            Assert.Equal(5, pass2.Mesh.InputCount);
+
+            // Idempotence: InputToVertex[InputToVertex[i]] == InputToVertex[i] and no alias slot in any triangle
+            for (int i = 0; i < pass2.Mesh.InputCount; ++i) {
+                int m = pass2.Mesh.InputToVertex[i];
+                Assert.True(m >= 0 && m <= i);
+                Assert.Equal(m, pass2.Mesh.InputToVertex[m]);
+            }
+            for (int t = 0; t < pass2.Mesh.TriangleCount; ++t) {
+                var tr = pass2.Mesh.Triangles[t];
+                foreach (int v in new[] { tr.a, tr.b, tr.c })
+                    if (v < pass2.Mesh.InputCount) Assert.Equal(v, pass2.Mesh.InputToVertex[v]);
+            }
+        }
+
+        [Fact]
+        public void ChainedRefinement_SmallAngle_PreservesExistedBeforeRefinement()
+        {
+            // Major 4 regression: pass-1 Steiner points stay ExistedBeforeRefinement == false in pass 2,
+            // while original input points stay true, so ApexExempt and concentric shells treat them consistently.
+            var input = new Mesh2Input {
+                X = new double[] { 0, 10, 10 },
+                Y = new double[] { 0, 0, 2 }
+            };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2 }, false, 1));
+
+            var pass1 = new QualityMesh2 { MinAngle = 20, MaxArea = 2.0, Conforming = true }.Compute(ConstrainedDelaunayMesh2Candidate.Convert(input));
+            Assert.Equal(Triangulation2Status.Success, pass1.Status);
+            Assert.True(pass1.Mesh.Vertices.Count > 3, "expected pass 1 to insert Steiner points");
+            for (int i = 0; i < 3; ++i) Assert.True(pass1.Mesh.ExistedBeforeRefinement[i]);
+            for (int i = 3; i < pass1.Mesh.Vertices.Count; ++i) Assert.False(pass1.Mesh.ExistedBeforeRefinement[i]);
+
+            var pass2 = new QualityMesh2 { MinAngle = 25, MaxArea = 0.5, Conforming = true }.Refine(pass1.Mesh);
+            Assert.Equal(Triangulation2Status.Success, pass2.Status);
+            Assert.NotNull(pass2.Mesh.ExistedBeforeRefinement);
+            for (int i = 0; i < 3; ++i) Assert.True(pass2.Mesh.ExistedBeforeRefinement[i]);
+            for (int i = 3; i < pass2.Mesh.Vertices.Count; ++i) Assert.False(pass2.Mesh.ExistedBeforeRefinement[i]);
+
+            input.MinAngleDeg = 25;
+            input.MaxArea = 0.5;
+            var report = Oracle.Check(input, ToOutput(pass2), new OracleExpect { Milestone = Milestone.M3 });
+            Assert.True(report.Ok, report.ToString());
+        }
+
+        [Fact]
+        public void Refine_EmptyMeshWithSnapTolerance_ValidatesScaleAndSnapsVertices()
+        {
+            // Minor 6 regression: empty meshes with SnapTolerance > 0 validate tolerance scale and snap vertices onto grid
+            var emptyTri = new DelaunayMesh2().Compute(new[] { new Vector2d(10.03, 0), new Vector2d(11.03, 0), new Vector2d(12.03, 0) }).Mesh;
+            Assert.Equal(0, emptyTri.TriangleCount);
+            Assert.Throws<ArgumentException>(() => new QualityMesh2 { SnapTolerance = 1e-15 }.Refine(emptyTri));
+
+            const double tol = 0.125;
+            var snapped = new QualityMesh2 { SnapTolerance = tol }.Refine(emptyTri);
+            Assert.Equal(Triangulation2Status.Empty, snapped.Status);
+            Assert.Equal(0, snapped.Mesh.TriangleCount);
+            foreach (var v in snapped.Mesh.Vertices) {
+                Assert.Equal(Math.Round(v.x / tol) * tol, v.x, 12);
+                Assert.Equal(Math.Round(v.y / tol) * tol, v.y, 12);
+            }
+        }
+
+        [Fact]
+        public void TryLocateCentroidMinArea_EdgeAndVertexTies_TakeMinimumNonNullArea()
+        {
+            // Minor 9 regression: direct test of exact edge/vertex ties in TriangulationMesh2 and ConstrainedMesh2
+            // Square [0,2]^2 split diagonally along (0,0)-(2,2) into 2 triangles: T_lo=(0,1,2) and T_hi=(0,2,3)
+            var pts = new[] { new Vector2d(0, 0), new Vector2d(2, 0), new Vector2d(2, 2), new Vector2d(0, 2) };
+            var triMesh = new DelaunayMesh2().Compute(pts).Mesh;
+            Assert.Equal(2, triMesh.TriangleCount);
+
+            // Test both (0.25, null) and (null, 0.25) and (0.5, 0.25) at a triangle whose exact centroid is (1,1) on the shared diagonal
+            var p0 = new Vector2d(0, 0); var p1 = new Vector2d(2, 0); var p2 = new Vector2d(1, 3); // centroid = (1, 1) exact!
+            int hint = -1;
+            Assert.True(triMesh.TryLocateCentroidMinArea(p0, p1, p2, new double?[] { 0.25, null }, ref hint, out var a1));
+            Assert.Equal(0.25, a1);
+            Assert.True(triMesh.TryLocateCentroidMinArea(p0, p1, p2, new double?[] { null, 0.25 }, ref hint, out var a2));
+            Assert.Equal(0.25, a2);
+            Assert.True(triMesh.TryLocateCentroidMinArea(p0, p1, p2, new double?[] { 0.5, 0.25 }, ref hint, out var a3));
+            Assert.Equal(0.25, a3);
+
+            // Vertex tie: centroid = (0, 0) exact (vertex 0 shared by both triangles)
+            var v0 = new Vector2d(-1, 0); var v1 = new Vector2d(1, 0); var v2 = new Vector2d(0, 0);
+            Assert.True(triMesh.TryLocateCentroidMinArea(v0, v1, v2, new double?[] { 0.75, 0.125 }, ref hint, out var av));
+            Assert.Equal(0.125, av);
+
+            // Same ties on ConstrainedMesh2
+            var conMesh = new ConstrainedDelaunayMesh2().Compute(new ConstrainedMesh2Input { Points = pts.ToList() }).Mesh;
+            int chint = -1;
+            Assert.True(conMesh.TryLocateCentroidMinArea(p0, p1, p2, new double?[] { null, 0.25 }, ref chint, out var ca1, out int tid1));
+            Assert.Equal(0.25, ca1);
+            Assert.Equal(0, tid1);
+            Assert.True(conMesh.TryLocateCentroidMinArea(v0, v1, v2, new double?[] { 0.75, 0.125 }, ref chint, out var ca2, out int tid2));
+            Assert.Equal(0.125, ca2);
+            Assert.Equal(0, tid2);
         }
     }
 }
