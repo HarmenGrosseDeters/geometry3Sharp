@@ -570,40 +570,45 @@ namespace gs
                 }
 
                 if (SafeRounding) {
-                    // Temporarily shift exponent into normal range if world coordinates exceed [2^-100, 2^100]
-                    // (exact bit-preserving ScaleB keeps world-coordinate quantization intact while avoiding NaN/OutsideRange).
+                    // When world coordinates exceed [2^-100, 2^100], check cleanliness on an exponent-shifted copy
+                    // so clean meshes are never mutated in-place (avoiding subnormal underflow on near-zero orthogonal axes).
                     int checkShift = extreme_world_shift(res);
+                    DMesh3 checkMesh = checkShift != 0 ? new DMesh3(res) : res;
                     if (checkShift != 0)
-                        scale_mesh_inplace(res, -checkShift);
+                        scale_mesh_inplace(checkMesh, -checkShift);
 
-                    bool hasNewFalseContact = has_new_false_contact(res, prePointIds);
-                    string reason = MeshRobustRepair.NotCleanReason(res, checkSelfIntersections: true);
-                    bool pureContacts = !hasNewFalseContact && is_pure_contacts_only(res, reason);
+                    bool hasNewFalseContact = has_new_false_contact(checkMesh, prePointIds);
+                    string reason = MeshRobustRepair.NotCleanReason(checkMesh, checkSelfIntersections: true);
+                    bool pureContacts = !hasNewFalseContact && is_pure_contacts_only(checkMesh, reason);
                     bool worldRepairOk = true;
+                    bool didWorldRepair = false;
 
                     if (hasNewFalseContact || (reason != "" && !pureContacts)) {
                         if (is_cancelled()) {
                             fail(OffsetStatus.Cancelled, "cancelled before world-coordinate rounding repair");
                             return false;
                         }
-                        var repair = new MeshRoundingRepair(res) {
+                        var repair = new MeshRoundingRepair(checkMesh) {
                             SharedPositionsTouch = true,
                             UlpFactor = 0,
                             AbsoluteTolerance = 0,
                             PointIdF = vid => prePointIds.TryGetValue(vid, out int pid) ? pid : -1
                         };
                         bool repaired = repair.Apply();
+                        didWorldRepair = true;
                         if (is_cancelled()) {
                             fail(OffsetStatus.Cancelled, "cancelled during world-coordinate rounding repair");
                             return false;
                         }
                         worldRepairOk = repaired && repair.IsClean && repair.RemovedResolvable == 0 && repair.RemainingFalseContacts == 0;
-                        reason = res.TriangleCount > 0 ? MeshRobustRepair.NotCleanReason(res, checkSelfIntersections: true) : "";
-                        pureContacts = is_pure_contacts_only(res, reason);
+                        reason = checkMesh.TriangleCount > 0 ? MeshRobustRepair.NotCleanReason(checkMesh, checkSelfIntersections: true) : "";
+                        pureContacts = is_pure_contacts_only(checkMesh, reason);
                     }
 
-                    if (checkShift != 0)
-                        scale_mesh_inplace(res, checkShift);
+                    if (didWorldRepair && checkShift != 0) {
+                        scale_mesh_inplace(checkMesh, checkShift);
+                        res = checkMesh;
+                    }
 
                     if (res.TriangleCount == 0) {
                         if (Mode == OffsetModes.Inward && worldRepairOk) {
@@ -800,31 +805,24 @@ namespace gs
 
         static bool any_component_has_no_valid_faces(List<Index3i> tris, bool[] faceValid)
         {
-            int nt = tris.Count;
-            var parent = new int[nt];
-            for (int t = 0; t < nt; ++t) parent[t] = t;
-            var edgeFirstTri = new Dictionary<long, int>(nt * 2);
-            for (int t = 0; t < nt; ++t) {
+            // Check whether invalid triangles are purely exact opposite-winding canceling pairs on identical vertex triples;
+            // any uncancelled invalid triangle in a winding-closed solid belongs to a broken crease or closed sliver shell
+            // (even if sharing a bowtie vertex or non-manifold edge with a valid solid).
+            var invalidTripleNet = new Dictionary<(int, int, int), int>();
+            for (int t = 0; t < tris.Count; ++t) {
+                if (faceValid[t]) continue;
                 Index3i f = tris[t];
-                for (int e = 0; e < 3; ++e) {
-                    int u = e == 0 ? f.a : (e == 1 ? f.b : f.c);
-                    int v = e == 0 ? f.b : (e == 1 ? f.c : f.a);
-                    long key = u < v ? ((long)u << 32) | (uint)v : ((long)v << 32) | (uint)u;
-                    if (edgeFirstTri.TryGetValue(key, out int firstT))
-                        dsu_union(parent, t, firstT);
-                    else
-                        edgeFirstTri[key] = t;
-                }
+                int a = f.a, b = f.b, c = f.c;
+                int sign = 1;
+                if (a > b) { int tmp = a; a = b; b = tmp; sign = -sign; }
+                if (b > c) { int tmp = b; b = c; c = tmp; sign = -sign; }
+                if (a > b) { int tmp = a; a = b; b = tmp; sign = -sign; }
+                var key = (a, b, c);
+                invalidTripleNet.TryGetValue(key, out int cur);
+                invalidTripleNet[key] = cur + sign;
             }
-            var compHasAny = new bool[nt];
-            var compHasValid = new bool[nt];
-            for (int t = 0; t < nt; ++t) {
-                int r = dsu_find(parent, t);
-                compHasAny[r] = true;
-                if (faceValid[t]) compHasValid[r] = true;
-            }
-            for (int t = 0; t < nt; ++t) {
-                if (compHasAny[t] && !compHasValid[t])
+            foreach (var kv in invalidTripleNet) {
+                if (kv.Value != 0)
                     return true;
             }
             return false;
@@ -1317,7 +1315,7 @@ namespace gs
                     Vector3d w = n1 - cosAlpha * u;
                     double wLen = w.Length;
                     double s = sinAlpha > 1e-12 ? (1.0 - miterLimit * cosAlpha) / sinAlpha : 0.0;
-                    if (sinAlpha > 1e-12 && wLen > 1e-12 && s > 1e-7 * miterLimit) {
+                    if (sinAlpha > 1e-12 && wLen > 1e-12 && s > Math.Min(1e-7 * miterLimit, 1e-6)) {
                         w /= wLen;
                         Vector3d b1 = d * (miterLimit * u + s * w);
                         Vector3d b2 = d * (miterLimit * u - s * w);
@@ -1621,38 +1619,26 @@ namespace gs
                     appliedBevelCap = true;
                     preUsed = poly.CollectUsedVertexIndices();
                 } else {
-                    // Clip all tied oblique true outer apices exceeding MiterLimit simultaneously (order-independent).
-                    double farApexLenSq = 0;
+                    // Clip all oblique true outer apices exceeding MiterLimit simultaneously (symmetric, no secondary spike).
+                    double clampThresh = miterLimit * (1.0 + 1e-5);
+                    var clipDirs = new List<Vector3d>(4);
                     for (int i = 0; i < preUsed.Count; ++i) {
                         Vector3d p = poly.Verts[preUsed[i]];
                         if (Math.Abs(p.x) >= boundLimit || Math.Abs(p.y) >= boundLimit || Math.Abs(p.z) >= boundLimit)
                             continue;
                         if (!is_true_outer_apex(normals, planes, p))
                             continue;
-                        double l2 = p.LengthSquared;
-                        if (l2 > farApexLenSq)
-                            farApexLenSq = l2;
+                        double plen = p.Length;
+                        if (plen > clampThresh)
+                            add_unique_dir(clipDirs, p / plen);
                     }
-                    double farApexLen = Math.Sqrt(farApexLenSq);
-                    if (farApexLen > miterLimit * (1.0 + 1e-5)) {
-                        double tieFloor = farApexLen * (1.0 - 1e-6);
-                        var clipDirs = new List<Vector3d>(4);
-                        for (int i = 0; i < preUsed.Count; ++i) {
-                            Vector3d p = poly.Verts[preUsed[i]];
-                            if (Math.Abs(p.x) >= boundLimit || Math.Abs(p.y) >= boundLimit || Math.Abs(p.z) >= boundLimit)
-                                continue;
-                            if (!is_true_outer_apex(normals, planes, p))
-                                continue;
-                            double plen = p.Length;
-                            if (plen >= tieFloor)
-                                add_unique_dir(clipDirs, p / plen);
-                        }
+                    if (clipDirs.Count > 0) {
                         for (int i = 0; i < clipDirs.Count; ++i) {
                             if (!poly.Clip(clipDirs[i], miterLimit, clipEps))
                                 return false;
                             add_unique_plane_norm(planes, clipDirs[i], miterLimit);
                         }
-                        appliedBevelCap = clipDirs.Count > 0;
+                        appliedBevelCap = true;
                         preUsed = poly.CollectUsedVertexIndices();
                     }
                 }
@@ -1681,7 +1667,6 @@ namespace gs
             }
 
             // 5. Reject unbounded saddle corners (any surviving vertex reaching the artificial box boundary).
-            double maxLenSq = 0;
             var used = poly.CollectUsedVertexIndices();
             if (used.Count < 4)
                 return false;
@@ -1689,28 +1674,22 @@ namespace gs
                 Vector3d p = poly.Verts[used[i]];
                 if (Math.Abs(p.x) >= boundLimit || Math.Abs(p.y) >= boundLimit || Math.Abs(p.z) >= boundLimit)
                     return false;
-                double l2 = p.LengthSquared;
-                if (l2 > maxLenSq)
-                    maxLenSq = l2;
             }
 
             // 6. Final symmetric bevel clamp for corners that did not already receive a bevel cap in Step 3:
-            //    clip all tied farthest directions simultaneously so symmetry and permutation invariance hold.
+            //    clip all protruding directions exceeding MiterLimit simultaneously.
             if (!appliedBevelCap) {
-                double maxLen = Math.Sqrt(maxLenSq);
-                if (maxLen > miterLimit * (1.0 + 1e-5)) {
-                    double tieFloor = maxLen * (1.0 - 1e-6);
-                    var clipDirs = new List<Vector3d>(4);
-                    for (int i = 0; i < used.Count; ++i) {
-                        Vector3d p = poly.Verts[used[i]];
-                        double plen = p.Length;
-                        if (plen >= tieFloor)
-                            add_unique_dir(clipDirs, p / plen);
-                    }
-                    for (int i = 0; i < clipDirs.Count; ++i) {
-                        if (!poly.Clip(clipDirs[i], miterLimit, clipEps))
-                            return false;
-                    }
+                double clampThresh = miterLimit * (1.0 + 1e-5);
+                var clipDirs = new List<Vector3d>(4);
+                for (int i = 0; i < used.Count; ++i) {
+                    Vector3d p = poly.Verts[used[i]];
+                    double plen = p.Length;
+                    if (plen > clampThresh)
+                        add_unique_dir(clipDirs, p / plen);
+                }
+                for (int i = 0; i < clipDirs.Count; ++i) {
+                    if (!poly.Clip(clipDirs[i], miterLimit, clipEps))
+                        return false;
                 }
             }
 

@@ -872,7 +872,7 @@ namespace gs
 
         /// <summary>
         /// runs the pipeline; true if Result is set (Status Success). An open input of a Difference that is not the first and has no entry in InputRoles
-        /// goes to the sheet role first (the first input is cut along it exactly, nothing is repaired). If the sheet role refuses with RimInsideWorkpiece, the run is done once more on a
+        /// goes to the sheet role first (unless InputRepair is ThickenOpenSheet; the first input is cut along it exactly, nothing is repaired). If the sheet role refuses with RimInsideWorkpiece, the run is done once more on a
         /// grid taken from the data first (AutomaticSteps, default GridBeforeFallback | GridAfterRoundingNotClean; see there for what the snap can change). If the sheet role refuses
         /// otherwise, or the grid does not help, the run is done again with the inputs as solids, as without this route: InputRepair decides
         /// (Refuse: Status OpenInput, with the sheet's refusal in Error).
