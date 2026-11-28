@@ -1448,5 +1448,111 @@ namespace geometry3Sharp.Tests
                 Assert.False(env.ContainsTriangle(new Vector3d(double.NaN, 0, 0), b, c));
             }
         }
+
+        [Fact]
+        public void Envelope4Helpers_ExactSignBoxExtremaPlaneAndFacetFilters()
+        {
+            // 1. normal_signs across all 8 octants and zero-component boundaries (strictly > 0 vs == 0 vs < 0).
+            for (int bits = 0; bits < 8; ++bits) {
+                double nx = (bits & 1) != 0 ? 2.0 : -2.0;
+                double ny = (bits & 2) != 0 ? 3.0 : -3.0;
+                double nz = (bits & 4) != 0 ? 5.0 : -5.0;
+                Vector3d n = new Vector3d(nx, ny, nz);
+                Vector3d u = Math.Abs(nx) < Math.Abs(ny) ? Vector3d.AxisX : Vector3d.AxisY;
+                Vector3d e1 = n.Cross(u);
+                Vector3d e2 = n.Cross(e1);
+                // (e1) x (e2) = |e1|^2 * n, so its component signs match n exactly.
+                Assert.Equal((byte)bits, PolyhedralEnvelope.normal_signs(Vector3d.Zero, e1, e2));
+            }
+            // Zero-component boundaries: axis-aligned planes have two zero components and one +/- component.
+            Assert.Equal((byte)4, PolyhedralEnvelope.normal_signs(Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY)); // (0,0,+1)
+            Assert.Equal((byte)0, PolyhedralEnvelope.normal_signs(Vector3d.Zero, Vector3d.AxisY, Vector3d.AxisX)); // (0,0,-1)
+            Assert.Equal((byte)1, PolyhedralEnvelope.normal_signs(Vector3d.Zero, Vector3d.AxisY, Vector3d.AxisZ)); // (+1,0,0)
+            Assert.Equal((byte)0, PolyhedralEnvelope.normal_signs(Vector3d.Zero, Vector3d.AxisZ, Vector3d.AxisY)); // (-1,0,0)
+            Assert.Equal((byte)2, PolyhedralEnvelope.normal_signs(Vector3d.Zero, Vector3d.AxisZ, Vector3d.AxisX)); // (0,+1,0)
+            Assert.Equal((byte)0, PolyhedralEnvelope.normal_signs(Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisZ)); // (0,-1,0)
+
+            // 2. box_extrema across all 8 sign masks.
+            for (byte bits = 0; bits < 8; ++bits) {
+                PolyhedralEnvelope.box_extrema(bits, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, out Vector3d cmin, out Vector3d cmax);
+                Assert.Equal((bits & 1) != 0 ? 1.0 : 4.0, cmin.x);
+                Assert.Equal((bits & 1) != 0 ? 4.0 : 1.0, cmax.x);
+                Assert.Equal((bits & 2) != 0 ? 2.0 : 5.0, cmin.y);
+                Assert.Equal((bits & 2) != 0 ? 5.0 : 2.0, cmax.y);
+                Assert.Equal((bits & 4) != 0 ? 3.0 : 6.0, cmin.z);
+                Assert.Equal((bits & 4) != 0 ? 6.0 : 3.0, cmax.z);
+            }
+
+            // 3. plane_misses_box: strictly +, strictly -, touching cmin == 0, touching cmax == 0, straddling.
+            // Plane x + y + z = 0: a=(0,0,0), b=(1,-1,0), c=(0,1,-1) => (b-a)x(c-a) = (+1,+1,+1) => signs = 7.
+            Vector3d pa = Vector3d.Zero, pb = new Vector3d(1, -1, 0), pc = new Vector3d(0, 1, -1);
+            byte pSigns = PolyhedralEnvelope.normal_signs(pa, pb, pc);
+            Assert.Equal((byte)7, pSigns);
+            Assert.True(PolyhedralEnvelope.plane_misses_box(pa, pb, pc, pSigns, 0.1, 0.1, 0.1, 1.0, 1.0, 1.0));   // cmin > 0
+            Assert.True(PolyhedralEnvelope.plane_misses_box(pa, pb, pc, pSigns, -2.0, -2.0, -2.0, -0.1, -0.1, -0.1)); // cmax < 0
+            Assert.False(PolyhedralEnvelope.plane_misses_box(pa, pb, pc, pSigns, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0));  // cmin == 0
+            Assert.False(PolyhedralEnvelope.plane_misses_box(pa, pb, pc, pSigns, -1.0, -1.0, -1.0, 0.0, 0.0, 0.0)); // cmax == 0
+            Assert.False(PolyhedralEnvelope.plane_misses_box(pa, pb, pc, pSigns, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0)); // straddles
+
+            // 4. pair_box_meets_plane: disjoint X/Y/Z, touching X/Y/Z, plane miss, and exact intersection coordinates.
+            var unit = new AxisAlignedBox3d(new Vector3d(-1, -1, -1), new Vector3d(1, 1, 1));
+            Assert.False(PolyhedralEnvelope.pair_box_meets_plane(unit, new AxisAlignedBox3d(new Vector3d(2, -1, -1), new Vector3d(3, 1, 1)), unit, pa, pb, pc, pSigns, out _, out _, out _, out _, out _, out _));
+            Assert.False(PolyhedralEnvelope.pair_box_meets_plane(unit, unit, new AxisAlignedBox3d(new Vector3d(-1, 2, -1), new Vector3d(1, 3, 1)), pa, pb, pc, pSigns, out _, out _, out _, out _, out _, out _));
+            Assert.False(PolyhedralEnvelope.pair_box_meets_plane(unit, new AxisAlignedBox3d(new Vector3d(-1, -1, 2), new Vector3d(1, 1, 3)), unit, pa, pb, pc, pSigns, out _, out _, out _, out _, out _, out _));
+            // Plane miss on non-empty intersection [0.2, 0.8]^3
+            var posBox = new AxisAlignedBox3d(new Vector3d(0.2, 0.2, 0.2), new Vector3d(0.8, 0.8, 0.8));
+            Assert.False(PolyhedralEnvelope.pair_box_meets_plane(unit, posBox, posBox, pa, pb, pc, pSigns, out _, out _, out _, out _, out _, out _));
+            // Non-empty intersection where each of tbox, b1, b2 supplies distinct active min/max bounds
+            var tb = new AxisAlignedBox3d(new Vector3d(-0.5, -2.0, -3.0), new Vector3d(3.0, 0.6, 4.0));
+            var b1 = new AxisAlignedBox3d(new Vector3d(-2.0, -0.4, -2.0), new Vector3d(4.0, 2.0, 0.7));
+            var b2 = new AxisAlignedBox3d(new Vector3d(-3.0, -3.0, -0.3), new Vector3d(0.5, 3.0, 3.0));
+            Assert.True(PolyhedralEnvelope.pair_box_meets_plane(tb, b1, b2, pa, pb, pc, pSigns,
+                out double ix0, out double iy0, out double iz0, out double ix1, out double iy1, out double iz1));
+            Assert.Equal(-0.5, ix0); Assert.Equal(-0.4, iy0); Assert.Equal(-0.3, iz0);
+            Assert.Equal(0.5, ix1); Assert.Equal(0.6, iy1); Assert.Equal(0.7, iz1);
+            // Touching single-point intersection (0,0,0) on the plane: x0 == x1, y0 == y1, z0 == z1
+            Assert.True(PolyhedralEnvelope.pair_box_meets_plane(
+                new AxisAlignedBox3d(new Vector3d(-1, -1, -1), Vector3d.Zero),
+                new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1)),
+                unit, pa, pb, pc, pSigns, out ix0, out iy0, out iz0, out ix1, out iy1, out iz1));
+            Assert.Equal(0.0, ix0); Assert.Equal(0.0, ix1);
+
+            // 5. boxes_meet: all 6 separating faces + touching boundary.
+            Assert.True(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(1, -1, -1), new Vector3d(2, 1, 1))));
+            Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(1.1, -1, -1), new Vector3d(2, 1, 1))));
+            Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-2, -1, -1), new Vector3d(-1.1, 1, 1))));
+            Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-1, 1.1, -1), new Vector3d(1, 2, 1))));
+            Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-1, -2, -1), new Vector3d(1, -1.1, 1))));
+            Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-1, -1, 1.1), new Vector3d(1, 1, 2))));
+            Assert.False(PolyhedralEnvelope.boxes_meet(unit, new AxisAlignedBox3d(new Vector3d(-1, -1, -2), new Vector3d(1, 1, -1.1))));
+
+            // 6. filter_pair_facets on a point-triangle cube polyhedron (6 axis-aligned facets).
+            double eps = 0.2;
+            var cubeEnv = new PolyhedralEnvelope(Soup(new[] { new[] { Vector3d.Zero, Vector3d.Zero, Vector3d.Zero } }), eps);
+            Assert.Equal(EnvelopeStatus.Ready, cubeEnv.Status);
+            int nf = cubeEnv.FacetCount(0);
+            Assert.Equal(6, nf);
+            int signBase = 8; // non-zero signBase tests signBase + f indexing
+            var fSigns = new byte[signBase + nf];
+            int plusXBit = 0, plusYBit = 0;
+            double xFace = 0, yFace = 0;
+            for (int f = 0; f < nf; ++f) {
+                cubeEnv.GetFacet(0, f, out Vector3d q0, out Vector3d q1, out Vector3d q2);
+                byte sg = PolyhedralEnvelope.normal_signs(q0, q1, q2);
+                fSigns[signBase + f] = sg;
+                if (sg == 1 && q0.x > 0) { plusXBit = 1 << f; xFace = q0.x; }
+                if (sg == 2 && q0.y > 0) { plusYBit = 1 << f; yFace = q0.y; }
+            }
+            Assert.True(plusXBit != 0 && plusYBit != 0);
+            int bothMask = plusXBit | plusYBit;
+            // Box strictly outside +x facet -> returns 0 immediately (closure(p) n B empty)
+            Assert.Equal(0, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, xFace + 0.01, -0.01, -0.01, xFace + 0.05, 0.01, 0.01));
+            // Box strictly inside +x and +y facets -> returns 0 (neither plane touches B)
+            Assert.Equal(0, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, -0.01, -0.01, -0.01, 0.01, 0.01, 0.01));
+            // Box straddling +x facet but strictly inside +y facet -> keeps ONLY plusXBit
+            Assert.Equal(plusXBit, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, xFace - 0.01, -0.01, -0.01, xFace + 0.01, 0.01, 0.01));
+            // Box touching +x facet from outside (cmin == 0) and touching +y facet from inside (cmax == 0) -> keeps both bits
+            Assert.Equal(bothMask, cubeEnv.filter_pair_facets(0, bothMask, fSigns, signBase, xFace, yFace - 0.02, -0.01, xFace + 0.02, yFace, 0.01));
+        }
     }
 }

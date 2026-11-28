@@ -494,16 +494,8 @@ namespace gs
                     int p2 = active[i2];
                     AxisAlignedBox3d b2 = boxes[p2];
                     // every point of closure(p1) n closure(p2) n T lies in the closed intersection box B
-                    double x0 = Math.Max(tbox.Min.x, Math.Max(b1.Min.x, b2.Min.x));
-                    double x1 = Math.Min(tbox.Max.x, Math.Min(b1.Max.x, b2.Max.x));
-                    if (x0 > x1) continue;
-                    double y0 = Math.Max(tbox.Min.y, Math.Max(b1.Min.y, b2.Min.y));
-                    double y1 = Math.Min(tbox.Max.y, Math.Min(b1.Max.y, b2.Max.y));
-                    if (y0 > y1) continue;
-                    double z0 = Math.Max(tbox.Min.z, Math.Max(b1.Min.z, b2.Min.z));
-                    double z1 = Math.Min(tbox.Max.z, Math.Min(b1.Max.z, b2.Max.z));
-                    if (z0 > z1) continue;
-                    if (plane_misses_box(a, b, c, tSigns, x0, y0, z0, x1, y1, z1)) continue;
+                    if (pair_box_meets_plane(tbox, b1, b2, a, b, c, tSigns,
+                        out double x0, out double y0, out double z0, out double x1, out double y1, out double z1) == false) continue;
                     int pm1 = filter_pair_facets(p1, tm1, fSigns, i1 * MaxFacets, x0, y0, z0, x1, y1, z1);
                     if (pm1 == 0) continue;
                     int pm2 = filter_pair_facets(p2, tm2, fSigns, i2 * MaxFacets, x0, y0, z0, x1, y1, z1);
@@ -549,9 +541,26 @@ namespace gs
             return true;
         }
 
+        // closed intersection box of tbox, b1 and b2; returns false if empty or strictly on one side of plane (a, b, c)
+        internal static bool pair_box_meets_plane(AxisAlignedBox3d tbox, AxisAlignedBox3d b1, AxisAlignedBox3d b2,
+            Vector3d a, Vector3d b, Vector3d c, byte tSigns,
+            out double x0, out double y0, out double z0, out double x1, out double y1, out double z1)
+        {
+            x0 = Math.Max(tbox.Min.x, Math.Max(b1.Min.x, b2.Min.x));
+            x1 = Math.Min(tbox.Max.x, Math.Min(b1.Max.x, b2.Max.x));
+            if (x0 > x1) { y0 = y1 = z0 = z1 = 0; return false; }
+            y0 = Math.Max(tbox.Min.y, Math.Max(b1.Min.y, b2.Min.y));
+            y1 = Math.Min(tbox.Max.y, Math.Min(b1.Max.y, b2.Max.y));
+            if (y0 > y1) { z0 = z1 = 0; return false; }
+            z0 = Math.Max(tbox.Min.z, Math.Max(b1.Min.z, b2.Min.z));
+            z1 = Math.Min(tbox.Max.z, Math.Min(b1.Max.z, b2.Max.z));
+            if (z0 > z1) return false;
+            return plane_misses_box(a, b, c, tSigns, x0, y0, z0, x1, y1, z1) == false;
+        }
+
         // exact signs of the three components of (b - a) x (c - a), the gradient of Orient3d(a, b, c, x) in x:
         // bit 0/1/2 set iff the x/y/z component is strictly positive
-        static byte normal_signs(Vector3d a, Vector3d b, Vector3d c)
+        internal static byte normal_signs(Vector3d a, Vector3d b, Vector3d c)
         {
             byte m = 0;
             if (ExactPredicates.Orient2d(new Vector2d(a.y, a.z), new Vector2d(b.y, b.z), new Vector2d(c.y, c.z)) > 0) m |= 1;
@@ -561,7 +570,7 @@ namespace gs
         }
 
         // exact corners of [x0, x1] x [y0, y1] x [z0, z1] minimizing and maximizing Orient3d(a, b, c, x)
-        static void box_extrema(byte signs, double x0, double y0, double z0, double x1, double y1, double z1,
+        internal static void box_extrema(byte signs, double x0, double y0, double z0, double x1, double y1, double z1,
             out Vector3d cmin, out Vector3d cmax)
         {
             if ((signs & 1) != 0) { cmin.x = x0; cmax.x = x1; } else { cmin.x = x1; cmax.x = x0; }
@@ -570,7 +579,7 @@ namespace gs
         }
 
         // does the closed box lie strictly on one side of the plane (a, b, c)?
-        static bool plane_misses_box(Vector3d a, Vector3d b, Vector3d c, byte signs,
+        internal static bool plane_misses_box(Vector3d a, Vector3d b, Vector3d c, byte signs,
             double x0, double y0, double z0, double x1, double y1, double z1)
         {
             box_extrema(signs, x0, y0, z0, x1, y1, z1, out Vector3d cmin, out Vector3d cmax);
@@ -579,7 +588,7 @@ namespace gs
 
         // subset of facets in mask whose planes meet the closed box B; returns 0 if B lies strictly outside any facet
         // of polyhedron p (so closure(p) n B is empty) or if no facet plane in mask touches B
-        int filter_pair_facets(int p, int mask, byte[] fSigns, int signBase,
+        internal int filter_pair_facets(int p, int mask, byte[] fSigns, int signBase,
             double x0, double y0, double z0, double x1, double y1, double z1)
         {
             int kept = 0;
@@ -593,7 +602,7 @@ namespace gs
             return kept;
         }
 
-        static bool boxes_meet(AxisAlignedBox3d x, AxisAlignedBox3d y)
+        internal static bool boxes_meet(AxisAlignedBox3d x, AxisAlignedBox3d y)
         {
             return x.Min.x <= y.Max.x && y.Min.x <= x.Max.x && x.Min.y <= y.Max.y && y.Min.y <= x.Max.y
                 && x.Min.z <= y.Max.z && y.Min.z <= x.Max.z;
