@@ -49,16 +49,45 @@ namespace g3
         /// </summary>
         public double SnapTolerance;
 
-        /// <exception cref="ArgumentException">The input is invalid, or SnapTolerance is negative, not finite, or too small for the coordinates.</exception>
+        /// <summary>
+        /// Optional decimal output grid precision (spec O12, F-65): when set to <c>d</c> in <c>0..15</c>, snaps the input and
+        /// every constructed vertex onto the decimal grid of spacing <c>10^-d</c> with exact decimal centres <c>k / 10^d</c>
+        /// (bit-identical to <see cref="Math.Round(double, int)"/> to <c>d</c> places, so post-export decimal rounding changes
+        /// no coordinate and flips no triangle). Inherits the snap-grid index limit (<c>|coord| * 10^d &lt; 2^40</c>); setting
+        /// a non-zero <see cref="SnapTolerance"/> that disagrees with <c>10^-d</c> throws <see cref="ArgumentException"/>.
+        /// <c>null</c> (default): disabled (uses <see cref="SnapTolerance"/>).
+        /// </summary>
+        public int? OutputDecimalPlaces;
+
+        /// <exception cref="ArgumentException">The input is invalid, or SnapTolerance / OutputDecimalPlaces is invalid or conflicting.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><see cref="OutputDecimalPlaces"/> is outside <c>[0, 15]</c>.</exception>
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
-            return Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false, SnapRounded = snap != null }.Run());
+            ResolveSnapGrid(SnapTolerance, OutputDecimalPlaces, out double tolerance, out int decimalPlaces);
+            return Snapped(input, tolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false, SnapRounded = snap != null }.Run(), decimalPlaces);
+        }
+
+        internal static void ResolveSnapGrid(double snapTolerance, int? outputDecimalPlaces, out double tolerance, out int decimalPlaces)
+        {
+            if (outputDecimalPlaces == null) {
+                tolerance = snapTolerance;
+                decimalPlaces = -1;
+                return;
+            }
+            int d = outputDecimalPlaces.Value;
+            if (d < 0 || d > 15)
+                throw new ArgumentOutOfRangeException(nameof(OutputDecimalPlaces), "OutputDecimalPlaces must be in [0, 15] (spec O12)");
+            double step = 1.0 / SnapGrid.Pow10(d);
+            if (snapTolerance != 0 && snapTolerance != step)
+                throw new ArgumentException("SnapTolerance cannot disagree with OutputDecimalPlaces (leave SnapTolerance at 0 or set it to 10^-d; spec O12)");
+            tolerance = step;
+            decimalPlaces = d;
         }
 
         /// <summary> runs the mesher on the snap-rounded input (D14) if a snap tolerance is set, and maps the result back to the input points </summary>
         internal static ConstrainedTriangulation2Result Snapped(ConstrainedMesh2Input input, double tolerance, CancellationToken cancel,
-            Func<ConstrainedMesh2Input, SnapRounding2, ConstrainedTriangulation2Result> run)
+            Func<ConstrainedMesh2Input, SnapRounding2, ConstrainedTriangulation2Result> run, int decimalPlaces = -1)
         {
             if (tolerance == 0) return run(input, null);
             if (!(tolerance > 0) || double.IsInfinity(tolerance)) throw new ArgumentException("SnapTolerance must be zero or positive and finite (spec O11)");
@@ -69,7 +98,7 @@ namespace g3
             bool noArea = HullHasNoArea(input);
             SnapRounding2 snap;
             try {
-                snap = SnapRounding2.Apply(input, tolerance, cancel);
+                snap = SnapRounding2.Apply(input, tolerance, cancel, decimalPlaces);
             } catch (InvalidOperationException e) {
                 // a round limit or no pixel to restore: never seen in the fuzz tests; a failure status, not an exception
                 return new ConstrainedTriangulation2Result(Triangulation2Status.Failed, Triangulation2FailureKind.InvalidTopology, null, new string[0], null, e.Message);

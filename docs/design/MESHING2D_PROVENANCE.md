@@ -136,6 +136,7 @@ Implemented from the papers, after decision D14 (owner, 2026-11-01; `MESHING2D_S
   owner's fork (clean-room answer 7, behaviour only) and measured in section 3g; the refusals looked at again after each sweep with
   insertions. Grid vertices with bounded angles down to the grid's resolution: M. Bern, D. Eppstein, J. Gilbert, *Provably good mesh
   generation*, JCSS 1994 (abstract).
+- **Decimal output grid (`OutputDecimalPlaces`, spec O12, F-65):** opt-in `d` in `0..15` sets grid spacing `10^-d` (`10^15 < 2^53` is exact in binary64) and computes `SnapGrid.Centre(k)` as `(double)k / 10^d` (correctly rounded IEEE 754 quotient of two exact doubles, matching `Math.Round(x, d)` and decimal text export bit-for-bit while keeping `SnapTolerance` power-of-two scale invariant when `OutputDecimalPlaces == null`).
 
 ## Corpus: public test inputs (data only)
 
