@@ -23,6 +23,12 @@ namespace g3
     /// an int label per cell (new cells take the label of the cavity cell whose facet they are built on), one incident cell
     /// per vertex (IncidentCells, IsEdge, IsFacet), and an undo record of the last successful insertion (UndoLastInsert).
     ///
+    /// SymbolicPerturbation (internal, off by default; docs/design/BISECTOR_PREDICATES.md section 3) breaks the ties of
+    /// cospherical points by infinitesimal weights in vertex-id order (ExactBisectorSoS.InSphere): the triangulation is then
+    /// the regular triangulation of the weighted vertices, the one Delaunay triangulation that the perturbed bisector
+    /// predicates of the restricted Voronoi diagram see. The ids are the insertion indices, so for given ids the result does not
+    /// depend on the insertion history; another insertion order gives other ids and so possibly another tie-break.
+    ///
     /// Sources (docs/SOURCES.md): A. Bowyer 1981, D. F. Watson 1981 (insertion by cavities); O. Devillers,
     /// S. Pion, M. Teillaud, "Walking in a triangulation", 2002 (point location by a stochastic walk).
     /// </summary>
@@ -55,6 +61,9 @@ namespace g3
         readonly Stack<int> freeCells = new Stack<int>();
         int lastCell = 0;
         uint rng = 2463534242;
+
+        // SymbolicPerturbation: the in-sphere tests break ties by vertex ids
+        bool perturbed;
 
         // RefinementSupport: per-cell labels, a live incident cell per vertex, the undo record of the last insertion
         bool support;
@@ -108,6 +117,7 @@ namespace g3
             maxCell = other.maxCell; cellCount = other.cellCount; lastCell = other.lastCell; rng = other.rng;
             foreach (int c in other.freeCells.ToArray().Reverse()) freeCells.Push(c);
             support = other.support;
+            perturbed = other.perturbed;
             label = (int[])other.label.Clone(); vcell = (int[])other.vcell.Clone();
         }
 
@@ -413,6 +423,31 @@ namespace g3
             return ExactPredicates.InSphere(vertices[cv[4 * c]], vertices[cv[4 * c + 1]], vertices[cv[4 * c + 2]], vertices[cv[4 * c + 3]], p);
         }
 
+        /// <summary>
+        /// (internal) break the ties of the in-sphere tests by infinitesimal vertex weights in id order (ExactBisectorSoS);
+        /// off by default. Set it before the first insertion (the box's initial tetrahedra, the six around the diagonal
+        /// 0-7, are the regular triangulation of the weighted corners). Round insertion (PlanInsert) does not support it.
+        /// </summary>
+        internal bool SymbolicPerturbation
+        {
+            get { return perturbed; }
+            set {
+                if (vertices.Count != 8)
+                    throw new InvalidOperationException("Delaunay3.SymbolicPerturbation: set it before the first insertion");
+                perturbed = value;
+            }
+        }
+
+        /// <summary> the in-sphere test of the point p with vertex id pid (the id it has or will get) against cell c:
+        /// InCircumsphere, or with SymbolicPerturbation the weighted test (never 0) </summary>
+        internal int InCircumsphere(int c, Vector3d p, int pid)
+        {
+            if (!perturbed)
+                return InCircumsphere(c, p);
+            int a = cv[4 * c], b = cv[4 * c + 1], d = cv[4 * c + 2], e = cv[4 * c + 3];
+            return ExactBisectorSoS.InSphere(vertices[a], a, vertices[b], b, vertices[d], d, vertices[e], e, p, pid);
+        }
+
 
         readonly List<int> cavity = new List<int>();
         readonly List<(int cell, int facet)> boundary = new List<(int, int)>();
@@ -441,7 +476,7 @@ namespace g3
             for (int i = 0; i < 4; ++i)
                 if (vertices[cv[4 * c0 + i]] == p) return InsertResult.TooClose;
             // p in the closed cell and not a vertex: strictly inside its circumsphere
-            if (InCircumsphere(c0, p) <= 0)
+            if (InCircumsphere(c0, p, vertices.Count) <= 0)
                 return InsertResult.TooClose;
 
             if (++markValue == int.MaxValue) {
@@ -455,7 +490,7 @@ namespace g3
                 int c = cavity[k];
                 for (int i = 0; i < 4; ++i) {
                     int n = cn[4 * c + i];
-                    if (n >= 0 && mark[n] != markValue && InCircumsphere(n, p) > 0) {
+                    if (n >= 0 && mark[n] != markValue && InCircumsphere(n, p, vertices.Count) > 0) {
                         mark[n] = markValue;
                         cavity.Add(n);
                     }
@@ -689,6 +724,8 @@ namespace g3
         /// </summary>
         internal void PlanInsert(Vector3d p, int hint, double minSeparation, InsertPlan plan, uint walkSeed)
         {
+            if (perturbed)
+                throw new InvalidOperationException("Delaunay3.PlanInsert: round insertion does not support SymbolicPerturbation");
             plan.P = p;
             plan.Cavity.Clear(); plan.Reads.Clear(); plan.Cells.Clear(); plan.NewIds.Clear(); plan.Vertex = -1;
             plan.Result = plan_insert(p, hint, minSeparation, plan, walkSeed == 0 ? 1u : walkSeed);
@@ -902,7 +939,7 @@ namespace g3
                 }
                 if (checkDelaunay) {
                     for (int v = 0; v < vertices.Count; ++v)
-                        if (v != t.a && v != t.b && v != t.c && v != t.d && InCircumsphere(c, vertices[v]) > 0)
+                        if (v != t.a && v != t.b && v != t.c && v != t.d && InCircumsphere(c, vertices[v], v) > 0)
                             return "vertex " + v + " inside the circumsphere of cell " + c;
                 }
             }

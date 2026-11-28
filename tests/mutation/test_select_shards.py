@@ -19,7 +19,7 @@ BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
                                                 "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells",
-                                                "predicates-1", "predicates-2", "adaptive", "box3", "ray-triangle", "snaprounding", "separating-axes"}
+                                                "predicates-1", "predicates-2", "adaptive", "box3", "ray-triangle", "snaprounding", "separating-axes", "bisector-1", "bisector-2"}
 
 
 def run(*changed):
@@ -60,6 +60,9 @@ class SelectShards(unittest.TestCase):
         self.assertFalse(eligible(configs["config"], ["math/ExactPredicates.cs"]))        # (moved to the predicates shards)
         self.assertTrue(eligible(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
         self.assertTrue(eligible(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
+        self.assertTrue(eligible(configs["mesh-bisector-1"], ["math/Generated/BisectorPredicates.cs"]))      # (exact: math/Generated/*.cs)
+        self.assertTrue(eligible(configs["mesh-bisector-2"], ["math/ExactBisectorSoS.cs"]))                 # (exact: math/Exact*.cs)
+        self.assertFalse(eligible(configs["mesh-generated"], ["math/Generated/BisectorPredicates.cs"]))   # (not mutated by that shard)
         self.assertFalse(eligible(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
         self.assertTrue(eligible(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))    # (mesh_ops/ExactMesh*: exact code)
         self.assertTrue(eligible(configs["mesh-arrangement-2"], ["mesh_ops/ExactMeshArrangement.cs"]))

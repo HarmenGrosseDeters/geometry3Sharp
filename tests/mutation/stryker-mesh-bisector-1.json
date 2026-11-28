@@ -1,0 +1,31 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/math/Generated/BisectorPredicates.cs{0..137153}"
+    ],
+    "test-case-filter": "FullyQualifiedName~GeneratedPredicatesBisectorTests|FullyQualifiedName~ExactBisectorSoSTests",
+    "ignore-methods": [
+      "*PredicateStats.*"
+    ],
+    "coverage-analysis": "all",
+    "configuration": "Release",
+    "additional-timeout": 30000,
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "thresholds": {
+      "high": 95,
+      "low": 90,
+      "break": 88
+    },
+    "concurrency": 2
+  }
+}

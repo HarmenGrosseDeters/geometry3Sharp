@@ -21,7 +21,7 @@ on:
   # The Markdown in the paths is what the tests or the tier rule read (tools/ci_scope.py CI_MARKDOWN, kept equal by its tests).
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
-    paths: ['**', '!**/*.md', 'docs/OPERATIONS.md', 'docs/ROBUSTNESS_SWEEP.md', 'docs/design/EXACT_FALLBACK_MONOMIALS.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md', 'docs/design/INDIRECT_PREDICATES.md', 'docs/design/MESHING2D_GOLDEN_FORMAT.md', 'docs/design/MESHING2D_CATALOGUE.md', 'docs/guides/**']
+    paths: ['**', '!**/*.md', 'docs/OPERATIONS.md', 'docs/ROBUSTNESS_SWEEP.md', 'docs/design/EXACT_FALLBACK_MONOMIALS.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md', 'docs/design/INDIRECT_PREDICATES.md', 'docs/design/BISECTOR_PREDICATES.md', 'docs/design/MESHING2D_GOLDEN_FORMAT.md', 'docs/design/MESHING2D_CATALOGUE.md', 'docs/guides/**']
   schedule:
     - cron: '41 */2 * * *'     # every 2 hours: the batched master run (skipped when there is nothing new to test)
   workflow_dispatch:
