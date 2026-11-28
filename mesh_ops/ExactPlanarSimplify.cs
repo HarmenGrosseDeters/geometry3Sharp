@@ -51,8 +51,14 @@ namespace g3
 
         readonly List<int> source;
         readonly List<bool> flipped;
+        int[] triGroupKeys;
+        bool preserveSources;
+        List<int> groupSource;
+        List<bool> groupFlipped;
+        List<int> groupKey;
         readonly Dictionary<int, int> srcGroup = new Dictionary<int, int>();
         readonly Dictionary<(BigInteger, BigInteger, BigInteger, BigInteger), int> groups = new Dictionary<(BigInteger, BigInteger, BigInteger, BigInteger), int>();
+        Dictionary<(long, int), int> keyedGroups;
         readonly Dictionary<(BigInteger, BigInteger, BigInteger, BigInteger), int> planes = new Dictionary<(BigInteger, BigInteger, BigInteger, BigInteger), int>();
 
         /// <summary> tris: triangles of point ids; source: input triangle (arr.Triangles) of each; flipped: oriented opposite to it </summary>
@@ -69,6 +75,31 @@ namespace g3
                 group.Add(-1);
                 alive.Add(true);
             }
+        }
+
+        /// <summary>
+        /// Opt-in before Run(): keep each (source, flipped) input triangle in its own simplification group so vertices
+        /// are never removed across input-triangle seams and every output triangle retains its exact source triangle.
+        /// </summary>
+        internal void EnablePreserveSources()
+        {
+            preserveSources = true;
+            triGroupKeys = null;
+            groupSource = new List<int>();
+            groupFlipped = new List<bool>();
+        }
+
+        /// <summary>
+        /// Opt-in before Run(): partition coplanar regions by (orientedPlane, keys[source]) so group/material seams are
+        /// never merged across. Ignored if EnablePreserveSources() is also called.
+        /// </summary>
+        internal void SetGroupKeys(int[] keys)
+        {
+            if (preserveSources || keys == null)
+                return;
+            triGroupKeys = keys;
+            groupKey = new List<int>();
+            keyedGroups = new Dictionary<(long, int), int>();
         }
 
         // the group of triangle i (computed when first needed: most triangles are far from removable points)
@@ -97,14 +128,36 @@ namespace g3
                     pid = planes.Count;
                     planes[plane] = pid;
                 }
-                int orient = s * (flipped[i] ? -1 : 1);
-                var oriented = orient > 0 ? plane : (-a, -b, -c, -e);
-                if (groups.TryGetValue(oriented, out g) == false) {
+                if (preserveSources) {
                     g = groupPlane.Count;
-                    groups[oriented] = g;
                     groupPlane.Add(pid);
                     groupTri.Add(t);
                     groupSign.Add(flipped[i] ? -1 : 1);
+                    groupSource.Add(source[i]);
+                    groupFlipped.Add(flipped[i]);
+                } else if (triGroupKeys != null) {
+                    int orient = s * (flipped[i] ? -1 : 1);
+                    long orientedPlane = ((long)pid << 1) | (orient > 0 ? 1L : 0L);
+                    int gk = triGroupKeys[source[i]];
+                    var k = (orientedPlane, gk);
+                    if (keyedGroups.TryGetValue(k, out g) == false) {
+                        g = groupPlane.Count;
+                        keyedGroups[k] = g;
+                        groupPlane.Add(pid);
+                        groupTri.Add(t);
+                        groupSign.Add(flipped[i] ? -1 : 1);
+                        groupKey.Add(gk);
+                    }
+                } else {
+                    int orient = s * (flipped[i] ? -1 : 1);
+                    var oriented = orient > 0 ? plane : (-a, -b, -c, -e);
+                    if (groups.TryGetValue(oriented, out g) == false) {
+                        g = groupPlane.Count;
+                        groups[oriented] = g;
+                        groupPlane.Add(pid);
+                        groupTri.Add(t);
+                        groupSign.Add(flipped[i] ? -1 : 1);
+                    }
                 }
                 srcGroup[key] = g;
             }
@@ -211,6 +264,55 @@ namespace g3
             for (int i = 0; i < Tris.Count; ++i)
                 if (alive[i])
                     r.Add(Tris[i]);
+            return r;
+        }
+
+        /// <summary>
+        /// The remaining triangles together with their exact (source, flipped) provenance (only when constructed with
+        /// preserveSources = true, where every group corresponds to one input triangle and orientation).
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal List<Index3i> Result(out List<int> outSource, out List<bool> outFlipped)
+        {
+            if (preserveSources == false)
+                throw new InvalidOperationException("ExactPlanarSimplify.Result(outSource, outFlipped) requires EnablePreserveSources() before Run().");
+            var r = new List<Index3i>();
+            outSource = new List<int>();
+            outFlipped = new List<bool>();
+            for (int i = 0; i < Tris.Count; ++i) {
+                if (alive[i] == false)
+                    continue;
+                r.Add(Tris[i]);
+                int g = group[i];
+                if (g >= 0) {
+                    outSource.Add(groupSource[g]);
+                    outFlipped.Add(groupFlipped[g]);
+                } else {
+                    outSource.Add(source[i]);
+                    outFlipped.Add(flipped[i]);
+                }
+            }
+            return r;
+        }
+
+        /// <summary>
+        /// The remaining triangles together with their preserved group key (only when constructed with non-null
+        /// triGroupKeys and preserveSources = false).
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal List<Index3i> Result(out List<int> outGroups)
+        {
+            if (triGroupKeys == null)
+                throw new InvalidOperationException("ExactPlanarSimplify.Result(outGroups) requires SetGroupKeys() before Run().");
+            var r = new List<Index3i>();
+            outGroups = new List<int>();
+            for (int i = 0; i < Tris.Count; ++i) {
+                if (alive[i] == false)
+                    continue;
+                r.Add(Tris[i]);
+                int g = group[i];
+                outGroups.Add(g >= 0 ? groupKey[g] : triGroupKeys[source[i]]);
+            }
             return r;
         }
 

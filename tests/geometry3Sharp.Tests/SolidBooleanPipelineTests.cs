@@ -12,7 +12,7 @@ namespace geometry3Sharp.Tests
     /// SolidBooleanPipeline: the cheap input check, the repair of an open input only on demand, the exact boolean with
     /// AllowOpenMeshes = false and StrictRounding = true, the reduction with the self-intersection guard, and the final check.
     /// </summary>
-    public class SolidBooleanPipelineTests
+    public partial class SolidBooleanPipelineTests
     {
         const ExactMeshBoolean.Operations U = ExactMeshBoolean.Operations.Union, I = ExactMeshBoolean.Operations.Intersection, D = ExactMeshBoolean.Operations.Difference;
 

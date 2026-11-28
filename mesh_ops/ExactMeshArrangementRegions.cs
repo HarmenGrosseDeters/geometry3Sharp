@@ -17,6 +17,13 @@ namespace g3
         /// </summary>
         internal bool RegionClipping;
 
+        /// <summary>
+        /// When true (opt-in from ExactMeshBoolean.PreserveTriangleGroups), edges between two coplanar triangles
+        /// of the same mesh that have different TriangleGroup ids are treated as region boundary edges instead of
+        /// flat edges, so RegionClipping never merges across group/material seams. Off by default (zero effect).
+        /// </summary>
+        internal bool PreserveTriangleGroups;
+
         // bit k of flatMask[t]: the edge from corner k to corner k+1 of triangle t is a flat edge (RegionClipping only)
         byte[] flatMask;
 
@@ -140,6 +147,11 @@ namespace g3
         {
             // (a degenerate O has its third corner on the line a-b: Orient is 0 and the edge is not flat)
             InputTriangle T = Triangles[ti], O = Triangles[oi];
+            if (PreserveTriangleGroups) {
+                DMesh3 m = Meshes[T.Mesh];
+                if (m.HasTriangleGroups && m.GetTriangleGroup(T.Tid) != m.GetTriangleGroup(O.Tid))
+                    return false;
+            }
             // (the exact plane of both: planeRep says it for the eligible triangles, the planes of the others are not computed)
             if (rep != null ? rep[ti] != rep[oi] : same_plane(T.P, O.P) == false) return false;
             // O traverses the edge as b->a, and the third corners are strictly on opposite sides

@@ -616,6 +616,16 @@ if (!pipeline.Compute() && pipeline.Status == SolidBooleanPipeline.PipelineStatu
 
 ---
 
+## Face Provenance, Triangle Groups & Attribute Transfer
+
+Both `ExactMeshBoolean` and `SolidBooleanPipeline` keep triangle groups and face provenance off by default (bit-identical output and zero overhead). Enable them opt-in when CAD face IDs, material tags, or rendering attributes must survive booleans:
+
+- **`PreserveTriangleGroups = true`** (and optional per-input `GroupOffsets`): enables `DMesh3.TriangleGroups` on `Result`, preserving each supporting face's input group ID (plus `GroupOffsets[meshIndex]` when set; `0` for ungrouped inputs). Both coplanar region clipping (`ExactMeshArrangement`) and `ExactPlanarSimplify` keep boundaries between different output groups intact. On `SolidBooleanPipeline`, group boundary edges are pinned via `MeshConstraints` during optional reduction (note: `Reducer` does not combine `PairCoincidentVertices` with `MeshConstraints`, so `PairCoincidentVertices` is disabled whenever group boundary edges exist).
+- **`TrackFaceProvenance = true`**: populates `ResultProvenance` (`TriangleProvenance[]`, indexed by output triangle ID, with `MeshIndex`, `SourceTriangle`, and `Reversed`). `ExactPlanarSimplify` keeps each input triangle in its own simplification group so every output triangle's vertices lie on its cited source triangle (up to rounding drift), and triangles locally edited by `SafeRounding` are re-derived to their nearest consistently oriented pre-rounding source triangle. On `SolidBooleanPipeline`, `MeshIndex` maps back to the caller's `Inputs` order; triangles originating from an open input that required `InputRepair` (which remeshes its copy) report `TriangleProvenance.None`, and `ResultProvenance` is `null` if reduction runs.
+- **`ExactMeshAttributeTransfer`**: evaluates or transfers vertex UVs, normals (flipped when `Reversed` is true), and colors using local-frame barycentric coordinates shifted to each source triangle's first corner and scaled by exact powers of two (avoiding catastrophic cancellation at UTM coordinates and extreme scales). Set `AttributeTransferOptions.SplitAttributeSeams = true` to split shared vertices along UV, normal, color, or triangle-group seams at identical 3D positions so attributes do not bleed across sharp creases or material interfaces; because splitting duplicates vertices along seams, it opens seam edges (and can create bowtie vertices at multi-seam corners) and should be run as a rendering/export post-pass rather than before further solid booleans.
+
+---
+
 ## Exact Surface Imprinting (`ExactMeshImprint`)
 
 - **Namespace & class:** `g3.ExactMeshImprint`

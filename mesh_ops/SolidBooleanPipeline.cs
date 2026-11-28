@@ -717,6 +717,29 @@ namespace gs
         /// step (AutomaticSteps; a refused rim that the grid does not cure runs the boolean three times: the sheet, the grid, the fallback) (Report.Route)
         /// </summary>
         public Action<ExactMeshBoolean> ConfigureBoolean;
+        /// <summary>
+        /// When true (default false), forwarded to <see cref="ExactMeshBoolean.PreserveTriangleGroups"/> and group
+        /// boundaries are pinned during optional reduction (<see cref="MeshConstraints"/>) so material/CAD face seams
+        /// survive both the exact boolean and the reducer (note: Reducer does not combine PairCoincidentVertices with
+        /// MeshConstraints, so PairCoincidentVertices is disabled whenever group boundary edges exist).
+        /// Bit-identical to the default path when false.
+        /// </summary>
+        public bool PreserveTriangleGroups = false;
+        /// <summary> optional per-input group id offsets forwarded to <see cref="ExactMeshBoolean.GroupOffsets"/> (indexed by Inputs) </summary>
+        public int[] GroupOffsets;
+        /// <summary>
+        /// When true (default false), forwarded to <see cref="ExactMeshBoolean.TrackFaceProvenance"/> and exposed in
+        /// <see cref="ResultProvenance"/> (with MeshIndex mapped back to the caller's <see cref="Inputs"/> index).
+        /// Triangles originating from an input that required <see cref="SolidBooleanReport.RepairedInputs"/> (which
+        /// remeshes its copy) report <see cref="TriangleProvenance.None"/>; left null when reduction runs.
+        /// </summary>
+        public bool TrackFaceProvenance = false;
+        /// <summary>
+        /// Per-triangle provenance of Result, indexed by Result triangle id (compacted), or null unless
+        /// <see cref="TrackFaceProvenance"/> is true, Compute() succeeded, and no reduction ran.
+        /// Triangles from inputs repaired by InputRepair carry <see cref="TriangleProvenance.None"/>.
+        /// </summary>
+        public TriangleProvenance[] ResultProvenance { get; private set; }
         // (tests) runs before the reduction
         internal Action BeforeReduction;
         // (tests) runs before the second reduction of PairContactsMode Auto
@@ -821,6 +844,7 @@ namespace gs
         bool fail(PipelineStatus status, string error, Stopwatch total)
         {
             Result = null;
+            ResultProvenance = null;
             Status = status;
             Error = error;
             Report.TotalMilliseconds = total.ElapsedMilliseconds;
@@ -1001,6 +1025,7 @@ namespace gs
             s.Change += destroyed ? "; its result is empty although the first input is not, so it is rejected and the first failure is the result"
                 : "; it failed too (" + Status + ": " + Error + "), so the first failure is the result";
             Result = null;
+            ResultProvenance = null;
             route.RemoveRange(mine, route.Count - mine);
             addStageTimes(firstReport, Report);
             firstReport.TotalMilliseconds = total.ElapsedMilliseconds;
@@ -1163,6 +1188,7 @@ namespace gs
         bool compute(Stopwatch total, bool sheetRoute)
         {
             Result = null;
+            ResultProvenance = null;
             Error = null;
             Status = PipelineStatus.NotComputed;
             BooleanStatus = ExactMeshBoolean.BooleanStatus.NotComputed;
@@ -1460,6 +1486,7 @@ namespace gs
             bool pairAlways = PairContacts || PairContactsMode == PairContactsModes.On;
             DMesh3 spare = null;
             if (!pairAlways && PairContactsMode == PairContactsModes.Auto && Report.ContactsBoolean > 0 && !(MaxDeviation > 0 && MaxDeviationTwoSided)
+                && !(PreserveTriangleGroups && hasGroupBoundaries(mesh))
                 && (TargetTriangleCount > 0 || TargetFraction > 0 || MinEdgeLength > 0 || MaxQuadricError > 0))
                 spare = new DMesh3(mesh);      // (not compacted: the same ids as the mesh of the first reduction, so the second reduction is the one of On)
             clock.Restart();
@@ -1470,6 +1497,31 @@ namespace gs
             if (Cancellation.IsCancellationRequested)
                 return fail(PipelineStatus.Cancelled, "cancelled", total);
             DMesh3 result = new DMesh3(mesh, true);
+            TriangleProvenance[] opProv = thinOnly ? op.RoundingProvenance : op.ResultProvenance;
+            if (TrackFaceProvenance && Report.StopReason == SolidBooleanStopReason.NotReduced && opProv != null) {
+                HashSet<int> repairedSet = null;
+                if (Report.RepairedInputs.Count > 0) {
+                    repairedSet = new HashSet<int>();
+                    foreach (SolidBooleanInputRepair r in Report.RepairedInputs)
+                        repairedSet.Add(r.Index);
+                }
+                var prov = new TriangleProvenance[result.MaxTriangleID];
+                for (int i = 0; i < prov.Length; ++i)
+                    prov[i] = TriangleProvenance.None;
+                int newTid = 0;
+                foreach (int oldTid in mesh.TriangleIndices()) {
+                    if (oldTid < opProv.Length && opProv[oldTid].IsValid) {
+                        TriangleProvenance p = opProv[oldTid];
+                        int mappedMesh = p.MeshIndex < active.Count ? active[p.MeshIndex] : p.MeshIndex;
+                        if (repairedSet == null || repairedSet.Contains(mappedMesh) == false)
+                            prov[newTid] = new TriangleProvenance { MeshIndex = mappedMesh, SourceTriangle = p.SourceTriangle, Reversed = p.Reversed };
+                    }
+                    newTid++;
+                }
+                ResultProvenance = prov;
+            } else if (TrackFaceProvenance && Report.StopReason == SolidBooleanStopReason.EmptyResult && result.TriangleCount == 0) {
+                ResultProvenance = new TriangleProvenance[0];
+            }
 
             // 4. the final check
             clock.Restart();
@@ -1847,6 +1899,9 @@ namespace gs
         bool emptyResult(string detail, Stopwatch total)
         {
             Result = new DMesh3();
+            if (PreserveTriangleGroups)
+                Result.EnableTriangleGroups(0);
+            ResultProvenance = TrackFaceProvenance ? new TriangleProvenance[0] : null;
             Status = PipelineStatus.Success;
             BooleanStatus = ExactMeshBoolean.BooleanStatus.NotComputed;
             Report.StopReason = SolidBooleanStopReason.EmptyResult;
@@ -2467,6 +2522,14 @@ namespace gs
             var op = new ExactMeshBoolean(meshes, Operation);
             op.Orientation = Orientation;
             op.CountInsideOutCells = true;      // (the InsideOutInput refusal and Report.InsideOutCells)
+            op.PreserveTriangleGroups = PreserveTriangleGroups;
+            op.TrackFaceProvenance = TrackFaceProvenance;
+            if (GroupOffsets != null) {
+                var offsets = new int[active.Count];
+                for (int k = 0; k < active.Count; ++k)
+                    offsets[k] = active[k] < GroupOffsets.Length ? GroupOffsets[active[k]] : 0;
+                op.GroupOffsets = offsets;
+            }
             if (ConfigureBoolean != null)
                 ConfigureBoolean(op);
             // (the roles of the inputs the boolean gets, in its order)
@@ -2999,6 +3062,16 @@ namespace gs
             }
         }
 
+        static bool hasGroupBoundaries(DMesh3 mesh)
+        {
+            if (!mesh.HasTriangleGroups)
+                return false;
+            foreach (int eid in mesh.EdgeIndices())
+                if (mesh.IsGroupBoundaryEdge(eid))
+                    return true;
+            return false;
+        }
+
         void reduce(DMesh3 mesh, bool pair)
         {
             bool byCount = TargetTriangleCount > 0 || TargetFraction > 0;
@@ -3013,14 +3086,29 @@ namespace gs
                 Report.StopDetail = "no reduction criterion set";
                 return;
             }
+            MeshConstraints groupCons = null;
+            if (PreserveTriangleGroups && mesh.HasTriangleGroups) {
+                foreach (int eid in mesh.EdgeIndices()) {
+                    if (mesh.IsGroupBoundaryEdge(eid)) {
+                        if (groupCons == null)
+                            groupCons = new MeshConstraints();
+                        groupCons.SetOrUpdateEdgeConstraint(eid, EdgeConstraint.FullyConstrained);
+                        Index2i ev = mesh.GetEdgeV(eid);
+                        groupCons.SetOrUpdateVertexConstraint(ev.a, VertexConstraint.Pinned);
+                        groupCons.SetOrUpdateVertexConstraint(ev.b, VertexConstraint.Pinned);
+                    }
+                }
+            }
             var reducer = new CountingReducer(mesh) {
                 PreventSelfIntersections = PreventSelfIntersections,
                 MaxDeviation = MaxDeviation,
                 MaxDeviationTwoSided = MaxDeviation > 0 && MaxDeviationTwoSided,
                 MinCollapseTriangleQuality = MinTriangleQuality,
-                PairCoincidentVertices = pair,
+                PairCoincidentVertices = pair && groupCons == null,
                 Progress = new ProgressCancel(() => Cancellation.IsCancellationRequested)
             };
+            if (groupCons != null)
+                reducer.SetExternalConstraints(groupCons);
             int target = 0;
             if (TargetTriangleCount > 0)
                 target = TargetTriangleCount;
