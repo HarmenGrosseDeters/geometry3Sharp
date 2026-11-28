@@ -139,6 +139,18 @@ namespace geometry3Sharp.Tests
             Assert.Equal(expectedHalf, relPipe.Result.CachedBounds.Max.z, 5);
             Assert.Equal(0.5 + expectedHalf, MeshMeasurements.VolumeArea(relPipe.Result, relPipe.Result.TriangleIndices(), relPipe.Result.GetVertex).x, 4);
 
+            // 1b. 3D open sheet with unique z-dominant extent (2 x 1 x 3 => diag = sqrt(14)) exercises wx, wy, wz diagonal calculation
+            DMesh3 tallBracket = OpenSheetLBracket(2.0, 1.0, 3.0);
+            var rel3dPipe = new SolidBooleanPipeline(solid, tallBracket, U) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.ThickenOpenSheet,
+                OpenSheetHalfThickness = 0.0,
+                RelativeOpenSheetHalfThickness = 0.02
+            };
+            Assert.True(rel3dPipe.Compute(), rel3dPipe.Error);
+            Assert.True(rel3dPipe.Report.Clean, rel3dPipe.Report.NotCleanReason);
+            double expectedHalf3d = 0.02 * Math.Sqrt(14.0);
+            Assert.Equal(expectedHalf3d, -rel3dPipe.Result.CachedBounds.Min.x, 4);
+
             // 2. OpenSheetMiterLimit is forwarded to MeshMiteredOffset (smaller MiterLimit clamps acute fold crest further)
             DMesh3 fold = OpenSheetAcuteFold(10.0); // 20-deg fold => unclipped miter ~ 5.76 * d
             DMesh3 anchor = new TrivialBox3Generator() {
@@ -168,12 +180,14 @@ namespace geometry3Sharp.Tests
             }.Generate().MakeDMesh();
             DMesh3 plate = OpenSheetPlate(0, 1, 0, 1, 0.5);
 
-            // 1. Out-of-range InputRepair enum (> ThickenOpenSheet)
-            var badEnum = new SolidBooleanPipeline(solid, plate, U) {
-                InputRepair = (SolidBooleanPipeline.InputRepairModes)99
-            };
-            Assert.False(badEnum.Compute());
-            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InvalidInput, badEnum.Status);
+            // 1. Out-of-range InputRepair enum (< Refuse and > ThickenOpenSheet)
+            foreach (int badVal in new[] { -1, 99 }) {
+                var badEnum = new SolidBooleanPipeline(solid, plate, U) {
+                    InputRepair = (SolidBooleanPipeline.InputRepairModes)badVal
+                };
+                Assert.False(badEnum.Compute());
+                Assert.Equal(SolidBooleanPipeline.PipelineStatus.InvalidInput, badEnum.Status);
+            }
 
             // 2. Negative / NaN / Infinity OpenSheetHalfThickness
             foreach (double bad in new[] { -0.1, double.NaN, double.PositiveInfinity }) {
@@ -198,7 +212,15 @@ namespace geometry3Sharp.Tests
                 Assert.Contains("RelativeOpenSheetHalfThickness", p.Error);
             }
 
-            // 4. Out-of-range OpenSheetMiterLimit (< 1, > 1e4, NaN, Inf) — boundary 1.0 and 1e4 are accepted
+            // 3b. Explicit OpenSheetHalfThickness > 0 ignores an invalid RelativeOpenSheetHalfThickness
+            var explicitOverridesRel = new SolidBooleanPipeline(solid, plate, U) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.ThickenOpenSheet,
+                OpenSheetHalfThickness = 0.05,
+                RelativeOpenSheetHalfThickness = -1.0
+            };
+            Assert.True(explicitOverridesRel.Compute(), explicitOverridesRel.Error);
+
+            // 4. Out-of-range OpenSheetMiterLimit (< 1, > 1e4, NaN, Inf) — both boundaries 1.0 and 1e4 are accepted
             foreach (double bad in new[] { 0.99, 1e4 + 1.0, double.NaN, double.PositiveInfinity }) {
                 var p = new SolidBooleanPipeline(solid, plate, U) {
                     InputRepair = SolidBooleanPipeline.InputRepairModes.ThickenOpenSheet,
@@ -209,12 +231,14 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(SolidBooleanPipeline.PipelineStatus.InvalidInput, p.Status);
                 Assert.Contains("OpenSheetMiterLimit", p.Error);
             }
-            var boundaryMiter = new SolidBooleanPipeline(solid, plate, U) {
-                InputRepair = SolidBooleanPipeline.InputRepairModes.ThickenOpenSheet,
-                OpenSheetHalfThickness = 0.05,
-                OpenSheetMiterLimit = 1.0
-            };
-            Assert.True(boundaryMiter.Compute(), boundaryMiter.Error);
+            foreach (double okLimit in new[] { 1.0, 1e4 }) {
+                var boundaryMiter = new SolidBooleanPipeline(solid, plate, U) {
+                    InputRepair = SolidBooleanPipeline.InputRepairModes.ThickenOpenSheet,
+                    OpenSheetHalfThickness = 0.05,
+                    OpenSheetMiterLimit = okLimit
+                };
+                Assert.True(boundaryMiter.Compute(), $"MiterLimit={okLimit}: {boundaryMiter.Error}");
+            }
 
             // 5. Open sheet with non-finite vertex coordinate fails with InvalidInput upfront
             DMesh3 nanSheet = OpenSheetPlate(0, 1, 0, 1, 0.5);

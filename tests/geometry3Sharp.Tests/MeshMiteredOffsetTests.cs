@@ -1098,6 +1098,90 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.0 + Math.Sqrt(2.0) * dPyr, openPyrOp.Result.CachedBounds.Max.z, 4);
         }
 
+        [Fact]
+        public void Round5EdgeCases_BevelSymmetry_NearThresholdEdgeBevel_And_BowtieSliverShell()
+        {
+            // 1. Symmetric bevelled corners must be permutation- and rotation-invariant (no arbitrary single-corner chip)
+            DMesh3 tet = RegularTetrahedron();
+            var tetBase = new MeshMiteredOffset { Mesh = tet, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.2, MiterLimit = 2.0 };
+            Assert.True(tetBase.Compute(), tetBase.Error);
+            AssertClean(tetBase.Result, "bevelled tet baseline");
+            double vTet = Volume(tetBase.Result);
+
+            DMesh3 tetPerm = Invariance.Permuted(tet, seed: 42);
+            var tetPermOp = new MeshMiteredOffset { Mesh = tetPerm, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.2, MiterLimit = 2.0 };
+            Assert.True(tetPermOp.Compute(), tetPermOp.Error);
+            AssertClean(tetPermOp.Result, "bevelled tet permuted");
+            Assert.Equal(vTet, Volume(tetPermOp.Result), 6);
+            Assert.True(MaxSurfaceDistance(tetBase.Result, tetPermOp.Result) < 1e-6, "bevelled tet permutation drift");
+
+            Similarity rot = new Similarity("rot_bevel", 1.0, new Quaterniond(new Vector3d(1, 2, 3).Normalized, 37.0).ToRotationMatrix(), Vector3d.Zero);
+            var tetRotOp = new MeshMiteredOffset { Mesh = Invariance.Transformed(tet, rot), Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.2, MiterLimit = 2.0 };
+            Assert.True(tetRotOp.Compute(), tetRotOp.Error);
+            AssertClean(tetRotOp.Result, "bevelled tet rotated");
+            Assert.Equal(vTet, Volume(tetRotOp.Result), 5);
+            Assert.True(MaxSurfaceDistance(tetBase.Result, Invariance.MappedBack(tetRotOp.Result, rot)) < 1e-5, "bevelled tet rotation drift");
+
+            DMesh3 pyr4 = AcuteCone(4, 10.0, height: 2.0);
+            var pyrBase = new MeshMiteredOffset { Mesh = pyr4, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1, MiterLimit = 2.0 };
+            var pyrPerm = new MeshMiteredOffset { Mesh = Invariance.Permuted(pyr4, seed: 7), Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1, MiterLimit = 2.0 };
+            Assert.True(pyrBase.Compute(), pyrBase.Error);
+            Assert.True(pyrPerm.Compute(), pyrPerm.Error);
+            AssertClean(pyrBase.Result, "bevelled 4-pyramid baseline");
+            AssertClean(pyrPerm.Result, "bevelled 4-pyramid permuted");
+            Assert.Equal(Volume(pyrBase.Result), Volume(pyrPerm.Result), 6);
+            Assert.True(MaxSurfaceDistance(pyrBase.Result, pyrPerm.Result) < 1e-6, "bevelled 4-pyramid permutation drift");
+
+            // 2. Near-threshold edge bevel (miterRatio = 2.0 vs MiterLimit = 2.0 - 1e-15, and rotated cube at MiterLimit = sqrt(2)):
+            //    must never collapse b1 == b2 and silently drop the edge wedge.
+            double s3 = Math.Sqrt(3.0);
+            var prism = new DMesh3();
+            int p0 = prism.AppendVertex(new Vector3d(0, 0, 0));
+            int p1 = prism.AppendVertex(new Vector3d(1, 0, 0));
+            int p2 = prism.AppendVertex(new Vector3d(0.5, 0.5 * s3, 0));
+            int p3 = prism.AppendVertex(new Vector3d(0, 0, 1));
+            int p4 = prism.AppendVertex(new Vector3d(1, 0, 1));
+            int p5 = prism.AppendVertex(new Vector3d(0.5, 0.5 * s3, 1));
+            prism.AppendTriangle(p0, p2, p1);
+            prism.AppendTriangle(p3, p4, p5);
+            prism.AppendTriangle(p0, p1, p4); prism.AppendTriangle(p0, p4, p3);
+            prism.AppendTriangle(p1, p2, p5); prism.AppendTriangle(p1, p5, p4);
+            prism.AppendTriangle(p2, p0, p3); prism.AppendTriangle(p2, p3, p5);
+
+            // Exact outward mitered prism with side length a = 1 + 2*sqrt(3)*d, height h = 1 + 2*d:
+            // vol = (sqrt(3)/4) * a^2 * h.
+            double dPrism = 0.05;
+            double aOut = 1.0 + 2.0 * s3 * dPrism;
+            double expectedPrismVol = (0.25 * s3) * aOut * aOut * (1.0 + 2.0 * dPrism);
+            foreach (double ml in new[] { 2.0, 2.0 - 1e-15, 2.0 - 1e-12 }) {
+                var pOp = new MeshMiteredOffset { Mesh = prism, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = dPrism, MiterLimit = ml };
+                Assert.True(pOp.Compute(), $"60-deg prism ml={ml}: {pOp.Error}");
+                AssertClean(pOp.Result, $"60-deg prism ml={ml}");
+                Assert.Equal(expectedPrismVol, Volume(pOp.Result), 5);
+            }
+
+            DMesh3 rotCube = Invariance.Transformed(Box(Vector3d.Zero, Vector3d.One), rot);
+            var rotCubeSqrt2 = new MeshMiteredOffset { Mesh = rotCube, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1, MiterLimit = Math.Sqrt(2.0) };
+            Assert.True(rotCubeSqrt2.Compute(), rotCubeSqrt2.Error);
+            AssertClean(rotCubeSqrt2.Result, "rotated cube at MiterLimit=sqrt(2)");
+            double cornerLeg = (3.0 - Math.Sqrt(6.0)) * 0.1;
+            double expectedBevelCubeVol = 1.2 * 1.2 * 1.2 - 8.0 * (cornerLeg * cornerLeg * cornerLeg) / 6.0;
+            Assert.Equal(expectedBevelCubeVol, Volume(rotCubeSqrt2.Result), 6);
+
+            // 3. Closed sliver box sharing a bowtie vertex (1,0,0) with a valid closed cube is rejected as InvalidInput
+            DMesh3 bowtieSliver = Box(Vector3d.Zero, Vector3d.One);
+            DMesh3 needle = Box(new Vector3d(1, 0, 0), new Vector3d(2, 1e-13, 1e-13));
+            var nmap = new Dictionary<int, int>();
+            foreach (int vid in needle.VertexIndices()) nmap[vid] = bowtieSliver.AppendVertex(needle.GetVertex(vid));
+            foreach (int tid in needle.TriangleIndices()) {
+                Index3i t = needle.GetTriangle(tid);
+                bowtieSliver.AppendTriangle(nmap[t.a], nmap[t.b], nmap[t.c]);
+            }
+            var bowtieSliverOp = new MeshMiteredOffset { Mesh = bowtieSliver, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1 };
+            Assert.False(bowtieSliverOp.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidInput, bowtieSliverOp.Status);
+        }
+
         static double MaxSurfaceDistance(DMesh3 a, DMesh3 b)
         {
             var treeA = new DMeshAABBTree3(a, autoBuild: true);

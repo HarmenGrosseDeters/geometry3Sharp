@@ -298,7 +298,7 @@ namespace gs
             //   (a) remaining valid faces are still winding-balanced (no broken edge adjacency), AND
             //   (b) no entire disconnected closed component was silently dropped by faceValid filtering.
             if ((Mode == OffsetModes.Outward || Mode == OffsetModes.Inward) && validFaces < nt) {
-                if (!edges_are_winding_balanced(edgeKeys, edgeInc) || any_component_has_no_valid_faces(nv, tris, faceValid)) {
+                if (!edges_are_winding_balanced(edgeKeys, edgeInc) || any_component_has_no_valid_faces(tris, faceValid)) {
                     fail(OffsetStatus.InvalidInput, "closed mesh contains degenerate or sliver triangles that break surface adjacency or drop a component");
                     return false;
                 }
@@ -330,7 +330,7 @@ namespace gs
                 } else if (inc.Count >= 4 && (inc.Count % 2) == 0) {
                     int uRef = inc[0].u < inc[0].v ? inc[0].u : inc[0].v;
                     int vRef = inc[0].u < inc[0].v ? inc[0].v : inc[0].u;
-                    collect_nonmanifold_sectors(workVerts, uRef, vRef, inc, vertTriAdj, nonManifoldSectors);
+                    collect_nonmanifold_sectors(workVerts, faceNormal, uRef, vRef, inc, vertTriAdj, nonManifoldSectors);
                 }
             }
 
@@ -798,27 +798,57 @@ namespace gs
             return true;
         }
 
-        static bool any_component_has_no_valid_faces(int nv, List<Index3i> tris, bool[] faceValid)
+        static bool any_component_has_no_valid_faces(List<Index3i> tris, bool[] faceValid)
         {
-            var parent = new int[nv];
-            for (int i = 0; i < nv; ++i) parent[i] = i;
-            for (int t = 0; t < tris.Count; ++t) {
+            int nt = tris.Count;
+            var parent = new int[nt];
+            for (int t = 0; t < nt; ++t) parent[t] = t;
+            var edgeFirstTri = new Dictionary<long, int>(nt * 2);
+            for (int t = 0; t < nt; ++t) {
                 Index3i f = tris[t];
-                dsu_union(parent, f.a, f.b);
-                dsu_union(parent, f.b, f.c);
+                for (int e = 0; e < 3; ++e) {
+                    int u = e == 0 ? f.a : (e == 1 ? f.b : f.c);
+                    int v = e == 0 ? f.b : (e == 1 ? f.c : f.a);
+                    long key = u < v ? ((long)u << 32) | (uint)v : ((long)v << 32) | (uint)u;
+                    if (edgeFirstTri.TryGetValue(key, out int firstT))
+                        dsu_union(parent, t, firstT);
+                    else
+                        edgeFirstTri[key] = t;
+                }
             }
-            var compHasAny = new bool[nv];
-            var compHasValid = new bool[nv];
-            for (int t = 0; t < tris.Count; ++t) {
-                int r = dsu_find(parent, tris[t].a);
+            var compHasAny = new bool[nt];
+            var compHasValid = new bool[nt];
+            for (int t = 0; t < nt; ++t) {
+                int r = dsu_find(parent, t);
                 compHasAny[r] = true;
                 if (faceValid[t]) compHasValid[r] = true;
             }
-            for (int i = 0; i < nv; ++i) {
-                if (compHasAny[i] && !compHasValid[i])
+            for (int t = 0; t < nt; ++t) {
+                if (compHasAny[t] && !compHasValid[t])
                     return true;
             }
             return false;
+        }
+
+        static bool safe_normalize(Vector3d v, out Vector3d unit, out double len)
+        {
+            double maxC = max_abs(v);
+            if (!(maxC > 0) || !MathUtil.IsFinite(maxC)) {
+                unit = Vector3d.Zero;
+                len = 0;
+                return false;
+            }
+            int e = pow2_exp(maxC);
+            Vector3d sv = scale_vec(v, -e);
+            double slen = sv.Length;
+            if (!(slen > 0) || !MathUtil.IsFinite(slen)) {
+                unit = Vector3d.Zero;
+                len = 0;
+                return false;
+            }
+            unit = sv / slen;
+            len = ExactPoint3.ScaleB(slen, e);
+            return MathUtil.IsFinite(len) && len > 0;
         }
 
         /// <summary>
@@ -1030,8 +1060,8 @@ namespace gs
         /// coplanar opposite-winding ties to alternate cleanly with their cyclic neighbors (handling both touching
         /// exterior solids and cavity-touching-wall edges), links interior umbrella pairs, and collects &gt; pi sectors.
         /// </summary>
-        static void collect_nonmanifold_sectors(Vector3d[] workVerts, int uRef, int vRef, List<HalfEdgeInc> inc,
-            Dictionary<long, List<int>> vertTriAdj, List<NonManifoldSector> sectorsOut)
+        static void collect_nonmanifold_sectors(Vector3d[] workVerts, Vector3d[] faceNormals, int uRef, int vRef,
+            List<HalfEdgeInc> inc, Dictionary<long, List<int>> vertTriAdj, List<NonManifoldSector> sectorsOut)
         {
             int fwd = 0, rev = 0;
             for (int i = 0; i < inc.Count; ++i) {
@@ -1043,37 +1073,45 @@ namespace gs
 
             Vector3d pa = workVerts[uRef], pb = workVerts[vRef];
             Vector3d refOpp = workVerts[inc[0].opp];
-            Vector3d refDirRaw = refOpp - pa;
-            Vector3d edgeDirRaw = pb - pa;
-            double maxEdgeComp = max_abs(edgeDirRaw);
-            double maxRefComp = max_abs(refDirRaw);
-            if (!(maxEdgeComp > 0) || !(maxRefComp > 0)) return;
-            Vector3d edgeDir = scale_vec(edgeDirRaw, -pow2_exp(maxEdgeComp));
-            Vector3d refDir = scale_vec(refDirRaw, -pow2_exp(maxRefComp));
-            double edgeLenSq = edgeDir.LengthSquared;
-            if (!(edgeLenSq > 0)) return;
-            Vector3d refPerp = refDir - (refDir.Dot(edgeDir) / edgeLenSq) * edgeDir;
-            if (!(refPerp.LengthSquared > 0)) return;
+            // Oriented unit half-plane normal of inc[0]: (pb - pa) x (opp - pa) normalized, immune to cancellation/underflow.
+            Vector3d refNormal = (inc[0].u == uRef ? 1.0 : -1.0) * faceNormals[inc[0].tri];
 
             var sorted = new List<HalfEdgeInc>(inc);
-            sorted.Sort((a, b) => compare_radial_exact(pa, pb, refOpp, refPerp, uRef, workVerts, a, b));
+            sorted.Sort((a, b) => compare_radial_exact(pa, pb, refOpp, refNormal, uRef, workVerts, faceNormals, a, b));
 
             // Adjust same-ray coplanar groups (where Orient3d == 0 and same half-plane) so their internal fwd/rev
             // order alternates cleanly with the preceding distinct-ray face (handles both exterior touch & cavity touch).
+            // Start traversal from an unbalanced group (e.g. a singleton ray) when one exists so every balanced group
+            // inspects an already-finalized predecessor regardless of which ray inc[0] landed on.
             int m = sorted.Count;
             var groupStart = new List<int>();
             for (int i = 0; i < m; ++i) {
-                if (i == 0 || !same_radial_ray(pa, pb, refOpp, refPerp, workVerts, sorted[i - 1], sorted[i]))
+                if (i == 0 || !same_radial_ray(pa, pb, refOpp, refNormal, uRef, workVerts, faceNormals, sorted[i - 1], sorted[i]))
                     groupStart.Add(i);
             }
-            if (groupStart.Count > 1) {
-                for (int g = 0; g < groupStart.Count; ++g) {
+            int ng = groupStart.Count;
+            if (ng > 1) {
+                int startG = 0;
+                for (int g = 0; g < ng; ++g) {
                     int sIdx = groupStart[g];
-                    int eIdx = g + 1 < groupStart.Count ? groupStart[g + 1] : m;
+                    int eIdx = g + 1 < ng ? groupStart[g + 1] : m;
+                    int gf = 0, gr = 0;
+                    for (int j = sIdx; j < eIdx; ++j) {
+                        if (sorted[j].u == uRef) gf++;
+                        else gr++;
+                    }
+                    if (gf != gr) {
+                        startG = g;
+                        break;
+                    }
+                }
+                for (int step = 0; step < ng; ++step) {
+                    int g = (startG + step) % ng;
+                    int sIdx = groupStart[g];
+                    int eIdx = g + 1 < ng ? groupStart[g + 1] : m;
                     if (eIdx - sIdx < 2) continue;
                     int prevIdx = (sIdx - 1 + m) % m;
                     bool prevIsFwd = sorted[prevIdx].u == uRef;
-                    // We want the first element of this coplanar group to be opposite of prevIsFwd.
                     var fwdList = new List<HalfEdgeInc>();
                     var revList = new List<HalfEdgeInc>();
                     for (int j = sIdx; j < eIdx; ++j) {
@@ -1121,21 +1159,22 @@ namespace gs
             }
         }
 
-        static bool same_radial_ray(Vector3d pa, Vector3d pb, Vector3d refOpp, Vector3d refPerp,
-            Vector3d[] workVerts, HalfEdgeInc a, HalfEdgeInc b)
+        static bool same_radial_ray(Vector3d pa, Vector3d pb, Vector3d refOpp, Vector3d refNormal, int uRef,
+            Vector3d[] workVerts, Vector3d[] faceNormals, HalfEdgeInc a, HalfEdgeInc b)
         {
             Vector3d oa = workVerts[a.opp], ob = workVerts[b.opp];
-            return radial_half(pa, pb, refOpp, refPerp, oa) == radial_half(pa, pb, refOpp, refPerp, ob)
+            return radial_half(pa, pb, refOpp, refNormal, uRef, workVerts, faceNormals, a)
+                == radial_half(pa, pb, refOpp, refNormal, uRef, workVerts, faceNormals, b)
                 && ExactPredicates.Orient3d(pa, pb, oa, ob) == 0;
         }
 
-        static int compare_radial_exact(Vector3d pa, Vector3d pb, Vector3d refOpp, Vector3d refPerp, int uRef,
-            Vector3d[] workVerts, HalfEdgeInc a, HalfEdgeInc b)
+        static int compare_radial_exact(Vector3d pa, Vector3d pb, Vector3d refOpp, Vector3d refNormal, int uRef,
+            Vector3d[] workVerts, Vector3d[] faceNormals, HalfEdgeInc a, HalfEdgeInc b)
         {
             if (a.tri == b.tri) return 0;
             Vector3d oa = workVerts[a.opp], ob = workVerts[b.opp];
-            int ha = radial_half(pa, pb, refOpp, refPerp, oa);
-            int hb = radial_half(pa, pb, refOpp, refPerp, ob);
+            int ha = radial_half(pa, pb, refOpp, refNormal, uRef, workVerts, faceNormals, a);
+            int hb = radial_half(pa, pb, refOpp, refNormal, uRef, workVerts, faceNormals, b);
             if (ha != hb) return ha.CompareTo(hb);
             int o = ExactPredicates.Orient3d(pa, pb, oa, ob);
             if (o != 0) return o > 0 ? -1 : 1;
@@ -1145,12 +1184,14 @@ namespace gs
             return a.tri.CompareTo(b.tri);
         }
 
-        static int radial_half(Vector3d pa, Vector3d pb, Vector3d refOpp, Vector3d refPerp, Vector3d opp)
+        static int radial_half(Vector3d pa, Vector3d pb, Vector3d refOpp, Vector3d refNormal, int uRef,
+            Vector3d[] workVerts, Vector3d[] faceNormals, HalfEdgeInc e)
         {
-            int o = ExactPredicates.Orient3d(pa, pb, refOpp, opp);
+            int o = ExactPredicates.Orient3d(pa, pb, refOpp, workVerts[e.opp]);
             if (o > 0) return 0;
             if (o < 0) return 1;
-            return (opp - pa).Dot(refPerp) >= 0 ? 0 : 1;
+            Vector3d eNormal = (e.u == uRef ? 1.0 : -1.0) * faceNormals[e.tri];
+            return eNormal.Dot(refNormal) >= 0 ? 0 : 1;
         }
 
         static List<List<int>> partition_vertex_umbrellas(int v, List<int> incTris, Dictionary<long, List<int>> vertTriAdj)
@@ -1275,9 +1316,9 @@ namespace gs
                     double sinAlpha = Math.Sqrt(Math.Max(0.0, 1.0 - cosAlpha * cosAlpha));
                     Vector3d w = n1 - cosAlpha * u;
                     double wLen = w.Length;
-                    if (sinAlpha > 1e-12 && wLen > 1e-12) {
+                    double s = sinAlpha > 1e-12 ? (1.0 - miterLimit * cosAlpha) / sinAlpha : 0.0;
+                    if (sinAlpha > 1e-12 && wLen > 1e-12 && s > 1e-7 * miterLimit) {
                         w /= wLen;
-                        double s = (1.0 - miterLimit * cosAlpha) / sinAlpha;
                         Vector3d b1 = d * (miterLimit * u + s * w);
                         Vector3d b2 = d * (miterLimit * u - s * w);
                         bevelPlane = (u, miterLimit * d);
@@ -1290,11 +1331,9 @@ namespace gs
                 }
             } else {
                 // Exact or near-180-degree razor fold (n1 ~ -n2): emit orthogonal bevel cap at MiterLimit * d.
-                Vector3d edgeDir = pb - pa;
-                double edgeLen = edgeDir.Length;
-                if (!(edgeLen > 0))
+                if (!safe_normalize(pb - pa, out Vector3d edgeUnit, out _))
                     return false;
-                Vector3d outDir = n1.Cross(edgeDir / edgeLen);
+                Vector3d outDir = n1.Cross(edgeUnit);
                 double oLen = outDir.Length;
                 if (!(oLen > 1e-12))
                     return false;
@@ -1383,32 +1422,29 @@ namespace gs
         {
             if (vertUmbrellas[vId] == null)
                 return;
-            Vector3d edgeVec = otherPos - vPos;
-            double edgeLen = edgeVec.Length;
-            if (!(edgeLen > 0))
+            if (!safe_normalize(otherPos - vPos, out Vector3d edgeUnit, out _))
                 return;
 
             int uiA = vertTriToUmb.TryGetValue(vt_key(vId, refTriA), out int aIdx) ? aIdx : -1;
             int uiB = (refTriB != refTriA && vertTriToUmb.TryGetValue(vt_key(vId, refTriB), out int bIdx)) ? bIdx : -1;
             if (uiA >= 0)
-                collect_violated_umbrella_planes(vertUmbrellas[vId][uiA], vPos, edgeVec, edgeLen, profile, n1, n2, d, sideSign, faceNormals, ref clipPlanes);
+                collect_violated_umbrella_planes(vertUmbrellas[vId][uiA], vPos, edgeUnit, profile, n1, n2, d, sideSign, faceNormals, ref clipPlanes);
             if (uiB >= 0 && uiB != uiA)
-                collect_violated_umbrella_planes(vertUmbrellas[vId][uiB], vPos, edgeVec, edgeLen, profile, n1, n2, d, sideSign, faceNormals, ref clipPlanes);
+                collect_violated_umbrella_planes(vertUmbrellas[vId][uiB], vPos, edgeUnit, profile, n1, n2, d, sideSign, faceNormals, ref clipPlanes);
         }
 
-        static void collect_violated_umbrella_planes(List<int> umb, Vector3d vPos, Vector3d edgeVec, double edgeLen,
+        static void collect_violated_umbrella_planes(List<int> umb, Vector3d vPos, Vector3d edgeUnit,
             List<Vector3d> profile, Vector3d n1, Vector3d n2, double d, double sideSign, Vector3d[] faceNormals,
             ref List<(Vector3d n, Vector3d origin, double offset)> clipPlanes)
         {
-            // Trigger clipping only for convex endpoint capping planes (n . (otherPos - vPos) < 0) that the unclipped
+            // Trigger clipping only for convex endpoint capping planes (n . edgeUnit < 0) that the unclipped
             // miter genuinely protrudes past (> 0.1% of d). Never clip against concave walls rising along the edge.
             double tol = d * (1.0 + 1e-3);
-            double capTol = -1e-6 * edgeLen;
             for (int i = 0; i < umb.Count; ++i) {
                 Vector3d n = sideSign * faceNormals[umb[i]];
                 if (n.Dot(n1) > CoplanarDotThreshold || n.Dot(n2) > CoplanarDotThreshold)
                     continue;
-                if (n.Dot(edgeVec) >= capTol)
+                if (n.Dot(edgeUnit) >= -1e-6)
                     continue;
                 bool violated = false;
                 for (int p = 1; p < profile.Count; ++p) {
@@ -1521,12 +1557,9 @@ namespace gs
                 for (int i = 0; i < bndAtV.Count; ++i) {
                     var be = bndAtV[i];
                     if (!umbSet.Contains(be.tri)) continue;
-                    Vector3d edgeDir = workVerts[be.otherVert] - vPos;
+                    if (!safe_normalize(workVerts[be.otherVert] - vPos, out Vector3d edgeUnit, out _)) continue;
                     Vector3d nFace = side * faceNormals[be.tri];
-                    Vector3d rimOut = nFace.Cross(edgeDir);
-                    double rLen = rimOut.Length;
-                    if (!(rLen > 0)) continue;
-                    rimOut /= rLen;
+                    if (!safe_normalize(nFace.Cross(edgeUnit), out Vector3d rimOut, out _)) continue;
                     if (rimOut.Dot(workVerts[be.oppVert] - vPos) > 0)
                         rimOut = -rimOut;
                     if (rim_cuts_umbrella(rimOut, v, vPos, umbrella, workVerts, tris))
@@ -1563,11 +1596,14 @@ namespace gs
             }
 
             // 3. On strictly pointed cones (hasBackStop):
-            //    (a) Pre-clamp along +nAvg (and any oblique outer apex exceeding MiterLimit) BEFORE edgePlanes /
-            //        boundLimit rejection, recording each applied bevel plane in `planes` so bevel-cap vertices
-            //        remain recognized as true outer apices.
-            //    (b) Relax edgePlanes ONLY for true outer shifted-face / bevel-cap apices (strictly in the positive
+            //    (a) Pre-clamp symmetrically along +nAvg at MiterLimit BEFORE edgePlanes/boundLimit rejection.
+            //        When the symmetric nAvg bevel cap is applied, do NOT apply an asymmetric single-vertex oblique cut
+            //        to its tied rim corners (preserving exact symmetry and permutation/rotation invariance).
+            //    (b) Otherwise, if oblique true outer apices exceed MiterLimit (e.g. asymmetric hip roof with
+            //        nAvg . p <= MiterLimit < |p|), clip ALL tied maxima simultaneously.
+            //    (c) Relax edgePlanes ONLY for true outer shifted-face / bevel-cap apices (strictly in the positive
             //        dual cone n_i . p > 0 for all face normals, with >= 3 active planes), never for sideways pancakes.
+            bool appliedBevelCap = false;
             if (hasBackStop) {
                 var preUsed = poly.CollectUsedVertexIndices();
                 bool exceedsAlongAxis = false;
@@ -1582,33 +1618,44 @@ namespace gs
                     if (!poly.Clip(nAvg, miterLimit, clipEps))
                         return false;
                     add_unique_plane_norm(planes, nAvg, miterLimit);
+                    appliedBevelCap = true;
                     preUsed = poly.CollectUsedVertexIndices();
-                }
-
-                // Also pre-clamp any oblique true outer apex whose Euclidean length exceeds MiterLimit
-                // (e.g. asymmetric hip roof with nAvg . p <= MiterLimit < |p|).
-                double farApexLenSq = 0;
-                Vector3d farApex = Vector3d.Zero;
-                for (int i = 0; i < preUsed.Count; ++i) {
-                    Vector3d p = poly.Verts[preUsed[i]];
-                    if (Math.Abs(p.x) >= boundLimit || Math.Abs(p.y) >= boundLimit || Math.Abs(p.z) >= boundLimit)
-                        continue;
-                    if (!is_true_outer_apex(normals, planes, p))
-                        continue;
-                    double l2 = p.LengthSquared;
-                    if (l2 > farApexLenSq) {
-                        farApexLenSq = l2;
-                        farApex = p;
+                } else {
+                    // Clip all tied oblique true outer apices exceeding MiterLimit simultaneously (order-independent).
+                    double farApexLenSq = 0;
+                    for (int i = 0; i < preUsed.Count; ++i) {
+                        Vector3d p = poly.Verts[preUsed[i]];
+                        if (Math.Abs(p.x) >= boundLimit || Math.Abs(p.y) >= boundLimit || Math.Abs(p.z) >= boundLimit)
+                            continue;
+                        if (!is_true_outer_apex(normals, planes, p))
+                            continue;
+                        double l2 = p.LengthSquared;
+                        if (l2 > farApexLenSq)
+                            farApexLenSq = l2;
+                    }
+                    double farApexLen = Math.Sqrt(farApexLenSq);
+                    if (farApexLen > miterLimit * (1.0 + 1e-5)) {
+                        double tieFloor = farApexLen * (1.0 - 1e-6);
+                        var clipDirs = new List<Vector3d>(4);
+                        for (int i = 0; i < preUsed.Count; ++i) {
+                            Vector3d p = poly.Verts[preUsed[i]];
+                            if (Math.Abs(p.x) >= boundLimit || Math.Abs(p.y) >= boundLimit || Math.Abs(p.z) >= boundLimit)
+                                continue;
+                            if (!is_true_outer_apex(normals, planes, p))
+                                continue;
+                            double plen = p.Length;
+                            if (plen >= tieFloor)
+                                add_unique_dir(clipDirs, p / plen);
+                        }
+                        for (int i = 0; i < clipDirs.Count; ++i) {
+                            if (!poly.Clip(clipDirs[i], miterLimit, clipEps))
+                                return false;
+                            add_unique_plane_norm(planes, clipDirs[i], miterLimit);
+                        }
+                        appliedBevelCap = clipDirs.Count > 0;
+                        preUsed = poly.CollectUsedVertexIndices();
                     }
                 }
-                double farApexLen = Math.Sqrt(farApexLenSq);
-                if (farApexLen > miterLimit * (1.0 + 1e-5)) {
-                    Vector3d uFar = farApex / farApexLen;
-                    if (!poly.Clip(uFar, miterLimit, clipEps))
-                        return false;
-                    add_unique_plane_norm(planes, uFar, miterLimit);
-                    preUsed = poly.CollectUsedVertexIndices();
-                }
 
                 for (int i = 0; i < preUsed.Count; ++i) {
                     Vector3d p = poly.Verts[preUsed[i]];
@@ -1616,10 +1663,8 @@ namespace gs
                         continue;
                     if (!is_true_outer_apex(normals, planes, p))
                         continue;
-                    double pLen = p.Length;
-                    Vector3d pEff = pLen > miterLimit ? p * (miterLimit / pLen) : p;
                     for (int e = 0; e < edgePlanes.Count; ++e) {
-                        double proj = edgePlanes[e].dir.Dot(pEff);
+                        double proj = edgePlanes[e].dir.Dot(p);
                         if (proj > edgePlanes[e].rhs) {
                             double relaxed = Math.Min(edgePlanes[e].maxLenNorm, proj + 0.05);
                             if (relaxed > edgePlanes[e].rhs)
@@ -1637,7 +1682,6 @@ namespace gs
 
             // 5. Reject unbounded saddle corners (any surviving vertex reaching the artificial box boundary).
             double maxLenSq = 0;
-            Vector3d farthest = Vector3d.Zero;
             var used = poly.CollectUsedVertexIndices();
             if (used.Count < 4)
                 return false;
@@ -1646,20 +1690,40 @@ namespace gs
                 if (Math.Abs(p.x) >= boundLimit || Math.Abs(p.y) >= boundLimit || Math.Abs(p.z) >= boundLimit)
                     return false;
                 double l2 = p.LengthSquared;
-                if (l2 > maxLenSq) {
+                if (l2 > maxLenSq)
                     maxLenSq = l2;
-                    farthest = p;
+            }
+
+            // 6. Final symmetric bevel clamp for corners that did not already receive a bevel cap in Step 3:
+            //    clip all tied farthest directions simultaneously so symmetry and permutation invariance hold.
+            if (!appliedBevelCap) {
+                double maxLen = Math.Sqrt(maxLenSq);
+                if (maxLen > miterLimit * (1.0 + 1e-5)) {
+                    double tieFloor = maxLen * (1.0 - 1e-6);
+                    var clipDirs = new List<Vector3d>(4);
+                    for (int i = 0; i < used.Count; ++i) {
+                        Vector3d p = poly.Verts[used[i]];
+                        double plen = p.Length;
+                        if (plen >= tieFloor)
+                            add_unique_dir(clipDirs, p / plen);
+                    }
+                    for (int i = 0; i < clipDirs.Count; ++i) {
+                        if (!poly.Clip(clipDirs[i], miterLimit, clipEps))
+                            return false;
+                    }
                 }
             }
 
-            // 6. Final corner bevel clamp if the bounded corner peak still exceeds MiterLimit.
-            double maxLen = Math.Sqrt(maxLenSq);
-            if (maxLen > miterLimit * (1.0 + 1e-5)) {
-                if (!poly.Clip(farthest / maxLen, miterLimit, clipEps))
-                    return false;
-            }
-
             return poly.EmitScaled(dst, vPos, d);
+        }
+
+        static void add_unique_dir(List<Vector3d> dirs, Vector3d u)
+        {
+            for (int i = 0; i < dirs.Count; ++i) {
+                if (dirs[i].Dot(u) > CoplanarDotThreshold)
+                    return;
+            }
+            dirs.Add(u);
         }
 
         static bool rim_cuts_umbrella(Vector3d rimOut, int v, Vector3d vPos, List<int> umbrella,
@@ -1670,9 +1734,7 @@ namespace gs
                 for (int k = 0; k < 3; ++k) {
                     int w = k == 0 ? f.a : (k == 1 ? f.b : f.c);
                     if (w == v) continue;
-                    Vector3d diff = workVerts[w] - vPos;
-                    double len = diff.Length;
-                    if (len > 0 && rimOut.Dot(diff) > 1e-6 * len)
+                    if (safe_normalize(workVerts[w] - vPos, out Vector3d diffUnit, out _) && rimOut.Dot(diffUnit) > 1e-6)
                         return true;
                 }
             }
@@ -1713,10 +1775,8 @@ namespace gs
         static void add_unique_edge_plane(List<(Vector3d dir, double rhs, double maxLenNorm)> edgePlanes,
             Vector3d vPos, Vector3d otherPos, double d, double maxOverlap)
         {
-            Vector3d e = otherPos - vPos;
-            double len = e.Length;
-            if (!(len > 0)) return;
-            Vector3d dir = e / len;
+            if (!safe_normalize(otherPos - vPos, out Vector3d dir, out double len))
+                return;
             double lenNorm = len / d;
             double overlap = maxOverlap > 0 ? Math.Min(maxOverlap, 0.25 * lenNorm) : 0.0;
             for (int i = 0; i < edgePlanes.Count; ++i) {
