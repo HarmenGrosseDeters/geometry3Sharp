@@ -109,11 +109,32 @@ by `MaxTriangleGrowth`.
 
 `benchmarks/RemeshQualityBenchmark`, `post=0.005 runs=3 fidelity=0` on the 20 Thingi10K meshes of `benchmarks/RemeshBenchmark`
 (`fetch_data.py`, nothing committed): g3cli remesh settings with `MinTriangleQuality = 0.2`, then the pass with a band of 0.5 % of the input's
-diagonal. 4 cores, net10.0, Release; the command and the raw output are in the benchmark README. The metric is the min angle at the 1 % rank
+diagonal. 4 cores, net10.0, Release; the raw output is `benchmarks/RemeshQualityBenchmark/perf/post_pass_2026-11-28.txt`. The metric is the min angle at the 1 % rank
 (`TriangleQualityStatistics`), mean / median over the 20. The sector bound (last but one column) is the angle at the 1 % rank of the sectors between two
 crease edges at one vertex of the result, the most any triangulation that keeps those creases can reach there.
 
-MEASUREMENTS
+| variant (Thingi10K, 20) | p01 mean before / after | p01 median before / after | min angle lower | new self-int. pairs | result in band | sector bound < 20: cases; p01 mean of the others before / after | remesh s / pass s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| default (corners pinned), band 0.5 % | 9.67 / 11.76 | 5.66 / 6.87 | 0 | 0 | 3 | 5; 11.99 / 14.60 | 8.6 / 9.1 (1.06x) |
+| band 0.2 % | 9.67 / 11.34 | 5.66 / 6.09 | 0 | 0 | 0 | 4; 11.35 / 13.31 | 9.1 / 10.0 |
+| band 2 % | 9.67 / 12.42 | 5.66 / 7.34 | 0 | 0 | 15 | 8; 14.44 / 18.52 | 9.0 / 7.0 |
+| `TwoSided` | 9.67 / 11.76 | 5.66 / 6.87 | 0 | 0 | 1 | 5; 11.99 / 14.60 | 9.0 / 19.4 (2.2x) |
+| corners free (internal `PinCreaseCorners = false`) | 9.67 / 13.21 | 5.66 / 7.44 | 0 | 0 | 3 | 5; 11.99 / 16.38 | 8.9 / 13.9 |
+| corners free + strips merged (internal `MergeCreases`) | 9.67 / 13.61 | 5.66 / 7.57 | 0 | 0 | 3 | 6; 12.71 / 17.82 | 9.0 / 15.1 |
+| creases only above 60 degrees (`CreaseAngleDegrees = 60`, pass only) | 9.67 / 15.37 | 5.66 / 7.39 | 0 | 0 | 3 | 2; 10.46 / 16.76 | 8.8 / 10.0 |
+| no creases (`CreaseAngleDegrees = 180`, pass only) | 9.67 / 17.13 | 5.66 / 11.70 | 0 | 0 | 4 | 0; 9.67 / 17.13 | 9.0 / 17.8 |
+
+Procedural groups, default, band 0.5 % (`post=0.005 runs=3 fidelity=0` without `thingi=`):
+
+| group | cases | p01 mean before / after | p01 median before / after | min angle lower | new self-int. pairs | remesh s / pass s |
+|---|---:|---:|---:|---:|---:|---:|
+| primitives | 150 | 27.76 / 31.14 | 29.27 / 32.36 | 0 | 0 | 4.5 / 1.2 |
+| gears | 18 | 4.50 / 11.76 | 2.64 / 9.80 | 0 | 0 | 0.3 / 2.0 (6.7x; 0.03 - 0.4 s per case) |
+| tubes | 24 | 4.37 / 4.43 | 3.45 / 3.45 | 0 | 0 | 0.2 / 0.1 |
+
+On the gears (200 - 1000 triangles) the pass costs 6-7 times the remesh: half of it is `IsWithin` of the new triangles and a quarter the
+start certificates (a profile with stopwatches, not committed; large flat faces triangulated as fans make the cascade subdivide). Halving `IsWithin`
+would still leave it above 3x on that group; on the Thingi10K set it is 1.06x.
 
 Reading:
 1. **Crease-angle limit.** 5 of the 20 have crease sectors below 20 degrees at the 1 % rank (104582, 196126, 39460, 93370, 63709; sectors 0 to 11
@@ -123,7 +144,7 @@ Reading:
    strip between two creases (299291: 129 of 171). Fixing them needs merging or dropping crease fragments, a fidelity decision
    ([REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md)), or graded refinement of both creases (triangle count about strip length over width).
 3. **The band.** 8 of the 20 remesh outputs are 1 to 25 % of the diagonal off the input, and 14 already self-intersect, so a band of 0.5 % refuses most
-   operations there. Without any creases the pass reaches 17.6 at this band (scratch probe), and 23.5 without creases and band (the plan's upper bound).
+   operations there. Without any creases the pass reaches 17.1 at this band (table), and 23.5 without creases and band (the plan's upper bound, a scratch probe).
 
 Prior art: Shewchuk 2002 (small input angles are kept). Hu et al. 2017 and Wang et al. 2019 report 30+ degrees on clean CAD and scan models with few,
 long features. For fragmented, noisy crease networks nothing was found besides cleaning the feature graph first (terms searched: feature curve cleanup,
