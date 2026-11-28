@@ -13,28 +13,29 @@ namespace g3
     /// <c>wedgeTolerance</c> is collapsed into the host:
     /// <list type="bullet">
     /// <item><b>Free wedge vertex (Case I):</b> if the far endpoint has no other incident edge leaving the host
-    /// at &gt;= 10 degrees or beyond <c>wedgeTolerance</c> (and is not pinned as a host or locked endpoint), it is
-    /// projected onto the host, collapsing slowly drifting polylines cleanly along the host.</item>
+    /// at &gt;= 10 degrees or beyond <c>wedgeTolerance</c> (and is not pinned as a host, anchor, or locked endpoint),
+    /// it is projected onto the host, collapsing slowly drifting polylines cleanly along the host.</item>
     /// <item><b>Corner / branch vertex (Case II):</b> if another incident edge leaves the host (e.g. a wall turning
     /// upward at 90 degrees or a polyline exiting the tolerance band), the far endpoint stays at its original
     /// coordinate and the wedge edge is rerouted along the host to its orthogonal foot plus a perpendicular
     /// connector to the far endpoint.</item>
     /// </list>
-    /// Host edges never move, and no vertex or rerouted edge moves more than <c>wedgeTolerance</c> from its original
-    /// input position. Uses a static BVH over host edges and a deterministic vertex-bounded worklist, running in
-    /// <c>O(E log E)</c> worst-case time and preserving exact <c>2^k</c> scale invariance.
+    /// Host edges never move, coinciding input vertices move together as one canonical point, and no vertex or
+    /// rerouted edge moves more than <c>wedgeTolerance</c> from its original input position. Uses a static
+    /// centroid-split BVH built in strict <c>O(E log E)</c> worst-case time via dual pre-sorted axes and a
+    /// deterministic vertex-bounded worklist, preserving exact <c>2^k</c> scale invariance.
     /// </para>
     /// </summary>
     internal static class WedgeCollapse2
     {
         // sin^2(10 degrees) = 0.0301536896070458... (dimensionless -> 2^k scale-invariant)
         const double MaxWedgeSin2 = 0.0301536896070458;
-        // Relative collinearity tolerance for deciding whether an endpoint already lies on a host segment (2^-40)
+        // Relative collinearity / endpoint tolerance (2^-40)
         const double OnHostRelEps = 1.0 / (1L << 40);
 
         struct EdgeRec
         {
-            public int A, B;
+            public int A, B;          // canonical vertex ids
             public int OwnerKind;     // 0 = segment, 1 = ring, 2 = region ring
             public int OwnerIdx;
             public int LocalEdgeIdx;  // edge index within its ring (0 for segment)
@@ -58,8 +59,20 @@ namespace g3
             out int mergedVertices,
             out int reroutedEdges)
         {
+            return Apply(input, wedgeTolerance, cancel, out mergedVertices, out reroutedEdges, out _);
+        }
+
+        internal static ConstrainedMesh2Input Apply(
+            ConstrainedMesh2Input input,
+            double wedgeTolerance,
+            CancellationToken cancel,
+            out int mergedVertices,
+            out int reroutedEdges,
+            out long bvhVisits)
+        {
             mergedVertices = 0;
             reroutedEdges = 0;
+            bvhVisits = 0;
             if (wedgeTolerance == 0) return input;
             if (double.IsNaN(wedgeTolerance) || !(wedgeTolerance > 0) || double.IsInfinity(wedgeTolerance))
                 throw new ArgumentException("WedgeTolerance must be zero or positive and finite (spec O13)");
@@ -67,13 +80,29 @@ namespace g3
             int origN = input.Points?.Count ?? 0;
             if (origN < 3) return input;
 
+            // Normalize coordinates (-0.0 -> +0.0) and canonicalize exact duplicate input points to their lowest index
+            // so coinciding vertices share incident edges, locks, pinning, and Case I moves (preserving InputToVertex).
             var origPts = new Vector2d[origN];
             var pts = new List<Vector2d>(origN + 16);
+            var canon = new int[origN];
+            var aliasHead = new int[origN];
+            var aliasNext = new int[origN];
+            var footByCoord = new Dictionary<Vector2d, int>(origN);
             for (int i = 0; i < origN; ++i) {
                 var p = input.Points[i];
                 var norm = new Vector2d(p.x == 0 ? 0.0 : p.x, p.y == 0 ? 0.0 : p.y);
                 origPts[i] = norm;
                 pts.Add(norm);
+                aliasHead[i] = -1;
+                aliasNext[i] = -1;
+                if (footByCoord.TryGetValue(norm, out int rep)) {
+                    canon[i] = rep;
+                    aliasNext[i] = aliasHead[rep];
+                    aliasHead[rep] = i;
+                } else {
+                    canon[i] = i;
+                    footByCoord.Add(norm, i);
+                }
             }
             List<double> heights = input.Heights != null ? new List<double>(input.Heights) : null;
 
@@ -86,9 +115,10 @@ namespace g3
                 for (int si = 0; si < input.Segments.Count; ++si) {
                     var s = input.Segments[si];
                     if (s == null) continue;
-                    if (s.A != s.B && pts[s.A] != pts[s.B]) {
+                    int ca = canon[s.A], cb = canon[s.B];
+                    if (ca != cb) {
                         edges.Add(new EdgeRec {
-                            A = s.A, B = s.B, OwnerKind = 0, OwnerIdx = si, LocalEdgeIdx = 0,
+                            A = ca, B = cb, OwnerKind = 0, OwnerIdx = si, LocalEdgeIdx = 0,
                             Marker = s.Marker, Locked = s.Locked, Alive = true, HostId = edges.Count
                         });
                     }
@@ -103,10 +133,10 @@ namespace g3
                     ringLists.Add(cycle);
                     if (cycle.Count < 3) continue;
                     for (int k = 0; k < cycle.Count; ++k) {
-                        int a = cycle[k], b = cycle[(k + 1) % cycle.Count];
-                        if (a != b && pts[a] != pts[b]) {
+                        int ca = canon[cycle[k]], cb = canon[cycle[(k + 1) % cycle.Count]];
+                        if (ca != cb) {
                             edges.Add(new EdgeRec {
-                                A = a, B = b, OwnerKind = 1, OwnerIdx = ri, LocalEdgeIdx = k,
+                                A = ca, B = cb, OwnerKind = 1, OwnerIdx = ri, LocalEdgeIdx = k,
                                 Marker = r.Marker, Locked = false, Alive = true, HostId = edges.Count
                             });
                         }
@@ -122,10 +152,10 @@ namespace g3
                     regRingLists.Add(cycle);
                     if (cycle.Count < 3) continue;
                     for (int k = 0; k < cycle.Count; ++k) {
-                        int a = cycle[k], b = cycle[(k + 1) % cycle.Count];
-                        if (a != b && pts[a] != pts[b]) {
+                        int ca = canon[cycle[k]], cb = canon[cycle[(k + 1) % cycle.Count]];
+                        if (ca != cb) {
                             edges.Add(new EdgeRec {
-                                A = a, B = b, OwnerKind = 2, OwnerIdx = gi, LocalEdgeIdx = k,
+                                A = ca, B = cb, OwnerKind = 2, OwnerIdx = gi, LocalEdgeIdx = k,
                                 Marker = 0, Locked = false, Alive = true, HostId = edges.Count
                             });
                         }
@@ -154,32 +184,51 @@ namespace g3
                 hostLen2Scaled[i] = ScaledLen2(hostA[i], hostB[i]);
             }
 
-            // Vertex -> incident edge ids, plus pinned/moved status
+            // Canonical vertex -> incident edge ids, plus pinned/moved status
             var incident = new List<int>[origN];
-            for (int i = 0; i < origN; ++i) incident[i] = new List<int>(4);
             var vertexPinned = new bool[origN];
             var vertexMoved = new bool[origN];
             var vertexHasLocked = new bool[origN];
             for (int ei = 0; ei < hostCount; ++ei) {
-                incident[edges[ei].A].Add(ei);
-                incident[edges[ei].B].Add(ei);
+                int va = edges[ei].A, vb = edges[ei].B;
+                if (incident[va] == null) incident[va] = new List<int>(4);
+                if (incident[vb] == null) incident[vb] = new List<int>(4);
+                incident[va].Add(ei);
+                incident[vb].Add(ei);
                 if (edges[ei].Locked) {
-                    vertexHasLocked[edges[ei].A] = true;
-                    vertexHasLocked[edges[ei].B] = true;
+                    vertexHasLocked[va] = true;
+                    vertexHasLocked[vb] = true;
                 }
             }
 
-            // Build deterministic static BVH over original host segments
-            var hostOrder = new int[hostCount];
-            for (int i = 0; i < hostCount; ++i) hostOrder[i] = i;
+            // Build deterministic static centroid-split BVH in strict O(E log E) time via dual pre-sorted axes.
+            var cx = new double[hostCount];
+            var cy = new double[hostCount];
+            var orderX = new int[hostCount];
+            var orderY = new int[hostCount];
+            for (int i = 0; i < hostCount; ++i) {
+                cx[i] = 0.5 * hostA[i].x + 0.5 * hostB[i].x;
+                cy[i] = 0.5 * hostA[i].y + 0.5 * hostB[i].y;
+                orderX[i] = i;
+                orderY[i] = i;
+            }
+            Array.Sort(orderX, (i, j) => {
+                int c = cx[i].CompareTo(cx[j]);
+                return c != 0 ? c : i.CompareTo(j);
+            });
+            Array.Sort(orderY, (i, j) => {
+                int c = cy[i].CompareTo(cy[j]);
+                return c != 0 ? c : i.CompareTo(j);
+            });
+            var bvhLeafIds = new int[hostCount];
+            var bvhSide = new bool[hostCount];
+            var bvhScratch = new int[hostCount];
             var bvh = new List<BvhNode>(2 * hostCount);
-            BuildBvh(bvh, hostOrder, 0, hostCount, hostA, hostB);
+            int leafCursor = 0;
+            BuildBvh(bvh, orderX, orderY, bvhLeafIds, bvhSide, bvhScratch, 0, hostCount, ref leafCursor, hostA, hostB, cx, cy);
 
             // Track Case II reroutes per (ownerKind, ownerIdx, localEdgeIdx)
             var reroutes = new Dictionary<(int kind, int idx, int localIdx), int>();
-            var footByCoord = new Dictionary<Vector2d, int>();
-            for (int i = 0; i < origN; ++i)
-                if (!footByCoord.ContainsKey(pts[i])) footByCoord.Add(pts[i], i);
 
             // Deterministic worklist: each edge visited at most 3 times (initial + at most once per endpoint moving)
             var queue = new Queue<int>(hostCount);
@@ -208,11 +257,12 @@ namespace g3
                 double qMinY = Math.Min(pa.y, pb.y) - wedgeTolerance;
                 double qMaxY = Math.Max(pa.y, pb.y) + wedgeTolerance;
                 candidates.Clear();
-                QueryBvh(bvh, hostOrder, bvhStack, qMinX, qMinY, qMaxX, qMaxY, candidates);
+                bvhVisits += QueryBvh(bvh, bvhLeafIds, bvhStack, qMinX, qMinY, qMaxX, qMaxY, candidates);
                 if (candidates.Count == 0) continue;
                 candidates.Sort();
 
                 var eLen2 = ScaledLen2(pa, pb);
+                int ePri = HostPriority(e.Locked, e.OwnerKind);
 
                 // Find best host for either orientation (p -> q) of edge e
                 int bestHost = -1;
@@ -227,13 +277,12 @@ namespace g3
                     if (hi == e.HostId) continue;
                     // Host cannot have had either of its own endpoints moved by an earlier merge
                     if (vertexMoved[hostVA[hi]] || vertexMoved[hostVB[hi]]) continue;
-                    // Host preference: prefer longer segment (or ring over free segment, or lower id on ties)
-                    int lenCmp = CompareScaledLen2(hostLen2Scaled[hi], eLen2);
-                    if (lenCmp < 0) continue;
-                    if (lenCmp == 0) {
-                        int hPri = hostKind[hi] > 0 ? 1 : 0;
-                        int ePri = e.OwnerKind > 0 ? 1 : 0;
-                        if (hPri < ePri || (hPri == ePri && hi > e.HostId)) continue;
+                    // Host preference: locked > ring/region > free segment; within equal priority, longer > lower HostId.
+                    int hPri = HostPriority(hostLocked[hi], hostKind[hi]);
+                    if (hPri < ePri) continue;
+                    if (hPri == ePri) {
+                        int lenCmp = CompareScaledLen2(hostLen2Scaled[hi], eLen2);
+                        if (lenCmp < 0 || (lenCmp == 0 && hi > e.HostId)) continue;
                     }
 
                     Vector2d h0 = hostA[hi], h1 = hostB[hi];
@@ -273,66 +322,87 @@ namespace g3
 
                 if (bestHost < 0) continue;
 
-                // Pin the host's endpoints so the host never gets dragged by any subsequent merge (O13 / F-19 #5)
-                vertexPinned[hostVA[bestHost]] = true;
-                vertexPinned[hostVB[bestHost]] = true;
-
                 Vector2d bh0 = hostA[bestHost], bh1 = hostB[bestHost];
 
                 // Decide Case I (move free wedge vertex q onto host foot) vs Case II (keep q, reroute e via foot)
                 bool canMoveQ = bestQ < origN
+                    && bestQ != hostVA[bestHost]
+                    && bestQ != hostVB[bestHost]
                     && !vertexPinned[bestQ]
                     && !vertexMoved[bestQ]
                     && !vertexHasLocked[bestQ];
 
                 if (canMoveQ) {
                     var inc = incident[bestQ];
-                    for (int k = 0; k < inc.Count; ++k) {
-                        int oe = inc[k];
-                        if (oe == ei) continue;
-                        var other = edges[oe];
-                        if (!other.Alive) continue;
-                        if (other.Locked) { canMoveQ = false; break; }
-                        int r = other.A == bestQ ? other.B : other.A;
-                        Vector2d pr = pts[r];
-                        // If another incident edge exits the wedge angle or tolerance band of this host, q is a corner/branch -> Case II
-                        if (!StaysInWedgeBand(pts[bestQ], pr, bh0, bh1, wedgeTolerance)) {
-                            canMoveQ = false;
-                            break;
+                    if (inc != null) {
+                        for (int k = 0; k < inc.Count; ++k) {
+                            int oe = inc[k];
+                            if (oe == ei) continue;
+                            var other = edges[oe];
+                            if (!other.Alive) continue;
+                            if (other.Locked) { canMoveQ = false; break; }
+                            int r = other.A == bestQ ? other.B : other.A;
+                            Vector2d pr = pts[r];
+                            // If another incident edge exits the wedge angle or tolerance band of this host, q is a corner/branch -> Case II
+                            if (!StaysInWedgeBand(pts[bestQ], pr, bh0, bh1, wedgeTolerance)) {
+                                canMoveQ = false;
+                                break;
+                            }
                         }
                     }
                 }
 
                 if (canMoveQ) {
-                    // Case I: project free wedge vertex q onto host foot
-                    pts[bestQ] = new Vector2d(bestFoot.x == 0 ? 0.0 : bestFoot.x, bestFoot.y == 0 ? 0.0 : bestFoot.y);
+                    // Case I: project free wedge vertex q (and all coinciding input aliases) onto host foot
+                    Vector2d oldCoord = pts[bestQ];
+                    Vector2d newCoord = new Vector2d(bestFoot.x == 0 ? 0.0 : bestFoot.x, bestFoot.y == 0 ? 0.0 : bestFoot.y);
+                    pts[bestQ] = newCoord;
+                    for (int al = aliasHead[bestQ]; al >= 0; al = aliasNext[al])
+                        pts[al] = newCoord;
+                    if (footByCoord.TryGetValue(oldCoord, out int oldOwner) && oldOwner == bestQ)
+                        footByCoord.Remove(oldCoord);
+                    if (!footByCoord.ContainsKey(newCoord))
+                        footByCoord.Add(newCoord, bestQ);
+
+                    vertexPinned[hostVA[bestHost]] = true;
+                    vertexPinned[hostVB[bestHost]] = true;
+                    if (bestP < origN) vertexPinned[bestP] = true;
                     vertexMoved[bestQ] = true;
                     ++mergedVertices;
 
                     // Re-queue other edges incident to bestQ so drifting polyline chains propagate cleanly
                     var inc = incident[bestQ];
-                    for (int k = 0; k < inc.Count; ++k) {
-                        int oe = inc[k];
-                        if (oe != ei && edges[oe].Alive && !edges[oe].Rerouted && !inQueue[oe]) {
-                            inQueue[oe] = true;
-                            queue.Enqueue(oe);
+                    if (inc != null) {
+                        for (int k = 0; k < inc.Count; ++k) {
+                            int oe = inc[k];
+                            if (oe != ei && edges[oe].Alive && !edges[oe].Rerouted && !inQueue[oe]) {
+                                inQueue[oe] = true;
+                                queue.Enqueue(oe);
+                            }
                         }
                     }
                 } else {
                     // Case II: keep q at its original coordinate; reroute e = (bestP, bestQ) as (bestP, foot) + (foot, bestQ)
                     Vector2d fNorm = new Vector2d(bestFoot.x == 0 ? 0.0 : bestFoot.x, bestFoot.y == 0 ? 0.0 : bestFoot.y);
                     int fIdx;
-                    if (!footByCoord.TryGetValue(fNorm, out fIdx)) {
+                    if (footByCoord.TryGetValue(fNorm, out fIdx) && pts[fIdx] == fNorm) {
+                        // Reuse existing vertex at exact foot coordinate
+                    } else {
                         fIdx = pts.Count;
                         pts.Add(fNorm);
-                        footByCoord.Add(fNorm, fIdx);
+                        footByCoord[fNorm] = fIdx;
                         if (heights != null) {
                             double z0 = heights[hostVA[bestHost]];
                             double z1 = heights[hostVB[bestHost]];
-                            heights.Add(z0 + bestFootT * (z1 - z0));
+                            // Convex combination is overflow-free for all finite z0, z1 and bestFootT in [0, 1]
+                            heights.Add(z0 == z1 ? z0 : (1.0 - bestFootT) * z0 + bestFootT * z1);
                         }
                     }
-                    if (fIdx == bestP || fIdx == bestQ) continue;
+                    int fCanon = fIdx < origN ? canon[fIdx] : fIdx;
+                    if (fCanon == bestP || fCanon == bestQ) continue;
+                    vertexPinned[hostVA[bestHost]] = true;
+                    vertexPinned[hostVB[bestHost]] = true;
+                    if (bestP < origN) vertexPinned[bestP] = true;
                     if (bestQ < origN) vertexPinned[bestQ] = true;
                     reroutes[(e.OwnerKind, e.OwnerIdx, e.LocalEdgeIdx)] = fIdx;
                     e.Rerouted = true;
@@ -396,6 +466,8 @@ namespace g3
             return result;
         }
 
+        static int HostPriority(bool locked, int ownerKind) => locked ? 2 : (ownerKind > 0 ? 1 : 0);
+
         static List<int> NormalizeRing(int[] vertices)
         {
             int count = vertices.Length;
@@ -416,36 +488,60 @@ namespace g3
             return expanded.ToArray();
         }
 
-        // ---- Static BVH over original host segments (O(E log E) build, O(log E + k) query) ----
+        // ---- Static centroid-split BVH over original host segments (strict O(E log E) build, O(log E + k) query) ----
 
-        static int BuildBvh(List<BvhNode> nodes, int[] order, int start, int count, Vector2d[] a, Vector2d[] b)
+        static int BuildBvh(
+            List<BvhNode> nodes, int[] orderX, int[] orderY, int[] leafIds, bool[] side, int[] scratch,
+            int start, int count, ref int leafCursor,
+            Vector2d[] a, Vector2d[] b, double[] cx, double[] cy)
         {
             double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
             double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+            double cMinX = double.PositiveInfinity, cMinY = double.PositiveInfinity;
+            double cMaxX = double.NegativeInfinity, cMaxY = double.NegativeInfinity;
             for (int i = start; i < start + count; ++i) {
-                int id = order[i];
+                int id = orderX[i];
                 double x0 = Math.Min(a[id].x, b[id].x), x1 = Math.Max(a[id].x, b[id].x);
                 double y0 = Math.Min(a[id].y, b[id].y), y1 = Math.Max(a[id].y, b[id].y);
                 if (x0 < minX) minX = x0;
                 if (x1 > maxX) maxX = x1;
                 if (y0 < minY) minY = y0;
                 if (y1 > maxY) maxY = y1;
+                double mx = cx[id], my = cy[id];
+                if (mx < cMinX) cMinX = mx;
+                if (mx > cMaxX) cMaxX = mx;
+                if (my < cMinY) cMinY = my;
+                if (my > cMaxY) cMaxY = my;
             }
             int nodeIdx = nodes.Count;
-            nodes.Add(new BvhNode { MinX = minX, MinY = minY, MaxX = maxX, MaxY = maxY, Left = ~start, Right = count });
-            if (count <= 8) return nodeIdx;
+            if (count <= 8) {
+                int leafStart = leafCursor;
+                for (int i = start; i < start + count; ++i)
+                    leafIds[leafCursor++] = orderX[i];
+                nodes.Add(new BvhNode { MinX = minX, MinY = minY, MaxX = maxX, MaxY = maxY, Left = ~leafStart, Right = count });
+                return nodeIdx;
+            }
+            nodes.Add(new BvhNode { MinX = minX, MinY = minY, MaxX = maxX, MaxY = maxY });
 
-            bool splitX = (maxX - minX) >= (maxY - minY);
-            Array.Sort(order, start, count, Comparer<int>.Create((i, j) => {
-                double ci = splitX ? (0.5 * a[i].x + 0.5 * b[i].x) : (0.5 * a[i].y + 0.5 * b[i].y);
-                double cj = splitX ? (0.5 * a[j].x + 0.5 * b[j].x) : (0.5 * a[j].y + 0.5 * b[j].y);
-                int cmp = ci.CompareTo(cj);
-                return cmp != 0 ? cmp : i.CompareTo(j);
-            }));
-
+            // Split along the axis with larger centroid spread (avoids O(E^2) on long parallel stripes).
+            bool splitX = (cMaxX - cMinX) >= (cMaxY - cMinY);
             int mid = count / 2;
-            int left = BuildBvh(nodes, order, start, mid, a, b);
-            int right = BuildBvh(nodes, order, start + mid, count - mid, a, b);
+            int[] primary = splitX ? orderX : orderY;
+            int[] secondary = splitX ? orderY : orderX;
+
+            for (int i = start; i < start + mid; ++i) side[primary[i]] = true;
+            for (int i = start + mid; i < start + count; ++i) side[primary[i]] = false;
+
+            int leftPos = start, rightPos = start + mid;
+            for (int i = start; i < start + count; ++i) {
+                int id = secondary[i];
+                if (side[id]) scratch[leftPos++] = id;
+                else scratch[rightPos++] = id;
+            }
+            Array.Copy(scratch, start, secondary, start, count);
+
+            int left = BuildBvh(nodes, orderX, orderY, leafIds, side, scratch, start, mid, ref leafCursor, a, b, cx, cy);
+            int right = BuildBvh(nodes, orderX, orderY, leafIds, side, scratch, start + mid, count - mid, ref leafCursor, a, b, cx, cy);
             var n = nodes[nodeIdx];
             n.Left = left;
             n.Right = right;
@@ -453,22 +549,25 @@ namespace g3
             return nodeIdx;
         }
 
-        static void QueryBvh(List<BvhNode> nodes, int[] order, Stack<int> stack, double minX, double minY, double maxX, double maxY, List<int> results)
+        static long QueryBvh(List<BvhNode> nodes, int[] leafIds, Stack<int> stack, double minX, double minY, double maxX, double maxY, List<int> results)
         {
-            if (nodes.Count == 0) return;
+            if (nodes.Count == 0) return 0;
+            long visits = 0;
             stack.Clear();
             stack.Push(0);
             while (stack.Count > 0) {
+                ++visits;
                 var n = nodes[stack.Pop()];
                 if (n.MaxX < minX || n.MinX > maxX || n.MaxY < minY || n.MinY > maxY) continue;
                 if (n.Left < 0) {
                     int start = ~n.Left, count = n.Right;
-                    for (int i = start; i < start + count; ++i) results.Add(order[i]);
+                    for (int i = start; i < start + count; ++i) results.Add(leafIds[i]);
                 } else {
                     stack.Push(n.Right);
                     stack.Push(n.Left);
                 }
             }
+            return visits;
         }
 
         // ---- Scale-invariant geometry helpers (overflow/underflow-free, bit-identical under 2^k scaling) ----
@@ -564,7 +663,9 @@ namespace g3
             double h2 = shx * shx + shy * shy;
             if (!(h2 > 0)) return false;
             double t = (sqx * shx + sqy * shy) / h2;
-            if (t < 0.0 || t > 1.0) return false;
+            if (t < -OnHostRelEps || t > 1.0 + OnHostRelEps) return false;
+            if (t < 0.0) t = 0.0;
+            else if (t > 1.0) t = 1.0;
             // Offset form from h0 preserves precision at UTM / 2^20 coordinates and exact 2^k scaling
             Vector2d f = t == 0.0 ? h0 : (t == 1.0 ? h1 : new Vector2d(h0.x + t * hx, h0.y + t * hy));
             double dx = q.x - f.x, dy = q.y - f.y;
@@ -618,7 +719,9 @@ namespace g3
             double h2 = shx * shx + shy * shy;
             if (!(h2 > 0)) return false;
             double t = (sqx * shx + sqy * shy) / h2;
-            if (t < 0.0 || t > 1.0) return false;
+            if (t < -OnHostRelEps || t > 1.0 + OnHostRelEps) return false;
+            if (t < 0.0) t = 0.0;
+            else if (t > 1.0) t = 1.0;
             Vector2d f = t == 0.0 ? h0 : (t == 1.0 ? h1 : new Vector2d(h0.x + t * vx, h0.y + t * vy));
             return WithinTolerance(r, f, tol);
         }

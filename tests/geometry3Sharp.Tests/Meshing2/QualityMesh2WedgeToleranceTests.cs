@@ -285,31 +285,250 @@ namespace geometry3Sharp.Tests
             Assert.True(r4.Mesh.Triangles.Count >= 3 * r1.Mesh.Triangles.Count);
         }
 
+        static ConstrainedMesh2 AssertOracleCleanM2(Mesh2Input benchInput, ConstrainedDelaunayMesh2 mesher)
+        {
+            var g3Input = ConstrainedDelaunayMesh2Candidate.Convert(benchInput);
+            var res = mesher.Compute(g3Input);
+            Assert.True(res.Status == Triangulation2Status.Success, string.Join("; ", res.Diagnostics));
+            Assert.NotNull(res.Mesh);
+            var outObj = ConstrainedDelaunayMesh2Candidate.Output(res);
+            var report = Oracle.Check(benchInput, outObj, new OracleExpect { Milestone = Milestone.M2 });
+            Assert.True(report.Ok, "M2 Oracle violations:\n" + string.Join("\n", report.Violations.Select(v => v.ToString())));
+            return res.Mesh;
+        }
+
         [Fact]
         public void HostSegmentEndpointsStayPinned_WhenAlsoShallowToLongerSegment()
         {
             // Edge 0 (len 4): (1, 0)-(5, -0.01) merges onto Edge 1 (len 8): (0, 0)-(8, 0), pinning (0, 0) and (8, 0).
             // Edge 2 (len 20): (0, 0)-(20, 0.04) is shallower than 10 deg and within WedgeTolerance (0.03) of (8, 0).
             // Because Edge 1 already acted as a host, its endpoint (8, 0) must remain pinned at y = 0.
+            var benchInput = new B()
+                .Rect(-1, -1, 21, 6)
+                .Point(1, 0).Point(5, -0.01)
+                .Point(0, 0).Point(8, 0)
+                .Point(20, 0.04)
+                .Wedge(0.03)
+                .Build();
+            benchInput.Segments.Add(new SegmentInput(4, 5)); // short wedge onto edge (6, 7)
+            benchInput.Segments.Add(new SegmentInput(6, 7)); // host for edge (4, 5)
+            benchInput.Segments.Add(new SegmentInput(6, 8)); // longer segment shallow to edge (6, 7)
+
+            var mesh = AssertOracleCleanM2(benchInput, new ConstrainedDelaunayMesh2 { WedgeTolerance = 0.03 });
+            int v7 = mesh.InputToVertex[7];
+            Assert.Equal(8.0, mesh.Vertices[v7].x);
+            Assert.Equal(0.0, mesh.Vertices[v7].y);
+        }
+
+        [Fact]
+        public void CaseI_ThenCaseII_TwoHosts_DoesNotReuseStaleFootByCoord()
+        {
+            // Finding 1 regression: Case I moves q=(10, 0.025) to (10, 0.0) on H1;
+            // later Case II on H2 needs foot (10, 0.025) and must NOT reuse stale footByCoord[(10, 0.025)] -> q.
+            var benchInput = new B()
+                .Rect(-1, -1, 21, 6)
+                .Seg(0, 0, 20, 0)            // H1
+                .Seg(0, 0.025, 20, 0.025)    // H2
+                .Seg(2, 0, 10, 0.025)        // E1: free wedge on H1 (Case I moves (10, 0.025) -> (10, 0))
+                .Polyline(2, 0.025, 10, 0.05, 10, 5) // E2: corner wedge on H2 (Case II foot (10, 0.025))
+                .Wedge(0.03)
+                .Build();
+
+            var mesh = AssertOracleCleanM2(benchInput, new ConstrainedDelaunayMesh2 { WedgeTolerance = 0.03 });
+            // A fresh foot vertex at (10, 0.025) must exist on H2
+            Assert.Contains(mesh.Vertices, p => Math.Abs(p.x - 10.0) < 1e-12 && Math.Abs(p.y - 0.025) < 1e-12);
+        }
+
+        [Fact]
+        public void DuplicateInputCoordinates_AtWedgeCornerAndLockedEndpoint_StayUnified()
+        {
+            // Finding 2 regression (a): duplicate input points at corner (15, 0.025) must stay unified (Case II, not torn apart)
+            var inp = new Mesh2Input {
+                X = new[] { -1.0, 21.0, 21.0, -1.0, 0.0, 20.0, 5.0, 15.0, 15.0, 15.0 },
+                Y = new[] { -1.0, -1.0, 6.0, 6.0, 0.0, 0.0, 0.0, 0.025, 0.025, 5.0 },
+                WedgeTolerance = 0.03
+            };
+            inp.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+            inp.Segments.Add(new SegmentInput(4, 5));
+            inp.Segments.Add(new SegmentInput(6, 7));
+            inp.Segments.Add(new SegmentInput(8, 9));
+
+            var mesh = AssertOracleCleanM2(inp, new ConstrainedDelaunayMesh2 { WedgeTolerance = 0.03 });
+            Assert.Equal(mesh.InputToVertex[7], mesh.InputToVertex[8]);
+            Assert.Equal(0.025, mesh.Vertices[mesh.InputToVertex[7]].y);
+
+            // Finding 2 regression (b): duplicate coordinate shared with a locked segment endpoint must not move under Case I
+            var inp2 = new Mesh2Input {
+                X = new[] { -1.0, 21.0, 21.0, -1.0, 0.0, 20.0, 5.0, 15.0, 15.0, 18.0 },
+                Y = new[] { -1.0, -1.0, 6.0, 6.0, 0.0, 0.0, 0.0, 0.025, 0.025, 0.03 },
+                WedgeTolerance = 0.03
+            };
+            inp2.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+            inp2.Segments.Add(new SegmentInput(4, 5));
+            inp2.Segments.Add(new SegmentInput(6, 7));
+            inp2.Segments.Add(new SegmentInput(8, 9, 0, locked: true));
+
+            var mesh2 = AssertOracleCleanM2(inp2, new ConstrainedDelaunayMesh2 { WedgeTolerance = 0.03 });
+            Assert.Equal(mesh2.InputToVertex[7], mesh2.InputToVertex[8]);
+            Assert.Equal(0.025, mesh2.Vertices[mesh2.InputToVertex[7]].y);
+        }
+
+        [Fact]
+        public void HostPriority_LockedAndRingHostsWinOverSlightlyLongerWedgeHypotenuse()
+        {
+            // Finding 3a: locked host H=(0,0)-(10,0) (len 10) vs tilted wedge E=(0,0)-(10, 0.025) (len sqrt(100.000625) > 10)
+            var b1 = new B()
+                .Rect(-1, -1, 12, 6)
+                .Point(0, 0).Point(10, 0).Point(10, 0.025)
+                .Wedge(0.03);
+            var inp1 = b1.Build();
+            inp1.Segments.Add(new SegmentInput(4, 5, 0, locked: true));
+            inp1.Segments.Add(new SegmentInput(4, 6));
+
+            var m1 = AssertOracleCleanM2(inp1, new ConstrainedDelaunayMesh2 { WedgeTolerance = 0.03 });
+            // Wedge far endpoint 6 must collapse onto locked host endpoint (10, 0)
+            Assert.Equal(m1.InputToVertex[5], m1.InputToVertex[6]);
+            Assert.Equal(0.0, m1.Vertices[m1.InputToVertex[6]].y);
+
+            // Finding 3b: outer ring edge (0,0)-(10,0) (len 10) vs free interior segment (0,0)-(10, 0.025) (len > 10)
+            var b2 = new B()
+                .Square(10)
+                .Point(10, 0.025)
+                .Wedge(0.03);
+            var inp2 = b2.Build();
+            inp2.Segments.Add(new SegmentInput(0, 4));
+
+            var m2 = AssertOracleCleanM2(inp2, new ConstrainedDelaunayMesh2 { WedgeTolerance = 0.03 });
+            // Outer ring corner 1=(10,0) must not move; free segment endpoint 4 collapses onto (10,0)
+            Assert.Equal(10.0, m2.Vertices[m2.InputToVertex[1]].x);
+            Assert.Equal(0.0, m2.Vertices[m2.InputToVertex[1]].y);
+            Assert.Equal(m2.InputToVertex[1], m2.InputToVertex[4]);
+        }
+
+        [Fact]
+        public void AnchorBestP_IsPinnedAfterCaseII_SoSecondHostCannotRipReroutedEdge()
+        {
+            // Finding 4 regression: E1=(5,0)-(15,0.02) + wall reroutes onto H1=(0,0)-(20,0) via foot (15,0).
+            // E2=(0,0.01)-(5,0) against H2=(0,0.01)-(20,0.01) must NOT move anchor (5,0) onto H2.
+            var b = new B()
+                .Rect(-1, -1, 21, 6)
+                .Point(0, 0).Point(20, 0)         // 4, 5: H1
+                .Point(0, 0.01).Point(20, 0.01)   // 6, 7: H2
+                .Point(5, 0).Point(15, 0.02).Point(15, 5) // 8, 9, 10: E1 + wall
+                .Wedge(0.03);
+            var inp = b.Build();
+            inp.Segments.Add(new SegmentInput(4, 5));
+            inp.Segments.Add(new SegmentInput(6, 7));
+            inp.Segments.Add(new SegmentInput(8, 9));
+            inp.Segments.Add(new SegmentInput(9, 10));
+            inp.Segments.Add(new SegmentInput(6, 8)); // E2
+
+            var mesh = AssertOracleCleanM2(inp, new ConstrainedDelaunayMesh2 { WedgeTolerance = 0.03 });
+            Assert.Equal(5.0, mesh.Vertices[mesh.InputToVertex[8]].x);
+            Assert.Equal(0.0, mesh.Vertices[mesh.InputToVertex[8]].y);
+        }
+
+        [Fact]
+        public void LargeFiniteHeights_CaseIIFootInterpolationDoesNotOverflow()
+        {
+            // Finding 5 regression: z0 = -1e308, z1 = 1e308 must not overflow (z1 - z0) to Infinity
             var input = new ConstrainedMesh2Input {
                 Points = new List<Vector2d> {
                     new Vector2d(-1, -1), new Vector2d(21, -1), new Vector2d(21, 6), new Vector2d(-1, 6),
-                    new Vector2d(1, 0), new Vector2d(5, -0.01),
-                    new Vector2d(0, 0), new Vector2d(8, 0),
-                    new Vector2d(20, 0.04)
+                    new Vector2d(0, 0), new Vector2d(20, 0),
+                    new Vector2d(5, 0), new Vector2d(15, 0.025), new Vector2d(15, 5)
                 },
+                Heights = new List<double> { 0, 0, 0, 0, -1e308, 1e308, -0.5e308, 0.5e308, 0 },
                 Rings = new List<Mesh2Ring> { new Mesh2Ring(new[] { 0, 1, 2, 3 }, false) },
                 Segments = new List<Mesh2Segment> {
-                    new Mesh2Segment(4, 5), // short wedge onto edge (6, 7)
-                    new Mesh2Segment(6, 7), // host for edge (4, 5)
-                    new Mesh2Segment(6, 8)  // longer segment shallow to edge (6, 7)
+                    new Mesh2Segment(4, 5),
+                    new Mesh2Segment(6, 7),
+                    new Mesh2Segment(7, 8)
                 }
             };
             var res = new ConstrainedDelaunayMesh2 { WedgeTolerance = 0.03 }.Compute(input);
             Assert.Equal(Triangulation2Status.Success, res.Status);
-            int v7 = res.Mesh.InputToVertex[7];
-            Assert.Equal(8.0, res.Mesh.Vertices[v7].x);
-            Assert.Equal(0.0, res.Mesh.Vertices[v7].y);
+            Assert.NotNull(res.Mesh.Heights);
+            foreach (double z in res.Mesh.Heights)
+                Assert.False(double.IsNaN(z) || double.IsInfinity(z));
+            // Foot at (15, 0) has t = 0.75 -> 0.25 * (-1e308) + 0.75 * (1e308) = 0.5e308
+            int footIdx = -1;
+            for (int i = 0; i < res.Mesh.Vertices.Count; ++i)
+                if (res.Mesh.Vertices[i].x == 15.0 && res.Mesh.Vertices[i].y == 0.0) footIdx = i;
+            Assert.True(footIdx >= 0);
+            Assert.Equal(0.5e308, res.Mesh.Heights[footIdx], 1e295);
+        }
+
+        [Fact]
+        public void ShuffledLongParallelStripes_CentroidSplitBvhScalesSubQuadratically()
+        {
+            // Finding 6 regression: shuffled long horizontal stripes (L = 10000 >> y_span) must NOT trigger O(E^2)
+            ConstrainedMesh2Input MakeShuffledStripes(int count)
+            {
+                var pts = new List<Vector2d>(4 + count * 5) {
+                    new Vector2d(-10, -10), new Vector2d(10010, -10), new Vector2d(10010, count * 0.5 + 10), new Vector2d(-10, count * 0.5 + 10)
+                };
+                var segs = new List<Mesh2Segment>(count * 3);
+                // Deterministic pseudo-random shuffle using coprime stride (197 is prime, coprime to 128 and 512)
+                for (int idx = 0; idx < count; ++idx) {
+                    int i = (idx * 197 + 31) % count;
+                    double y = 0.5 * i;
+                    int b = pts.Count;
+                    pts.Add(new Vector2d(0, y));
+                    pts.Add(new Vector2d(10000, y));
+                    pts.Add(new Vector2d(100, y));
+                    pts.Add(new Vector2d(200, y + 0.02));
+                    pts.Add(new Vector2d(200, y + 0.25));
+                    segs.Add(new Mesh2Segment(b, b + 1));
+                    segs.Add(new Mesh2Segment(b + 2, b + 3));
+                    segs.Add(new Mesh2Segment(b + 3, b + 4));
+                }
+                return new ConstrainedMesh2Input {
+                    Points = pts,
+                    Rings = new List<Mesh2Ring> { new Mesh2Ring(new[] { 0, 1, 2, 3 }, false) },
+                    Segments = segs
+                };
+            }
+
+            WedgeCollapse2.Apply(MakeShuffledStripes(128), 0.03, CancellationToken.None, out _, out int r1, out long visits1);
+            WedgeCollapse2.Apply(MakeShuffledStripes(512), 0.03, CancellationToken.None, out _, out int r4, out long visits4);
+            Assert.Equal(128, r1);
+            Assert.Equal(512, r4);
+            double ratio = (double)visits4 / visits1;
+            // O(E log E) on 4x input scales by ~4.5-6x; O(E^2) AABB-split blows up to ~16x
+            Assert.True(ratio < 8.0, $"BVH visits scaled by {ratio:F2}x ({visits1} -> {visits4}), expected sub-quadratic < 8x");
+        }
+
+        [Fact]
+        public void ExtremePow2Scales_WedgeCollapseIsExactWithoutUnderflowOrOverflow()
+        {
+            var basePoints = new[] {
+                new Vector2d(-1, -1), new Vector2d(21, -1), new Vector2d(21, 6), new Vector2d(-1, 6),
+                new Vector2d(0, 0), new Vector2d(20, 0),
+                new Vector2d(5, 0), new Vector2d(15, 1.0 / 32), new Vector2d(15, 5)
+            };
+            ConstrainedMesh2Input ScaleInput(double scale) => new ConstrainedMesh2Input {
+                Points = basePoints.Select(p => new Vector2d(p.x * scale, p.y * scale)).ToList(),
+                Rings = new List<Mesh2Ring> { new Mesh2Ring(new[] { 0, 1, 2, 3 }, false) },
+                Segments = new List<Mesh2Segment> { new Mesh2Segment(4, 5), new Mesh2Segment(6, 7), new Mesh2Segment(7, 8) }
+            };
+
+            var baseRes = new QualityMesh2 { MinAngle = 30, SnapTolerance = 1.0 / 128, WedgeTolerance = 5.0 / 128 }.Compute(ScaleInput(1.0));
+            Assert.Equal(Triangulation2Status.Success, baseRes.Status);
+            Assert.Empty(baseRes.Mesh.BadTriangles);
+
+            foreach (int exp in new[] { -200, 200 }) {
+                double s = ExactPoint3.ScaleB(1.0, exp);
+                var scaled = new QualityMesh2 { MinAngle = 30, SnapTolerance = (1.0 / 128) * s, WedgeTolerance = (5.0 / 128) * s }.Compute(ScaleInput(s));
+                Assert.Equal(Triangulation2Status.Success, scaled.Status);
+                Assert.Empty(scaled.Mesh.BadTriangles);
+                Assert.Equal(baseRes.Mesh.Vertices.Count, scaled.Mesh.Vertices.Count);
+                Assert.Equal(baseRes.Mesh.Triangles.Count, scaled.Mesh.Triangles.Count);
+                for (int i = 0; i < baseRes.Mesh.Vertices.Count; ++i) {
+                    Assert.Equal(baseRes.Mesh.Vertices[i].x * s, scaled.Mesh.Vertices[i].x);
+                    Assert.Equal(baseRes.Mesh.Vertices[i].y * s, scaled.Mesh.Vertices[i].y);
+                }
+            }
         }
 
         [Fact]
