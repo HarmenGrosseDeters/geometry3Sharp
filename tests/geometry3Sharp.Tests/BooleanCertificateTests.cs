@@ -1055,7 +1055,9 @@ namespace geometry3Sharp.Tests
         public void InjectedMissedSplit_OnFineFaces_IsCaughtThroughTheBoxTree()
         {
             var (a, b) = FineFaceContact();
-            Certify(a, b, Ops.Union, out ExactMeshBoolean eb);
+            // (RegionClipping = false: this brute force asks per triangle whether the unsplit piece straddles a coplanar triangle, which is the rule of
+            // the old clips; with regions a flat edge between two triangles of one region is no boundary, the region-aware checker rightly accepts it)
+            Certify(a, b, Ops.Union, out ExactMeshBoolean eb, x => x.RegionClipping = false);
             BooleanCertificate probe = BooleanCertificate.From(eb);
             Assert.Equal("", probe.CheckPieces());
             Assert.Equal("", probe.CheckEmbedding());

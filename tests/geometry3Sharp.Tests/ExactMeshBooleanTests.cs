@@ -514,12 +514,22 @@ namespace geometry3Sharp.Tests
             };
             foreach (var c in cases) {
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
-                    var exact = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true };
+                    // (RegionClipping = false: the triangle counts are compared. The exact path culls the pieces outside the first mesh, which keeps the
+                    // regions of a culled triangle on the old clips, the generalized path does not cull and clips whole regions: the same surface, a different
+                    // triangulation, eg 12 against 21 triangles for the intersection of the coplanar boxes. The volumes are compared with the default below.)
+                    var exact = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, RegionClipping = false };
                     // (both paths for meshes without exact winding numbers: fast winding numbers, and the Antipodal Method,
                     // which a mesh with no boundary segments takes by default; the coplanar case has stacks)
-                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
-                    var ant = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true };
-                    Assert.True(exact.Compute() && gen.Compute() && ant.Compute());
+                    var gen = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0, RegionClipping = false };
+                    var ant = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true, RegionClipping = false };
+                    var genOn = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
+                    var antOn = new ExactMeshBoolean(c.Item1, c.Item2, op) { AllowOpenMeshes = true, ForceGeneralizedWinding = true };
+                    Assert.True(exact.Compute() && gen.Compute() && ant.Compute() && genOn.Compute() && antOn.Compute());
+                    // (the fast winding number counted a centroid on a flat edge of a region twice: the intersection of the coplanar boxes was open)
+                    foreach (var on in new[] { genOn, antOn })
+                        Assert.Equal(Volume(exact.Result), Volume(on.Result), 12);
+                    Assert.True(antOn.Result.IsClosed() == ant.Result.IsClosed());
+                    Assert.True(gen.Result.IsClosed() == genOn.Result.IsClosed(), $"case {cases.IndexOf(c)} {op}: closed off {gen.Result.IsClosed()} on {genOn.Result.IsClosed()} tris {gen.Result.TriangleCount}/{genOn.Result.TriangleCount} boundary {genOn.Result.BoundaryEdgeIndices().Count()}");
                     Assert.False(gen.ExactWindingA || gen.ExactWindingB);
                     Assert.Equal(0, gen.Counts["antipodal_meshes"]);
                     Assert.Equal(2, ant.Counts["antipodal_meshes"]);

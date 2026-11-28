@@ -379,6 +379,9 @@ namespace g3
             var keyOf = new Dictionary<int, string>();
             for (int i = 0; i < output.Count; ++i) {
                 List<int> st = stacks[i];
+                // (RegionClipping: a piece whose centroid is on a flat edge of a region lists two triangles of it, which are one sheet)
+                if (st != null && arr.RegionClipping)
+                    st = one_per_region(st);
                 if (st == null || st.Count < 2 || front[i] == null)
                     continue;
                 bool several = false;
@@ -437,6 +440,22 @@ namespace g3
             foreach (var kv in members)
                 result.Add(region(output, keep, flip, front, sheets, kv.Value, nm));
             return result;
+        }
+
+        // the first triangle of each region (RegionClipping) in a stack, in the order of the stack
+        List<int> one_per_region(List<int> stack)
+        {
+            List<int> kept = null;
+            for (int j = 0; j < stack.Count; ++j) {
+                bool listed = false;
+                for (int k = 0; k < j && listed == false; ++k)
+                    listed = arr.RegionKey(stack[k]) == arr.RegionKey(stack[j]);
+                if (listed && kept == null)
+                    kept = stack.GetRange(0, j);
+                else if (listed == false && kept != null)
+                    kept.Add(stack[j]);
+            }
+            return kept ?? stack;
         }
 
         bool coplanar(int t, int u)

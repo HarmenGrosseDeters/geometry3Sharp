@@ -5361,6 +5361,10 @@ namespace g3
                     continue;
                 Index3i t = m.GetTriangle(U.Tid);
                 w -= MathUtil.TriSolidAngle(m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c), ref pv) / MathUtil.FourPI;
+                // (RegionClipping: a centroid on a flat edge of a region lies in two of its triangles: one sheet, one -1/2 or +1/2; the solid angles
+                // above stay per triangle, the tree evaluates each of them)
+                if (stack != null && RegionClipping && region_listed_before(stack, ti))
+                    continue;
                 int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
                 w -= (dot > 0) ? 0.5 : -0.5;
             }
