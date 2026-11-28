@@ -38,7 +38,7 @@ All four pre-implementation spikes have been executed on `master` (plus 33 Z3 fo
 
 ## 4. Recommended Three-Phase Execution Sequence (Post-Spikes)
 
-- **Phase 1 (Tier S/M, zero exact-kernel risk, highest production ROI):**
+- **Phase 1 (highest production ROI; no new geometric predicates; `4B-0`, `1B`, and `2A` touch `mesh_ops/ExactMesh*` and trigger the incremental mutation gate / exact-code review):**
   1. `4B-0` (`flat_edge` `same_plane` fallback)
   2. `1A + 1B` (`SolidBooleanPipeline.Verification` v2 + internal certificate hygiene)
   3. `5A–5C` (`SolidBooleanPipeline.Diagnose()` + `SolidBooleanRemediation` + `g3cli`/MCP `solid_boolean` & `sheet_extend`)

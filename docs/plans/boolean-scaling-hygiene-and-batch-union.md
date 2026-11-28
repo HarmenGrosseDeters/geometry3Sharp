@@ -69,6 +69,6 @@ Internal exact arrangement, `ContOrientedBox3`, & pipeline; Manifold `BatchBoole
 
 ## Budget and stop rule
 
-- `4B-0`: 0.5 day (Tier S).
+- `4B-0`: 0.5 day (Tier S/L — small hygiene change touching `mesh_ops/ExactMesh*`, exact-code review + incremental mutation gate).
 - `4A-2`: 1 M session.
 - `4C-1`: **Stopped by Spike `4C-0`** (`intersections.pairs` = 2.9% on Step 3 < 15% bar).
