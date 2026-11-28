@@ -1,4 +1,4 @@
-﻿// Copyright (c) Ryan Schmidt (rms@gradientspace.com) - All Rights Reserved
+// Copyright (c) Ryan Schmidt (rms@gradientspace.com) - All Rights Reserved
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
@@ -239,35 +239,31 @@ namespace gs
             double ox = (double)origin[0], oy = (double)origin[1], oz = (double)origin[2];
             if (rowCache != null) {
                 int totalRows = nj * nk;
-                if (totalRows > 0) {
+                if (totalRows > 0 && ni > 0) {
                     gParallel.BlockStartEnd(0, totalRows - 1, (start, end) => {
                         var hits = new List<ExactWindingCache.LineHit>(16);
                         var rowLeaves = new List<int>(16);
+                        var xBuf = new int[ni];
+                        var valBuf = new float[ni];
                         int localCount = 0;
                         for (int rowIdx = start; rowIdx <= end; ++rowIdx) {
                             if (CancelF())
                                 break;
                             int j = rowIdx % nj;
                             int k = rowIdx / nj;
-                            bool anyActive = false;
+                            int xCount = 0;
                             for (int i = 0; i < ni; ++i) {
-                                if (distances[i, j, k] < CellSize) {
-                                    anyActive = true;
-                                    break;
-                                }
+                                if (distances[i, j, k] < CellSize)
+                                    xBuf[xCount++] = i;
                             }
-                            if (!anyActive)
+                            if (xCount == 0)
                                 continue;
                             double y = (double)j * dx + oy;
                             double z = (double)k * dx + oz;
-                            rowCache.CollectLineCrossingsX(y, z, hits, rowLeaves);
-                            for (int i = 0; i < ni; ++i) {
-                                if (distances[i, j, k] < CellSize) {
-                                    double x = (double)i * dx + ox;
-                                    winding[i, j, k] = (float)rowCache.EvaluateOnRowX(x, y, z, hits, rowLeaves);
-                                    localCount++;
-                                }
-                            }
+                            rowCache.EvaluateSparseRowX(ox, dx, xBuf, xCount, y, z, hits, rowLeaves, valBuf);
+                            for (int m = 0; m < xCount; ++m)
+                                winding[xBuf[m], j, k] = valBuf[m];
+                            localCount += xCount;
                         }
                         if (localCount > 0)
                             Interlocked.Add(ref winding_evaluations, localCount);
@@ -315,74 +311,185 @@ namespace gs
             if (CancelF())
                 return;
 
-            // Unique set of 'new' voxels to compute in next iteration.
-            HashSet<Vector3i> queue = new HashSet<Vector3i>();
-            SpinLock queue_lock = new SpinLock();
-
             // Two nodes both exactly at the iso value are followed (a plateau of exact values), except for an integer iso
             // value: the winding number of a closed mesh is exactly 0 outside and 1 inside over whole regions, and following
             // those would compute the whole grid (a fractional value is exact only on surfaces: it is harmonic away from the
             // mesh, so constant over a volume only if constant everywhere).
             bool follow_plateaus = WindingIsoValue != Math.Floor(WindingIsoValue);
 
-            while (true) {
-                if (CancelF())
-                    return;
+            if (rowCache != null) {
+                // Row-batched BFS: group newly discovered 26-neighbors by (j, k) row so each touched row
+                // runs a single +x BVH line traversal and a single (y, z) boundary-row preparation.
+                int totalRows = nj * nk;
+                Bitmap3 scheduled = new Bitmap3(new Vector3i(ni, nj, nk));
+                for (int f = 0; f < cur_front.Count; ++f)
+                    scheduled[cur_front[f]] = true;
 
-                // can process front voxels in parallel
-                bool abort = false;  int iter_count = 0;
-                gParallel.ForEach(cur_front, (ijk) => {
-                    Interlocked.Increment(ref iter_count);
-                    if (iter_count % 100 == 0)
-                        abort = CancelF();
-                    if (abort)
+                int[] rowHead = new int[totalRows];
+                for (int r = 0; r < totalRows; ++r)
+                    rowHead[r] = -1;
+                var activeRows = new List<int>(Math.Min(totalRows, 1024));
+                var pendingX = new List<int>(cur_front.Count * 2);
+                var pendingNext = new List<int>(cur_front.Count * 2);
+                var next_front = new List<Vector3i>();
+
+                while (cur_front.Count > 0) {
+                    if (CancelF())
                         return;
 
-                    float val = winding[ijk];
-
-                    // check 26-neighbours to see if we have a crossing in any direction
-                    for (int k = 0; k < 26; ++k) {
-                        Vector3i nijk = ijk + gIndices.GridOffsets26[k];
-                        if (bounds.Contains(nijk) == false)
-                            continue;
-                        float val2 = winding[nijk];
-                        if (val2 == float.MaxValue) {
-                            Vector3d gx = new Vector3d((double)nijk.x * dx + origin[0], (double)nijk.y * dx + origin[1], (double)nijk.z * dx + origin[2]);
-                            val2 = (float)winding_number(gx);
-                            winding[nijk] = val2;
-                        }
-                        if (bits[nijk] == false) {
-                            // this is a 'new' voxel this round.
-                            // If we have a MWN-iso-crossing, add it to the front next round. A crossing is every pair that is
-                            // not strictly on one side of the iso value: a node exactly at the iso value is a crossing with a
-                            // neighbour on either side and, unless the iso value is an integer (follow_plateaus), with another
-                            // node exactly at it, so a plateau of exact values (the plane of a hole in a symmetric mesh) is
-                            // followed to its end. (Upstream tested strictly: the front stopped at such a node although the
-                            // contour went on, and fill_spans filled the rows beyond it with values on the wrong side.)
-                            // A NaN is no crossing.
-                            bool crossing = (val <= WindingIsoValue && val2 >= WindingIsoValue) ||
-                                            (val >= WindingIsoValue && val2 <= WindingIsoValue);
-                            if (crossing && !follow_plateaus && val == val2)
-                                crossing = false;
-                            if (crossing) {
-                                bool taken = false;
-                                queue_lock.Enter(ref taken);
-                                queue.Add(nijk);
-                                queue_lock.Exit();
+                    activeRows.Clear();
+                    pendingX.Clear();
+                    pendingNext.Clear();
+                    for (int f = 0; f < cur_front.Count; ++f) {
+                        if ((f & 1023) == 0 && CancelF())
+                            return;
+                        Vector3i ijk = cur_front[f];
+                        for (int n = 0; n < 26; ++n) {
+                            Vector3i nijk = ijk + gIndices.GridOffsets26[n];
+                            if (nijk.x < 0 || nijk.x >= ni || nijk.y < 0 || nijk.y >= nj || nijk.z < 0 || nijk.z >= nk)
+                                continue;
+                            if (!scheduled[nijk]) {
+                                scheduled[nijk] = true;
+                                int rowIdx = nijk.y + nj * nijk.z;
+                                int head = rowHead[rowIdx];
+                                if (head < 0)
+                                    activeRows.Add(rowIdx);
+                                int node = pendingX.Count;
+                                pendingX.Add(nijk.x);
+                                pendingNext.Add(head);
+                                rowHead[rowIdx] = node;
                             }
                         }
                     }
-                });
-                if (DebugPrint) System.Console.WriteLine("front has {0} voxels", queue.Count);
-                if (queue.Count == 0)
-                    break;
 
-                // update known-voxels list and create front for next iteration
-                foreach (Vector3i idx in queue)
-                    bits[idx] = true;
-                cur_front.Clear();
-                cur_front.AddRange(queue);
-                queue.Clear();
+                    int nActiveRows = activeRows.Count;
+                    if (nActiveRows > 0) {
+                        gParallel.BlockStartEnd(0, nActiveRows - 1, (start, end) => {
+                            var hits = new List<ExactWindingCache.LineHit>(16);
+                            var rowLeaves = new List<int>(16);
+                            var xBuf = new int[ni];
+                            var valBuf = new float[ni];
+                            int localCount = 0;
+                            for (int r = start; r <= end; ++r) {
+                                if (CancelF())
+                                    break;
+                                int rowIdx = activeRows[r];
+                                int xCount = 0;
+                                for (int node = rowHead[rowIdx]; node >= 0; node = pendingNext[node])
+                                    xBuf[xCount++] = pendingX[node];
+                                int j = rowIdx % nj;
+                                int k = rowIdx / nj;
+                                double y = (double)j * dx + oy;
+                                double z = (double)k * dx + oz;
+                                rowCache.EvaluateSparseRowX(ox, dx, xBuf, xCount, y, z, hits, rowLeaves, valBuf);
+                                for (int m = 0; m < xCount; ++m)
+                                    winding[xBuf[m], j, k] = valBuf[m];
+                                localCount += xCount;
+                            }
+                            if (localCount > 0)
+                                Interlocked.Add(ref winding_evaluations, localCount);
+                        }, 16);
+                        for (int r = 0; r < nActiveRows; ++r)
+                            rowHead[activeRows[r]] = -1;
+                        if (CancelF())
+                            return;
+                    }
+
+                    next_front.Clear();
+                    for (int f = 0; f < cur_front.Count; ++f) {
+                        if ((f & 1023) == 0 && CancelF())
+                            return;
+                        Vector3i ijk = cur_front[f];
+                        float val = winding[ijk];
+                        for (int n = 0; n < 26; ++n) {
+                            Vector3i nijk = ijk + gIndices.GridOffsets26[n];
+                            if (nijk.x < 0 || nijk.x >= ni || nijk.y < 0 || nijk.y >= nj || nijk.z < 0 || nijk.z >= nk)
+                                continue;
+                            if (!bits[nijk]) {
+                                float val2 = winding[nijk];
+                                bool crossing = (val <= WindingIsoValue && val2 >= WindingIsoValue) ||
+                                                (val >= WindingIsoValue && val2 <= WindingIsoValue);
+                                if (crossing && !follow_plateaus && val == val2)
+                                    crossing = false;
+                                if (crossing) {
+                                    bits[nijk] = true;
+                                    next_front.Add(nijk);
+                                }
+                            }
+                        }
+                    }
+                    if (DebugPrint) System.Console.WriteLine("front has {0} voxels", next_front.Count);
+                    if (next_front.Count == 0)
+                        break;
+
+                    List<Vector3i> swap = cur_front;
+                    cur_front = next_front;
+                    next_front = swap;
+                }
+            } else {
+                // Unique set of 'new' voxels to compute in next iteration.
+                HashSet<Vector3i> queue = new HashSet<Vector3i>();
+                SpinLock queue_lock = new SpinLock();
+
+                while (true) {
+                    if (CancelF())
+                        return;
+
+                    // can process front voxels in parallel
+                    bool abort = false;  int iter_count = 0;
+                    gParallel.ForEach(cur_front, (ijk) => {
+                        Interlocked.Increment(ref iter_count);
+                        if (iter_count % 100 == 0)
+                            abort = CancelF();
+                        if (abort)
+                            return;
+
+                        float val = winding[ijk];
+
+                        // check 26-neighbours to see if we have a crossing in any direction
+                        for (int k = 0; k < 26; ++k) {
+                            Vector3i nijk = ijk + gIndices.GridOffsets26[k];
+                            if (bounds.Contains(nijk) == false)
+                                continue;
+                            float val2 = winding[nijk];
+                            if (val2 == float.MaxValue) {
+                                Vector3d gx = new Vector3d((double)nijk.x * dx + origin[0], (double)nijk.y * dx + origin[1], (double)nijk.z * dx + origin[2]);
+                                val2 = (float)winding_number(gx);
+                                winding[nijk] = val2;
+                            }
+                            if (bits[nijk] == false) {
+                                // this is a 'new' voxel this round.
+                                // If we have a MWN-iso-crossing, add it to the front next round. A crossing is every pair that is
+                                // not strictly on one side of the iso value: a node exactly at the iso value is a crossing with a
+                                // neighbour on either side and, unless the iso value is an integer (follow_plateaus), with another
+                                // node exactly at it, so a plateau of exact values (the plane of a hole in a symmetric mesh) is
+                                // followed to its end. (Upstream tested strictly: the front stopped at such a node although the
+                                // contour went on, and fill_spans filled the rows beyond it with values on the wrong side.)
+                                // A NaN is no crossing.
+                                bool crossing = (val <= WindingIsoValue && val2 >= WindingIsoValue) ||
+                                                (val >= WindingIsoValue && val2 <= WindingIsoValue);
+                                if (crossing && !follow_plateaus && val == val2)
+                                    crossing = false;
+                                if (crossing) {
+                                    bool taken = false;
+                                    queue_lock.Enter(ref taken);
+                                    queue.Add(nijk);
+                                    queue_lock.Exit();
+                                }
+                            }
+                        }
+                    });
+                    if (DebugPrint) System.Console.WriteLine("front has {0} voxels", queue.Count);
+                    if (queue.Count == 0)
+                        break;
+
+                    // update known-voxels list and create front for next iteration
+                    foreach (Vector3i idx in queue)
+                        bits[idx] = true;
+                    cur_front.Clear();
+                    cur_front.AddRange(queue);
+                    queue.Clear();
+                }
             }
             if (DebugPrint) System.Console.WriteLine("done front-prop");
 

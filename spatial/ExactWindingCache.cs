@@ -66,6 +66,10 @@ namespace g3
         readonly FlatBox[] boxes;
         readonly FlatTri[] tris;
         readonly BoundaryEdge[] boundary;
+        readonly Vector3d[] bVerts;
+        readonly int[] bEdgeVA;
+        readonly int[] bEdgeVB;
+        readonly bool bAllUnitWeight;
         readonly int rootIndex;
         readonly int triCount;
         readonly bool useDirectSum;
@@ -86,11 +90,18 @@ namespace g3
         internal bool UseDirectSum { get { return useDirectSum; } }
         internal bool HasBoundaryTree { get { return boundaryTree != null; } }
 
-        ExactWindingCache(FlatBox[] boxes, FlatTri[] tris, BoundaryEdge[] boundary, int rootIndex, int triCount, bool useDirectSum)
+        ExactWindingCache(
+            FlatBox[] boxes, FlatTri[] tris, BoundaryEdge[] boundary,
+            Vector3d[] bVerts, int[] bEdgeVA, int[] bEdgeVB, bool bAllUnitWeight,
+            int rootIndex, int triCount, bool useDirectSum)
         {
             this.boxes = boxes;
             this.tris = tris;
             this.boundary = boundary;
+            this.bVerts = bVerts;
+            this.bEdgeVA = bEdgeVA;
+            this.bEdgeVB = bEdgeVB;
+            this.bAllUnitWeight = bAllUnitWeight;
             this.rootIndex = rootIndex;
             this.triCount = triCount;
             this.useDirectSum = useDirectSum;
@@ -103,7 +114,10 @@ namespace g3
         {
             int meshTriCount = mesh.TriangleCount;
             if (meshTriCount == 0 || boxCount == 0 || rootIndex < 0)
-                return new ExactWindingCache(Array.Empty<FlatBox>(), Array.Empty<FlatTri>(), Array.Empty<BoundaryEdge>(), -1, 0, false);
+                return new ExactWindingCache(
+                    Array.Empty<FlatBox>(), Array.Empty<FlatTri>(), Array.Empty<BoundaryEdge>(),
+                    Array.Empty<Vector3d>(), Array.Empty<int>(), Array.Empty<int>(), true,
+                    -1, 0, false);
 
             // 1. Pack finite leaf triangles in BVH order and compute exact bottom-up double bounds per node.
             //    Also accumulate oriented exterior edges keyed by canonicalized 3D vertex coordinates so
@@ -133,7 +147,43 @@ namespace g3
             FlatTri[] packedTris = flatTris.ToArray();
             BoundaryEdge[] packedEdges = edges.ToArray();
             bool direct = packedEdges.Length >= packedTris.Length && packedTris.Length > 64;
-            return new ExactWindingCache(flatBoxes, packedTris, packedEdges, rootIndex, packedTris.Length, direct);
+
+            Vector3d[] packedBVerts = Array.Empty<Vector3d>();
+            int[] packedBEdgeVA = Array.Empty<int>();
+            int[] packedBEdgeVB = Array.Empty<int>();
+            bool allUnitWeight = true;
+            if (!direct && packedEdges.Length > 0) {
+                int ne = packedEdges.Length;
+                packedBEdgeVA = new int[ne];
+                packedBEdgeVB = new int[ne];
+                var vertMap = new Dictionary<PointKey, int>(ne);
+                var verts = new List<Vector3d>(ne);
+                for (int i = 0; i < ne; ++i) {
+                    BoundaryEdge e = packedEdges[i];
+                    if (e.Weight != 1)
+                        allUnitWeight = false;
+                    PointKey ka = new PointKey(e.A);
+                    if (!vertMap.TryGetValue(ka, out int va)) {
+                        va = verts.Count;
+                        vertMap[ka] = va;
+                        verts.Add(e.A);
+                    }
+                    PointKey kb = new PointKey(e.B);
+                    if (!vertMap.TryGetValue(kb, out int vb)) {
+                        vb = verts.Count;
+                        vertMap[kb] = vb;
+                        verts.Add(e.B);
+                    }
+                    packedBEdgeVA[i] = va;
+                    packedBEdgeVB[i] = vb;
+                }
+                packedBVerts = verts.ToArray();
+            }
+
+            return new ExactWindingCache(
+                flatBoxes, packedTris, packedEdges,
+                packedBVerts, packedBEdgeVA, packedBEdgeVB, allUnitWeight,
+                rootIndex, packedTris.Length, direct);
         }
 
         static void build_node(
@@ -552,7 +602,8 @@ namespace g3
             // A1 (the evaluation error of every replaced edge is at most 1e-14, design note, "The decision margin") is proved for
             // edges that take the fast path of boundary_edge_angle_x; the certificate makes sure that every edge of an accepted
             // node does (no rescaling, no extreme path, no exact fallback). A node that fails it is descended into, and its leaf
-            // edges are evaluated by the same function as the full sum, bit for bit.
+            // edges are evaluated via boundary_edge_angle_x (within < 3.5e-15 rad per batch of boundary_sum_x, well inside the
+            // 1e-12 per-edge charge).
             if (!fast_path_certificate(d, r, dy, dz))
                 return 0;
             double rd = r / d;
@@ -958,20 +1009,87 @@ namespace g3
             int chi = 0;
             bool hasBoundary = boundary.Length > 0;
             bool hasRowLeaves = rowLeaves.Count > 0;
+            BoundaryScratch sc = null;
+            if (hasBoundary) {
+                sc = get_boundary_scratch();
+                prepare_boundary_row_x(y, z, sc);
+            }
             for (int i = 0; i < ni; ++i) {
                 chi += diffBuf[i];
                 double w = (double)chi;
                 if (hasBoundary || hasRowLeaves) {
                     double xi = (double)i * dx + originX;
                     if (hasBoundary)
-                        w += boundary_sum_x(new Vector3d(xi, y, z));
+                        w += boundary_sum_prepared_row_x(xi, y, z, sc);
                     if (hasRowLeaves) {
-                        double sc = row_surface_correction(xi, y, z, rowLeaves);
-                        if (sc != 0.0)
-                            w -= sc;
+                        double scVal = row_surface_correction(xi, y, z, rowLeaves);
+                        if (scVal != 0.0)
+                            w -= scVal;
                     }
                 }
                 outRow[i] = (float)w;
+            }
+        }
+
+        /// <summary>
+        /// Evaluate the exact winding number at the sparse sample indices xIndices[0 .. xCount - 1]
+        /// along the grid row x_i = originX + i * dx, (y, z) fixed, reusing one BVH line traversal
+        /// and one (y, z) boundary-row preparation across all samples.
+        /// Bit-for-bit identical to calling Evaluate(new Vector3d(i * dx + originX, y, z)) per sample.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal void EvaluateSparseRowX(double originX, double dx, int[] xIndices, int xCount, double y, double z, List<LineHit> hits, List<int> rowLeaves, float[] outValues)
+        {
+            if (xCount <= 0)
+                return;
+            if (triCount == 0 || !is_finite(y) || !is_finite(z)) {
+                for (int m = 0; m < xCount; ++m) outValues[m] = 0.0f;
+                return;
+            }
+            if (useDirectSum) {
+                for (int m = 0; m < xCount; ++m) {
+                    double xi = (double)xIndices[m] * dx + originX;
+                    outValues[m] = is_finite(xi) ? (float)direct_sum(new Vector3d(xi, y, z)) : 0.0f;
+                }
+                return;
+            }
+
+            CollectLineCrossingsX(y, z, hits, rowLeaves);
+            int hCount = hits.Count;
+            bool hasBoundary = boundary.Length > 0;
+            bool hasRowLeaves = rowLeaves.Count > 0;
+            BoundaryScratch sc = null;
+            if (hasBoundary) {
+                sc = get_boundary_scratch();
+                prepare_boundary_row_x(y, z, sc);
+            }
+
+            for (int m = 0; m < xCount; ++m) {
+                double xi = (double)xIndices[m] * dx + originX;
+                if (!is_finite(xi)) {
+                    outValues[m] = 0.0f;
+                    continue;
+                }
+                int chi = 0;
+                for (int h = 0; h < hCount; ++h) {
+                    LineHit hit = hits[h];
+                    if (xi < hit.MinX) {
+                        chi += hit.Sign;
+                    } else if (xi <= hit.MaxX) {
+                        FlatTri tri = tris[hit.TriIndex];
+                        if (is_ahead_x(xi, y, z, tri.A, tri.B, tri.C, hit.Sign))
+                            chi += hit.Sign;
+                    }
+                }
+                double w = (double)chi;
+                if (hasBoundary)
+                    w += boundary_sum_prepared_row_x(xi, y, z, sc);
+                if (hasRowLeaves) {
+                    double scVal = row_surface_correction(xi, y, z, rowLeaves);
+                    if (scVal != 0.0)
+                        w -= scVal;
+                }
+                outValues[m] = (float)w;
             }
         }
 
@@ -1572,15 +1690,304 @@ namespace g3
 
         // ---- Coupled Antipodal boundary term for x1 = (-1, 0, 0) ----
 
+        // Ordinary-range thresholds (matching boundary_edge_angle_x) and complex-angle batching constants.
+        // For edges with small positive weight (1 <= w <= MaxBatchWeight, e.g. w = 1 on open boundaries and
+        // w = 2 on flipped-patch seams) whose vertices lie in the fast range and whose angle satisfies
+        // den > 0, |num| <= 0.25 * den, and |num| + den >= FastAngleRatio * (s1 + s2):
+        //   1. den >= (FastAngleRatio / 1.25) * s2 = 0.025 * s2 >> 1e-12 * s2, strictly outside the branch-cut zone.
+        //   2. t = num / den has |t| <= 0.25, so |atan(t)| <= atan(0.25) < 0.244979 rad and scaling by positive 2^k
+        //      cancels bit-for-bit in num / den.
+        //   3. Multiplying up to MaxAngleBatch = 12 factors (1 + i * t_j) keeps |sum theta_j| <= 2.940 rad < pi
+        //      (0.20 rad margin from the branch cut) and |re + i * im| in [1, (17/16)^6] ~ [1, 1.44] (no over/underflow).
+        //   4. Rounding error over a 12-factor batch plus CoreMath.Atan2 is < 31 u < 3.5e-15 rad (< 2.9e-16 rad per weight unit),
+        //      3000x below the 1e-12 rad per-edge budget charged by BoundaryTree.
+        const double FastLowThresh = 7.8886090522101181e-31;   // 2^-100
+        const double FastHighThresh = 1.2676506002282294e30;   // 2^100
+        const int MaxAngleBatch = 12;
+        const int MaxBatchWeight = 4;
+        const double BatchTanLimit = 0.25;
+
+        sealed class BoundaryScratch
+        {
+            public double[] Vy = Array.Empty<double>();
+            public double[] Vz = Array.Empty<double>();
+            public double[] Vyz2 = Array.Empty<double>();
+            public double[] VyzMax = Array.Empty<double>();
+            public double[] Vda = Array.Empty<double>();
+            public bool[] Vok = Array.Empty<bool>();
+
+            public double[] ENum = Array.Empty<double>();
+            public double[] EAn = Array.Empty<double>();
+            public double[] EDotYZ = Array.Empty<double>();
+            public double[] ES1 = Array.Empty<double>();
+            public double[] EAbsDotYZ = Array.Empty<double>();
+
+            public void EnsureVerts(int nVerts)
+            {
+                if (Vy.Length < nVerts) {
+                    Vy = new double[nVerts];
+                    Vz = new double[nVerts];
+                    Vda = new double[nVerts];
+                    Vok = new bool[nVerts];
+                }
+            }
+
+            public void EnsureRow(int nVerts, int nEdges)
+            {
+                EnsureVerts(nVerts);
+                if (Vyz2.Length < nVerts) {
+                    Vyz2 = new double[nVerts];
+                    VyzMax = new double[nVerts];
+                }
+                if (ENum.Length < nEdges) {
+                    ENum = new double[nEdges];
+                    EAn = new double[nEdges];
+                    EDotYZ = new double[nEdges];
+                    ES1 = new double[nEdges];
+                    EAbsDotYZ = new double[nEdges];
+                }
+            }
+        }
+
+        [ThreadStatic] static BoundaryScratch boundaryScratch;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static BoundaryScratch get_boundary_scratch()
+        {
+            return boundaryScratch ?? (boundaryScratch = new BoundaryScratch());
+        }
+
         [MethodImpl(JitHints.Optimize)]
         double boundary_sum_x(Vector3d p)
         {
-            double sum = 0.0;
+            Vector3d[] verts = bVerts;
+            int nVerts = verts.Length;
+            BoundaryScratch sc = get_boundary_scratch();
+            sc.EnsureVerts(nVerts);
+
+            double px = p.x, py = p.y, pz = p.z;
+            double[] vyArr = sc.Vy, vzArr = sc.Vz, vdaArr = sc.Vda;
+            bool[] vokArr = sc.Vok;
+            bool allOk = true;
+            for (int v = 0; v < nVerts; ++v) {
+                Vector3d a = verts[v];
+                double ax = a.x - px, ay = a.y - py, az = a.z - pz;
+                vyArr[v] = ay;
+                vzArr[v] = az;
+                double yzMax = Math.Max(Math.Abs(ay), Math.Abs(az));
+                double mA = Math.Max(Math.Abs(ax), yzMax);
+                if (mA >= FastLowThresh && mA <= FastHighThresh && yzMax >= FastLowThresh * mA) {
+                    double yz2 = ay * ay + az * az;
+                    double la = Math.Sqrt(ax * ax + yz2);
+                    vdaArr[v] = ax > 0.0 ? yz2 / (la + ax) : la - ax;
+                    vokArr[v] = true;
+                } else {
+                    vokArr[v] = false;
+                    allOk = false;
+                }
+            }
+
             BoundaryEdge[] edges = boundary;
-            for (int i = 0; i < edges.Length; ++i) {
+            int[] edgeVA = bEdgeVA, edgeVB = bEdgeVB;
+            bool allUnit = bAllUnitWeight;
+            int nEdges = edges.Length;
+
+            double sum = 0.0;
+            double re = 1.0, im = 0.0;
+            int batch = 0;
+            for (int i = 0; i < nEdges; ++i) {
+                int w = allUnit ? 1 : edges[i].Weight;
+                if (w <= MaxBatchWeight) {
+                    int va = edgeVA[i], vb = edgeVB[i];
+                    double t = 0.0;
+                    bool batched = false;
+                    if (allOk || (vokArr[va] && vokArr[vb])) {
+                        double ay = vyArr[va], az = vzArr[va];
+                        double by = vyArr[vb], bz = vzArr[vb];
+                        double p1 = ay * bz;
+                        double p2 = az * by;
+                        double num = p2 - p1;
+                        double an = Math.Abs(num);
+                        double dotYZ = ay * by + az * bz;
+                        double prod = vdaArr[va] * vdaArr[vb];
+                        double den = prod + dotYZ;
+                        double s1 = Math.Abs(p1) + Math.Abs(p2);
+                        double s2 = prod + (Math.Abs(ay * by) + Math.Abs(az * bz));
+                        if (an <= BatchTanLimit * den && an + den >= FastAngleRatio * (s1 + s2)) {
+                            t = num / den;
+                            batched = true;
+                        }
+                    } else {
+                        ref BoundaryEdge eb = ref edges[i];
+                        batched = try_extreme_edge_batch_t(p, eb.A, eb.B, out t);
+                    }
+                    if (batched) {
+                        for (int r = 0; r < w; ++r) {
+                            double nre = re - im * t;
+                            im = im + re * t;
+                            re = nre;
+                            if (++batch == MaxAngleBatch) {
+                                sum += g3.CoreMathPort.CoreMath.Atan2(im, re);
+                                re = 1.0;
+                                im = 0.0;
+                                batch = 0;
+                            }
+                        }
+                        continue;
+                    }
+                }
                 ref BoundaryEdge e = ref edges[i];
                 sum += e.Weight * boundary_edge_angle_x(p, e.A, e.B);
             }
+            if (batch > 0)
+                sum += g3.CoreMathPort.CoreMath.Atan2(im, re);
+            return sum / MathUtil.TwoPI;
+        }
+
+        // Rescaled extreme-scale batching helper: computes the exact same power-of-2-invariant tangent t = num / den
+        // as the ordinary-range path so positive 2^k scaling stays bit-for-bit identical across [2^-1000, 2^1000].
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static bool try_extreme_edge_batch_t(Vector3d p, Vector3d a, Vector3d b, out double t)
+        {
+            t = 0.0;
+            if ((a.y == p.y && a.z == p.z) || (b.y == p.y && b.z == p.z))
+                return false;
+
+            rescale_diff_2d(a.y, p.y, a.z, p.z, out double ay, out double az, out int sA);
+            rescale_diff_2d(b.y, p.y, b.z, p.z, out double by, out double bz, out int sB);
+            scaled_d_factor(a.x, p.x, ay, az, sA, out double daVal, out int daExp);
+            scaled_d_factor(b.x, p.x, by, bz, sB, out double dbVal, out int dbExp);
+
+            int prodExp = daExp + dbExp;
+            if (prodExp > 180)
+                return false;
+            double prod = prodExp < -180 ? 0.0 : daVal * dbVal * pow2(prodExp);
+
+            double p1 = ay * bz;
+            double p2 = az * by;
+            double num = p2 - p1;
+            double an = Math.Abs(num);
+            double dotYZ = ay * by + az * bz;
+            double den = prod + dotYZ;
+            double s1 = Math.Abs(p1) + Math.Abs(p2);
+            double s2 = prod + (Math.Abs(ay * by) + Math.Abs(az * bz));
+            if (an <= BatchTanLimit * den && an + den >= FastAngleRatio * (s1 + s2)) {
+                t = num / den;
+                return true;
+            }
+            return false;
+        }
+
+        // Precompute all (y, z)-only vertex and edge quantities once per +x grid row.
+        [MethodImpl(JitHints.Optimize)]
+        void prepare_boundary_row_x(double py, double pz, BoundaryScratch sc)
+        {
+            Vector3d[] verts = bVerts;
+            int nVerts = verts.Length;
+            int nEdges = boundary.Length;
+            sc.EnsureRow(nVerts, nEdges);
+
+            double[] vyArr = sc.Vy, vzArr = sc.Vz, vyz2Arr = sc.Vyz2, vyzMaxArr = sc.VyzMax;
+            for (int v = 0; v < nVerts; ++v) {
+                Vector3d a = verts[v];
+                double ay = a.y - py, az = a.z - pz;
+                vyArr[v] = ay;
+                vzArr[v] = az;
+                vyz2Arr[v] = ay * ay + az * az;
+                vyzMaxArr[v] = Math.Max(Math.Abs(ay), Math.Abs(az));
+            }
+
+            int[] edgeVA = bEdgeVA, edgeVB = bEdgeVB;
+            double[] eNum = sc.ENum, eAn = sc.EAn, eDotYZ = sc.EDotYZ, eS1 = sc.ES1, eAbsDotYZ = sc.EAbsDotYZ;
+            for (int i = 0; i < nEdges; ++i) {
+                int va = edgeVA[i], vb = edgeVB[i];
+                double ay = vyArr[va], az = vzArr[va];
+                double by = vyArr[vb], bz = vzArr[vb];
+                double p1 = ay * bz;
+                double p2 = az * by;
+                double num = p2 - p1;
+                eNum[i] = num;
+                eAn[i] = Math.Abs(num);
+                eDotYZ[i] = ay * by + az * bz;
+                eS1[i] = Math.Abs(p1) + Math.Abs(p2);
+                eAbsDotYZ[i] = Math.Abs(ay * by) + Math.Abs(az * bz);
+            }
+        }
+
+        // Evaluate the boundary sum at (px, py, pz) using row data prepared by prepare_boundary_row_x(py, pz, sc).
+        // Performs the exact same IEEE-754 operations in the exact same order as boundary_sum_x(new Vector3d(px, py, pz)).
+        [MethodImpl(JitHints.Optimize)]
+        double boundary_sum_prepared_row_x(double px, double py, double pz, BoundaryScratch sc)
+        {
+            Vector3d[] verts = bVerts;
+            int nVerts = verts.Length;
+            double[] vyz2Arr = sc.Vyz2, vyzMaxArr = sc.VyzMax, vdaArr = sc.Vda;
+            bool[] vokArr = sc.Vok;
+
+            bool allOk = true;
+            for (int v = 0; v < nVerts; ++v) {
+                double ax = verts[v].x - px;
+                double yzMax = vyzMaxArr[v];
+                double mA = Math.Max(Math.Abs(ax), yzMax);
+                if (mA >= FastLowThresh && mA <= FastHighThresh && yzMax >= FastLowThresh * mA) {
+                    double yz2 = vyz2Arr[v];
+                    double la = Math.Sqrt(ax * ax + yz2);
+                    vdaArr[v] = ax > 0.0 ? yz2 / (la + ax) : la - ax;
+                    vokArr[v] = true;
+                } else {
+                    vokArr[v] = false;
+                    allOk = false;
+                }
+            }
+
+            BoundaryEdge[] edges = boundary;
+            int[] edgeVA = bEdgeVA, edgeVB = bEdgeVB;
+            double[] eNum = sc.ENum, eAn = sc.EAn, eDotYZ = sc.EDotYZ, eS1 = sc.ES1, eAbsDotYZ = sc.EAbsDotYZ;
+            bool allUnit = bAllUnitWeight;
+            int nEdges = edges.Length;
+
+            double sum = 0.0;
+            double re = 1.0, im = 0.0;
+            int batch = 0;
+            for (int i = 0; i < nEdges; ++i) {
+                int w = allUnit ? 1 : edges[i].Weight;
+                if (w <= MaxBatchWeight) {
+                    int va = edgeVA[i], vb = edgeVB[i];
+                    double t = 0.0;
+                    bool batched = false;
+                    if (allOk || (vokArr[va] && vokArr[vb])) {
+                        double prod = vdaArr[va] * vdaArr[vb];
+                        double den = prod + eDotYZ[i];
+                        double an = eAn[i];
+                        double s2 = prod + eAbsDotYZ[i];
+                        if (an <= BatchTanLimit * den && an + den >= FastAngleRatio * (eS1[i] + s2)) {
+                            t = eNum[i] / den;
+                            batched = true;
+                        }
+                    } else {
+                        ref BoundaryEdge eb = ref edges[i];
+                        batched = try_extreme_edge_batch_t(new Vector3d(px, py, pz), eb.A, eb.B, out t);
+                    }
+                    if (batched) {
+                        for (int r = 0; r < w; ++r) {
+                            double nre = re - im * t;
+                            im = im + re * t;
+                            re = nre;
+                            if (++batch == MaxAngleBatch) {
+                                sum += g3.CoreMathPort.CoreMath.Atan2(im, re);
+                                re = 1.0;
+                                im = 0.0;
+                                batch = 0;
+                            }
+                        }
+                        continue;
+                    }
+                }
+                ref BoundaryEdge e = ref edges[i];
+                sum += e.Weight * boundary_edge_angle_x(new Vector3d(px, py, pz), e.A, e.B);
+            }
+            if (batch > 0)
+                sum += g3.CoreMathPort.CoreMath.Atan2(im, re);
             return sum / MathUtil.TwoPI;
         }
 

@@ -112,3 +112,36 @@ edges, 10 us more per query: the edges of such a point that are within a factor 
 one or two of them, take the accurate path (about 10 us each). A point exactly on the yz line of an edge (the box grid) does not enter
 the integer evaluation: an earlier revision of this change sent it through it (the same box case 0.64 us, the sphere near-edge case
 21.8 us before the accurate evaluation was shortened by `lenBits` from the bit length and the removal of the precision loop).
+
+## Complex-angle boundary batching, row-prepared boundary sum, and NarrowBand row-batched BFS (2026-11-28)
+
+Before (`origin/master`, `geometry3Sharp.dll` SHA-256 `0518d61f5cdc4d150cf4e4c501cc1b37560d6cf198a230fc9a1abaacd84897f8`) vs after (`perf/exact-winding-cache-fast-paths`, SHA-256 `99e5761bfdea24d1c3e298eeaa29fffb526ec6794412f87016fd9c3d3bae2b7b`), `DOTNET_TieredPGO=0`, Linux x64 container, .NET 10.0, 2 logical processors.
+
+### Point queries (`ExactWindingBenchmark -- 5 near-edge`, median of 5 rounds)
+
+```bash
+DOTNET_TieredPGO=0 dotnet run -c Release -f net10.0 --project benchmarks/ExactWindingBenchmark -- 5 near-edge
+```
+
+| case | queries | before ms (`us/q`) | after ms (`us/q`) | speedup | sum before / after |
+|---|---:|---:|---:|---:|---|
+| `closed sphere 20k, random` | 2000 | 1.13 (`0.56`) | 1.04 (`0.52`) | 1.09x | `308` / `308` |
+| `open sphere 20k, random (away)` | 2000 | 35.72 (`17.86`) | 11.21 (`5.61`) | **3.19x** | `216.93695380309467` / `216.93695380309464` |
+| `open sphere 20k, 1e-3..1e-14 near edges` | 2000 | 61.36 (`30.68`) | 50.18 (`25.09`) | **1.22x** | `612.8910033301383` / `612.8910033301385` |
+| `open box, rim plane` | 2025 | 1.53 (`0.76`) | 1.44 (`0.71`) | 1.06x | `512` / `512` |
+
+### Grid and weighted-boundary paired runs (5 alternating rounds, same meshes as `ExactWindingBenchmark`)
+
+Measured in a standalone paired harness invoking `MeshWindingNumberGrid.Compute()` (exact mode, `64^3` grids; `NarrowBand` includes `MeshSignedDistanceGrid`) and 5,000 random queries on `flipped cap 20k` (`|∂M| = 220`, `Weight = 2`) against both `geometry3Sharp.dll` builds above:
+
+| case | before (`origin/master`) ms | after ms | speedup | `\|sum_diff\|` |
+|---|---:|---:|---:|---:|
+| `flipped cap 20k` point queries (5k, `w = 2`) | 99.74 | 71.90 | **1.39x** | `0` |
+| `open sphere 20k` `FullGrid` `64^3` | 3333.4 | 928.4 | **3.59x** | `0` |
+| `open sphere 20k` `NarrowBand` `64^3` | 1204.8 | 554.7 | **2.17x** | `0` |
+| `closed sphere 20k` `NarrowBand` `64^3` | 319.5 | 302.4 | **1.06x** | `0` |
+| `closed sphere 20k` `FullGrid` `64^3` | 27.6 | 27.2 | 1.01x | `0` |
+
+In the full `ExactWindingBenchmark -- 3` run (`DOTNET_TieredPGO=0`), exact `open sphere 20k FullGrid 64^3` (`850.5`–`870.0 ms`) and `open sphere 20k NarrowBand 64^3` (`536.6 ms`) are now faster than approximate `FastWindingNumber` (`1120.1`–`1228.4 ms` FullGrid, `792.9 ms` NarrowBand) while remaining exact and bit-identical between single-point, `EvaluateFullRowX`, and `EvaluateSparseRowX`.
+
+
