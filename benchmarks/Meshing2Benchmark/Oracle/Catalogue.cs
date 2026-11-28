@@ -39,7 +39,7 @@ namespace Meshing2Acceptance
         /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
-        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap };
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Locks, Feature.Snap };
 
         /// <summary>
         /// Rows whose results are large (Steiner limits of 10 000 to 100 000, or dense refinement), or whose many crossing constraints
@@ -150,7 +150,7 @@ namespace Meshing2Acceptance
             Test("F-30", "a", "Invalid minimum angle next to a max area", "QualityMesh2Tests.InvalidMinAngle_IsAnArgumentError",
                 note: "D12: an angle below 0 or at 60 and above is an argument error, so it cannot disable the area limit (until M3 this row expected a mesh)");
             Deferred("F-30", "b", "Invalid maximum angle", "Q3: no maximum angle bound in scope");
-            Mesh("F-31", "a", "Min angle and area with locked outer boundary", Feature.Locks, M3, new B().Outer(0, 0, 16, 1, 19, 9, 13, 17, 2, 15).RandomPoints(10, 8, 31).Area(4).Min(20));
+            Mesh("F-31", "a", "Min angle and area with locked outer boundary", Feature.Locks, M3, new B().OuterLocked(0, 0, 16, 1, 19, 9, 13, 17, 2, 15).RandomPoints(10, 8, 31).Area(4).Min(20));
             Deferred("F-31", "b", "The same with a max angle", "Q3: no maximum angle bound in scope");
             Mesh("F-32", null, "Extreme edge lengths in refinement", Feature.Refine, M3, new B().Outer(0, 0, Math.Pow(2, 200), 0, Math.Pow(2, 200), Math.Pow(2, 200), 0, Math.Pow(2, 200)).Point(1, 1).Point(1 + Math.Pow(2, -500), 1).Min(20).Limit(10000), tweak: e => e.AngleGuaranteed = false);
             Mesh("F-33", null, "Per-triangle area limits on a point-set mesh", Feature.RefineAgain, M3, new B().RandomPoints(16, 12, 33), note: "I8. The input to refine again is the mesh of this point set; session 2 adds the area map to the fixture when the API exists");

@@ -30,10 +30,14 @@ namespace g3
     /// tiles), not proven, and the Steiner limit bounds every run. With Conforming the circle is always used (O2).</para>
     /// <para>Terminates: angles up to about 33 degrees converge on ordinary input; any input stops at the Steiner limit
     /// (default 10 x (points + segments) + 100 000, spec Q13). Pieces that are too short to split in doubles stay as they are.</para>
-    /// <para>Locked segments (spec O9) keep their vertices and the mesh stays valid, but the bounds are not guaranteed near them
-    /// yet: a triangle whose circumcentre lies behind a locked segment is left as it is, so its neighbourhood may keep triangles
-    /// below the angle or above the area (listed in <see cref="ConstrainedMesh2.BadTriangles"/> when below the angle). Meeting
-    /// the bounds there is the open work item m3.locks.</para>
+    /// <para>Locked segments and locked rings (<see cref="Mesh2Segment.Locked"/>, <see cref="Mesh2Ring.Locked"/>; spec O8, O9) are
+    /// never split by refinement; crossing constraints are still split at their intersections when <see cref="ResolveCrossings"/> is on.
+    /// When a bad triangle's circumcentre or off-centre walks into or lands on a locked edge, refinement falls back to the triangle's
+    /// centroid (for area or size-function bounds) or to valid interior candidates with a strict insertion-radius floor (for angle bounds),
+    /// leaving only triangles whose circumcentre is genuinely blocked behind a locked edge (listed in
+    /// <see cref="ConstrainedMesh2.BadTriangles"/> when below the angle). Under both <see cref="MinAngle"/> and <see cref="MaxArea"/>,
+    /// triangles incident to a locked edge of length L have an angle-consistent area floor of (L^2 / 4) tan(MinAngle); with
+    /// <see cref="MinAngle"/> = 0 there is no area floor.</para>
     /// </remarks>
     public sealed class QualityMesh2
     {
@@ -141,6 +145,8 @@ namespace g3
             readonly ConstrainedDelaunayMesh2.Builder b;
             DelaunayKernel2 k;
             readonly double sin2Min;
+            /// <summary> tan(theta) of the angle bound theta (0 without an angle bound): minimum area over a locked edge of length L is (L^2 / 4) * tan(theta) </summary>
+            readonly double tanMin;
             /// <summary> encroachment by the diametral lens instead of the circle (Shewchuk 2002, section 6.4) </summary>
             readonly bool lenses;
             /// <summary> cot(theta / 2) of the angle bound theta: an off-centre lies |pq| cot(theta / 2) / 2 from the midpoint of pq </summary>
@@ -277,6 +283,7 @@ namespace g3
                 this.options = options; b = builder; this.snap = snap; grid = snap?.Grid;
                 double s = Math.Sin(options.MinAngle * Math.PI / 180);
                 sin2Min = s * s;
+                tanMin = sin2Min > 0 ? Math.Sqrt(sin2Min / (1 - sin2Min)) : 0;
                 halfCot = HalfCot(sin2Min);
                 offCentres = OffCentresForBenchmarks ?? true;
                 keepChainsApart = KeepChainsApartForTests ?? true;
@@ -991,16 +998,41 @@ namespace g3
                 return best;
             }
 
-            bool Bad(int t)
+            /// <summary> exact check whether any unlocked edge of t is strictly longer than every locked edge of t (BigInteger tie-breaker for BadBySize) </summary>
+            bool UnlockedLongerThanLocked(int t)
             {
-                if (exempt.Contains(TriangleKey(t))) return false;
-                // on the grid: at two pixels or less no better point can be placed, so neither angle nor size is refined (section 3g)
-                if (grid != null && BelowFloor(t)) return false;
-                var a0 = Local(t, out var q0, out var r0, out int ex);
+                var p0 = k.Point(k.V[3 * t]); var p1 = k.Point(k.V[3 * t + 1]); var p2 = k.Point(k.V[3 * t + 2]);
+                double[] v = { p0.x, p0.y, p1.x, p1.y, p2.x, p2.y };
+                var m = new BigInteger[6];
+                var ex = new int[6];
+                int emin = int.MaxValue;
+                for (int i = 0; i < 6; ++i) { ExactPoint3.Decompose(v[i], out m[i], out ex[i]); if (!m[i].IsZero) emin = Math.Min(emin, ex[i]); }
+                if (emin == int.MaxValue) return false;
+                var q = new BigInteger[6];
+                for (int i = 0; i < 6; ++i) q[i] = m[i].IsZero ? BigInteger.Zero : m[i] << (ex[i] - emin);
+                BigInteger maxUnlocked = BigInteger.Zero, maxLocked = BigInteger.Zero;
+                for (int j = 0; j < 3; ++j) {
+                    int a = j, c = (j + 1) % 3;
+                    BigInteger dx = q[2 * c] - q[2 * a], dy = q[2 * c + 1] - q[2 * a + 1];
+                    BigInteger len2 = dx * dx + dy * dy;
+                    int e = 3 * t + j;
+                    if (k.Seg[e] >= 0 && Locked(e)) { if (len2 > maxLocked) maxLocked = len2; }
+                    else { if (len2 > maxUnlocked) maxUnlocked = len2; }
+                }
+                return maxUnlocked > maxLocked;
+            }
+
+            bool BadBySize(int t)
+            {
+                Local(t, out var q0, out var r0, out int ex);
                 double localArea = LocalArea(q0, r0), area = ExactPoint3.ScaleB(localArea, 2 * ex);
-                double localLocked2 = LongestLocked2(t, q0, r0), locked2 = ExactPoint3.ScaleB(localLocked2, 2 * ex);
-                // a triangle over an edge that may not be split need not shrink below a needle (O5, O9)
-                bool areaExempt = localLocked2 > 4 * localArea;
+                double localLocked2 = LongestLocked2(t, q0, r0);
+                // O5, O9: a triangle over a locked edge of length L cannot shrink below (L^2 / 4) * tan(theta) without
+                // violating MinAngle = theta (isosceles with base L and base angles theta). With no angle bound (tanMin == 0)
+                // there is no area floor (F-25). Relative margin on the threshold plus an absolute cancellation bound on 4 * localArea
+                // (2 * (q0.x * r0.y - q0.y * r0.x)) guarantees areaExempt is never true when the oracle's exact rational test is false.
+                double areaErr = (Math.Abs(q0.x * r0.y) + Math.Abs(q0.y * r0.x)) * (1.0 / (1L << 40));
+                bool areaExempt = tanMin > 0 && localLocked2 * tanMin * (1 - 1.0 / (1L << 40)) > 4 * localArea + areaErr;
                 double? maxArea = options.MaxArea;
                 if (k.Tag[t] > 0) {
                     var ra = b.input.Regions[k.Tag[t] - 1].MaxArea;
@@ -1012,10 +1044,29 @@ namespace g3
                     var a = k.Point(k.V[3 * t]); var c = k.Point(k.V[3 * t + 1]); var d = k.Point(k.V[3 * t + 2]);
                     var g = (a + c + d) / 3;
                     double h = options.SizeFunction(g.x, g.y);
-                    double longest = ExactPoint3.ScaleB(Math.Max(q0.LengthSquared, Math.Max((r0 - q0).LengthSquared, r0.LengthSquared)), 2 * ex);
-                    if (longest > Math.Max(h * h, locked2) * (1 - 1.0 / (1L << 40))) return true;
+                    var corners = new[] { Vector2d.Zero, q0, r0 };
+                    double localUnlocked2 = 0, localLongest = 0;
+                    for (int j = 0; j < 3; ++j) {
+                        double l2 = (corners[(j + 1) % 3] - corners[j]).LengthSquared;
+                        if (l2 > localLongest) localLongest = l2;
+                        int e = 3 * t + j;
+                        if (!(k.Seg[e] >= 0 && Locked(e)) && l2 > localUnlocked2) localUnlocked2 = l2;
+                    }
+                    double longest = ExactPoint3.ScaleB(localLongest, 2 * ex);
+                    if (longest > h * h * (1 - 1.0 / (1L << 40))) {
+                        if (localLocked2 == 0 || localUnlocked2 > localLocked2 * (1 + 1.0 / (1L << 40))) return true;
+                        if (localUnlocked2 >= localLocked2 * (1 - 1.0 / (1L << 40)) && UnlockedLongerThanLocked(t)) return true;
+                    }
                 }
-                return BadByAngle(t);
+                return false;
+            }
+
+            bool Bad(int t)
+            {
+                if (exempt.Contains(TriangleKey(t))) return false;
+                // on the grid: at two pixels or less no better point can be placed, so neither angle nor size is refined (section 3g)
+                if (grid != null && BelowFloor(t)) return false;
+                return BadBySize(t) || BadByAngle(t);
             }
 
             /// <summary> t is below the angle bound and that is not forced by the input (the angle part of <see cref="Bad"/>) </summary>
@@ -1745,12 +1796,99 @@ namespace g3
                 return false;
             }
 
+            /// <summary> a locked constrained edge of triangle at on whose open segment p lies, or -1 </summary>
+            int LockedEdgeAt(int at, Vector2d p)
+            {
+                for (int e = 3 * at; e < 3 * at + 3; ++e) {
+                    if (k.Seg[e] < 0 || !Locked(e)) continue;
+                    var u = k.Point(k.V[e]); var w = k.Point(k.V[Next(e)]);
+                    if (p != u && p != w && ExactPredicates.Orient2d(u, w, p) == 0) return e;
+                }
+                return -1;
+            }
+
             bool InCircle(int t, Vector2d p) => ExactPredicates.InCircle(k.Point(k.V[3 * t]), k.Point(k.V[3 * t + 1]), k.Point(k.V[3 * t + 2]), p) > 0;
+
+            /// <summary>
+            /// Fallback split point for a bad triangle t whose default split point walked into or landed on a locked constrained edge (spec O8, O9):
+            /// - Bad by area or size function: t's centroid in the scale-free Local frame (strictly inside t, reduces area by 1/3
+            ///   without crossing constraints or splitting locked edges; F-25, F-31).
+            /// - Bad by angle only: if blocked is one of t's own edges and t is strictly obtuse opposite it, no interior point
+            ///   on t's side can improve the angle (inscribed angle theorem), so return false. Otherwise search valid petal candidates
+            ///   and bisector pullback points strictly before blocked, requiring insertion radius at least 1.05 * |pq| (B > 1 packing
+            ///   floor prevents creeping towards locked segments).
+            /// </summary>
+            bool TryLockedFallback(int t, int blocked, Vector2d cc, out Vector2d picked, out int at)
+            {
+                picked = default(Vector2d); at = -1;
+                var a0 = Local(t, out var q0, out var r0, out int ex);
+                if (BadBySize(t)) {
+                    var gLocal = (q0 + r0) * (1.0 / 3.0);
+                    var g = new Vector2d(a0.x + ExactPoint3.ScaleB(gLocal.x, ex), a0.y + ExactPoint3.ScaleB(gLocal.y, ex));
+                    if (RoundableOnGrid(grid, g)) {
+                        if (grid != null) g = grid.Round(g);
+                        int gAt = Walk(t, g, out int blk);
+                        if (blk < 0 && !OnConstrainedEdge(gAt, g)) {
+                            picked = g; at = gAt;
+                            return true;
+                        }
+                    }
+                }
+                if (!BadByAngle(t)) return false;
+                if (blocked / 3 == t && DotSign(k.Point(k.V[blocked]), k.Point(k.V[Next(blocked)]), k.Point(k.V[Next(Next(blocked))])) < 0) return false;
+                var corners = new[] { Vector2d.Zero, q0, r0 };
+                int j = 0; double shortest = double.MaxValue;
+                for (int i = 0; i < 3; ++i) { double l = (corners[(i + 2) % 3] - corners[(i + 1) % 3]).LengthSquared; if (l < shortest) { shortest = l; j = i; } }
+                if (!(shortest > 0)) return false;
+                Vector2d m = (corners[(j + 1) % 3] + corners[(j + 2) % 3]) * 0.5;
+                Vector2d ccLocal = ScaleB(cc - a0, -ex);
+                double dcc = (ccLocal - m).Length;
+                if (!(dcc > 0) || double.IsInfinity(dcc)) return false;
+                Vector2d dir = (ccLocal - m) / dcc;
+                var candidates = candidateBuffer; candidates.Clear();
+                var mWorld = new Vector2d(a0.x + ExactPoint3.ScaleB(m.x, ex), a0.y + ExactPoint3.ScaleB(m.y, ex));
+                var buRaw = k.Point(k.V[blocked]) - mWorld;
+                var edgeRaw = k.Point(k.V[Next(blocked)]) - k.Point(k.V[blocked]);
+                int exBu = ScaleOf(buRaw.x, buRaw.y, 0, 0), exEdge = ScaleOf(edgeRaw.x, edgeRaw.y, 0, 0);
+                Vector2d buUnit = ScaleB(buRaw, -exBu), edgeUnit = ScaleB(edgeRaw, -exEdge);
+                double denom = dir.x * edgeUnit.y - dir.y * edgeUnit.x;
+                if (Math.Abs(denom) > 0) {
+                    double tHit = ExactPoint3.ScaleB((buUnit.x * edgeUnit.y - buUnit.y * edgeUnit.x) / denom, exBu - ex);
+                    if (tHit > 0 && tHit <= dcc * (1 + 1e-12)) {
+                        double tSpan = Math.Min(tHit, dcc);
+                        foreach (double frac in new[] { 0.5, 0.75, 0.875 }) {
+                            var l = m + dir * (tSpan * frac);
+                            candidates.Add(new Vector2d(a0.x + ExactPoint3.ScaleB(l.x, ex), a0.y + ExactPoint3.ScaleB(l.y, ex)));
+                        }
+                    }
+                }
+                if (petal) PetalCandidates(t, a0, ex, m, dir, Math.Sqrt(shortest), candidates);
+                double floor = shortest * (1.05 * 1.05), bestRadius = -1;
+                int bestScore = int.MinValue;
+                bool found = false;
+                var seen = seenBuffer; seen.Clear();
+                EnsureMarks();
+                NextGeneration(ref badGen, badMark);
+                for (int i = 0; i < candidates.Count; ++i) {
+                    var p = candidates[i];
+                    if (!RoundableOnGrid(grid, p)) continue;
+                    if (grid != null) p = grid.Round(p);
+                    if (seen.Contains(p)) continue;
+                    seen.Add(p);
+                    if (!Score(t, p, ex, bestScore, out int candAt, out int score, out double radius)) continue;
+                    if (radius < floor) continue;
+                    if (!(score > bestScore || (score == bestScore && radius > bestRadius))) continue;
+                    if (!Insertable(candAt, p) || OnConstrainedEdge(candAt, p)) continue;
+                    bestScore = score; bestRadius = radius; picked = p; at = candAt; found = true;
+                }
+                return found;
+            }
 
             ConstrainedTriangulation2Result SplitTriangle(int t, bool tryOffCentre = true)
             {
                 if (inserted >= limit) { b.SteinerLimitReached = true; return null; }
-                if (!Circumcentre(t, out var c)) { exempt.Add(TriangleKey(t)); Note(10); return null; }
+                if (!Circumcentre(t, out var cc)) { exempt.Add(TriangleKey(t)); Note(10); return null; }
+                var c = cc;
                 // on the grid the point is the centre of the circumcentre's pixel, decided exactly (rounded at insertion, never moved later)
                 Vector2d oc = default(Vector2d);
                 bool off = tryOffCentre && OffCentre(t, out oc);
@@ -1763,14 +1901,24 @@ namespace g3
                 else if (grid != null && !CircumcentrePixel(t, out c)) { exempt.Add(TriangleKey(t)); Note(10); return null; }
                 // walk from t towards c; a constrained edge on the way is split instead (it is encroached, or c is outside)
                 int at = Walk(t, c, out int blocked);
+                if (blocked < 0) blocked = LockedEdgeAt(at, c);
                 if (blocked >= 0) {
                     if (k.Seg[blocked] < 0) { exempt.Add(TriangleKey(t)); Note(11); return null; }   // (the domain is bounded by constraints: not expected)
-                    if (Locked(blocked) || unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) { exempt.Add(TriangleKey(t)); Note(11); return null; }
-                    splitCause = 1;
-                    // t may survive the split (the new vertex can lie outside its circumcircle): look at it again, as after an
-                    // encroachment split (found by lenses on the earcut water corpus input)
-                    triangles.Enqueue(t);
-                    return SplitSegment(blocked);
+                    if (Locked(blocked)) {
+                        if (TryLockedFallback(t, blocked, cc, out var fb, out int fbAt)) {
+                            c = fb; at = fbAt; off = false; chosen = false;
+                        } else {
+                            exempt.Add(TriangleKey(t)); Note(11); return null;
+                        }
+                    } else if (unsplittable.Contains(Key(k.V[blocked], k.V[Next(blocked)]))) {
+                        exempt.Add(TriangleKey(t)); Note(11); return null;
+                    } else {
+                        splitCause = 1;
+                        // t may survive the split (the new vertex can lie outside its circumcircle): look at it again, as after an
+                        // encroachment split (found by lenses on the earcut water corpus input)
+                        triangles.Enqueue(t);
+                        return SplitSegment(blocked);
+                    }
                 }
                 // c would encroach a subsegment of its cavity: split those instead (Ruppert; Shewchuk 2002)
                 var encroached = EncroachedByPoint(at, c);

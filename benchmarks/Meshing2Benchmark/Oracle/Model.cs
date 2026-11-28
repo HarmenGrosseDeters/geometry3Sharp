@@ -16,7 +16,9 @@ namespace Meshing2Acceptance
         public int[] Vertices; // a closing vertex equal to the first is allowed (GIS convention), either orientation
         public bool Hole;
         public int Marker;
+        public bool Locked;
         public RingInput(int[] vertices, bool hole, int marker = 0) { Vertices = vertices; Hole = hole; Marker = marker; }
+        public RingInput(int[] vertices, bool hole, int marker, bool locked) { Vertices = vertices; Hole = hole; Marker = marker; Locked = locked; }
     }
 
     public sealed class RegionInput
@@ -270,6 +272,11 @@ namespace Meshing2Acceptance
         /// <summary> the input points (indices) and the sources (segment indices first, then ring edges, as the oracle numbers them) that
         /// VanishedPoints and VanishedSegments counted </summary>
         public readonly HashSet<int> VanishedPointIds = new HashSet<int>(), VanishedSourceIds = new HashSet<int>();
+        /// <summary>
+        /// Triangles below the angle whose circumcentre lies behind a locked subsegment (spec O8, O9): the locked segment may not be
+        /// split to refine them.
+        /// </summary>
+        public int LockedAngleExcused;
         public string ExcusedSummary()
         {
             var parts = new List<string>();
@@ -281,6 +288,7 @@ namespace Meshing2Acceptance
             if (MergeZoneExcused > 0) parts.Add(MergeZoneExcused + " excused in merge zones");
             if (O11LocalExcused + O11GlobalExcused + O11AngleExcused > 0)
                 parts.Add("excused at O11-unsplittable pieces: " + O11LocalExcused + " local, " + O11GlobalExcused + " global, " + O11AngleExcused + " angle");
+            if (LockedAngleExcused > 0) parts.Add(LockedAngleExcused + " excused behind locked subsegments");
             if (NearMeetAngleExcused > 0) parts.Add(NearMeetAngleExcused + " excused at a small angle of constraints that meet in the tube");
             if (BelowMpwFloorExcused > 0) parts.Add(BelowMpwFloorExcused + " of the small-angle excuses are below the floor of Miller, Pav and Walkington");
             return string.Join(", ", parts);

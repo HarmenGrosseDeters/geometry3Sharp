@@ -30,7 +30,7 @@ Only `points` is required; vertex indices are 0-based:
 }
 ```
 
-- `rings`: outer boundaries or holes (`"hole": true`, even-odd rule; without outer rings, domain is the convex hull).
+- `rings`: outer boundaries or holes (`"hole": true`, even-odd rule; `"locked": true` prevents splitting during refinement; without outer rings, domain is the convex hull).
 - `segments`: constraints (`"locked": true` prevents splitting during refinement).
 - `regions`: labeled by `seed` or `ring` (last wins on overlap) with optional per-region `max_area`.
 - `heights`: one `z` per point, interpolated onto Steiner vertices (defaults to `0`).

@@ -497,7 +497,7 @@ namespace g3
                     var vs = ring.Vertices;
                     for (int i = 0; i < vs.Length; ++i) {
                         int a = vs[i], b = vs[(i + 1) % vs.Length];
-                        Add(a, b, Make(a, b, r, ring.Marker, false, nextRingEdge++));
+                        Add(a, b, Make(a, b, r, ring.Marker, ring.Locked, nextRingEdge++));
                     }
                 }
                 for (int g = 0; g < regions.Count; ++g) {

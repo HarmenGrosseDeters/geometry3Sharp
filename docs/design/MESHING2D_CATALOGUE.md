@@ -1,6 +1,6 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 110 covered, 8 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 114 covered, 4 pending, 8 deferred by the owner's scope, 3 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
 - **covered**: runs now through the oracle (or the named test), on the registered production mesher.
@@ -70,21 +70,21 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-23/angle-30 | Max area 1/2, min angle 30 | covered | f-23/angle-30 |  |
 | F-24/a | Region area limits on two sides of a diagonal | covered | f-24/a |  |
 | F-24/b | Inner square as a second region | covered | f-24/b |  |
-| F-25/a | No segment splitting: rectangle 10 x 20 | pending | m3.locks |  |
-| F-25/b | No segment splitting: rectangle 10 x 30 | pending | m3.locks |  |
+| F-25/a | No segment splitting: rectangle 10 x 20 | covered | f-25/a |  |
+| F-25/b | No segment splitting: rectangle 10 x 30 | covered | f-25/b |  |
 | F-26 | Precision limit at needle regions | covered | f-26 |  |
 | F-27 | Needle refinement scaling (performance row) | covered | f-27 | time target: over 50 000 vertices in about 2 s; the time is measured by the benchmark |
 | F-28 | A max angle alone is ignored | deferred |  | Q3: no maximum angle bound in scope |
 | F-29 | Refining again with a max angle crashes | deferred |  | Q3: no maximum angle bound in scope |
 | F-30/a | Invalid minimum angle next to a max area | covered | QualityMesh2Tests.InvalidMinAngle_IsAnArgumentError | D12: an angle below 0 or at 60 and above is an argument error, so it cannot disable the area limit (until M3 this row expected a mesh) |
 | F-30/b | Invalid maximum angle | deferred |  | Q3: no maximum angle bound in scope |
-| F-31/a | Min angle and area with locked outer boundary | pending | m3.locks |  |
+| F-31/a | Min angle and area with locked outer boundary | covered | f-31/a |  |
 | F-31/b | The same with a max angle | deferred |  | Q3: no maximum angle bound in scope |
 | F-32 | Extreme edge lengths in refinement | covered | f-32 |  |
 | F-33 | Per-triangle area limits on a point-set mesh | pending | m3.refine-again | I8. The input to refine again is the mesh of this point set; session 2 adds the area map to the fixture when the API exists |
 | F-34 | Area-only refinement (performance row) | covered | f-34 | time target about 14 ms; the time is measured by the benchmark |
 | F-35 | Refining a point-set mesh keeps the hull | covered | f-35 |  |
-| F-36 | Crossing locked breaklines: no vertex outside | pending | m3.locks |  |
+| F-36 | Crossing locked breaklines: no vertex outside | covered | f-36 |  |
 | F-37 | Parallel breaklines 2^-13 apart must terminate | covered | f-37 |  |
 | F-38/a | Triangle with a small input angle, 30 degrees | covered | f-38/a | the spec asks for termination and validity here |
 | F-38/b | Triangle with a small input angle, 30 degrees | covered | f-38/b | the spec asks for termination and validity here |

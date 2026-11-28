@@ -146,7 +146,7 @@ the outside that tracks, per triangle, the set of rings it lies inside of (even-
 ## M3: quality refinement (`g3.QualityMesh2`), 2026-11-01
 
 Registered for M3 with the feature `m3.refine`; its rows and the M3 rows of the M2 features are covered (41 rows), golden M3 recorded for the 28 rows that are
-not slow. `m3.locks`, `m3.refine-again` and `m2.snap` are not built (update 2026-11-12: `m2.snap` since #277; the other two are still pending). The slow rows (`Catalogue.SlowRows`: results of 16 000 to 200 000 vertices, mostly at
+not slow. `m3.locks`, `m3.refine-again` and `m2.snap` are not built (update 2026-11-12: `m2.snap` since #277; update 2026-11-28: `m3.locks` built; `m3.refine-again` is still pending). The slow rows (`Catalogue.SlowRows`: results of 16 000 to 200 000 vertices, mostly at
 a Steiner limit) are judged by
 
 ```

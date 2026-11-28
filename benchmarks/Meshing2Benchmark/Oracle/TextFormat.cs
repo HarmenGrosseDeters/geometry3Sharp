@@ -33,7 +33,7 @@ namespace Meshing2Acceptance
             sb.Append("segments ").Append(input.Segments.Count).Append('\n');
             foreach (var s in input.Segments) sb.Append(s.A).Append(' ').Append(s.B).Append(' ').Append(s.Marker.ToString(CultureInfo.InvariantCulture)).Append(' ').Append(s.Locked ? 1 : 0).Append('\n');
             sb.Append("rings ").Append(input.Rings.Count).Append('\n');
-            foreach (var r in input.Rings) sb.Append(r.Hole ? "hole " : "outer ").Append(r.Marker.ToString(CultureInfo.InvariantCulture)).Append(' ').Append(r.Vertices.Length).Append(' ').Append(string.Join(" ", r.Vertices)).Append('\n');
+            foreach (var r in input.Rings) sb.Append(r.Hole ? (r.Locked ? "hole-locked " : "hole ") : (r.Locked ? "outer-locked " : "outer ")).Append(r.Marker.ToString(CultureInfo.InvariantCulture)).Append(' ').Append(r.Vertices.Length).Append(' ').Append(string.Join(" ", r.Vertices)).Append('\n');
             sb.Append("holeseeds ").Append(input.HoleSeeds.Count).Append('\n');
             foreach (var h in input.HoleSeeds) sb.Append(Token(h[0])).Append(' ').Append(Token(h[1])).Append('\n');
             sb.Append("regions ").Append(input.Regions.Count).Append('\n');
@@ -125,10 +125,13 @@ namespace Meshing2Acceptance
             }
             for (int i = 0, c = r.Count("rings"); i < c; ++i) {
                 var f = r.Next();
-                if (f.Length < 3 || (f[0] != "outer" && f[0] != "hole")) throw new FormatException("ring: expected outer|hole marker count indices, got: " + string.Join(" ", f));
+                bool isOuter = f.Length >= 3 && (f[0] == "outer" || f[0] == "outer-locked");
+                bool isHole = f.Length >= 3 && (f[0] == "hole" || f[0] == "hole-locked");
+                if (!isOuter && !isHole) throw new FormatException("ring: expected outer|hole|outer-locked|hole-locked marker count indices, got: " + string.Join(" ", f));
                 int k = Int(f[2]);
                 if (k < 0 || f.Length != 3 + k) throw new FormatException("ring: the count does not match");
-                input.Rings.Add(new RingInput(f.Skip(3).Take(k).Select(Int).ToArray(), f[0] == "hole", Int(f[1])));
+                bool locked = f[0] == "outer-locked" || f[0] == "hole-locked";
+                input.Rings.Add(new RingInput(f.Skip(3).Take(k).Select(Int).ToArray(), isHole, Int(f[1]), locked));
             }
             for (int i = 0, c = r.Count("holeseeds"); i < c; ++i) { var f = r.Fields(2, "hole seed"); input.HoleSeeds.Add(new[] { ParseCoordinate(f[0]), ParseCoordinate(f[1]) }); }
             for (int i = 0, c = r.Count("regions"); i < c; ++i) {

@@ -452,5 +452,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Triangulation2Status.Success, result.Status);
             Assert.Contains(result.Diagnostics, d => d.Contains("collapsed"));
         }
+
+        [Fact]
+        public void LockedRing_PreservesLock_OnSurvivingAndCollapsedRings()
+        {
+            // Surviving outer ring keeps Locked = true; collapsed inner ring emits Locked = true segments
+            var input = new ConstrainedMesh2Input();
+            foreach (var (x, y) in new[] {
+                (0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0),
+                (2.0, 5.0), (8.0, 5.0), (8.0, 5.01), (2.0, 5.01)
+            }) input.Points.Add(new Vector2d(x, y));
+            input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }, false, 1, locked: true));
+            input.Rings.Add(new Mesh2Ring(new[] { 4, 5, 6, 7 }, true, 2, locked: true));
+            var snap = SnapRounding2.Apply(input, 0.25);
+            Assert.Equal(1, snap.CollapsedRings);
+            Assert.Single(snap.Result.Rings);
+            Assert.True(snap.Result.Rings[0].Locked);
+            Assert.NotEmpty(snap.Result.Segments);
+            Assert.All(snap.Result.Segments, s => Assert.True(s.Locked));
+            // Also verify unlocked ring stays unlocked on both paths (kills boolean constant mutants)
+            var unlocked = new ConstrainedMesh2Input();
+            foreach (var p in input.Points) unlocked.Points.Add(p);
+            unlocked.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }, false, 1, locked: false));
+            unlocked.Rings.Add(new Mesh2Ring(new[] { 4, 5, 6, 7 }, true, 2, locked: false));
+            var snapU = SnapRounding2.Apply(unlocked, 0.25);
+            Assert.Single(snapU.Result.Rings);
+            Assert.False(snapU.Result.Rings[0].Locked);
+            Assert.NotEmpty(snapU.Result.Segments);
+            Assert.All(snapU.Result.Segments, s => Assert.False(s.Locked));
+            // End-to-end quality meshing on the grid keeps locked outer ring edges unsplit
+            var qRes = new QualityMesh2 { SnapTolerance = 0.25, MinAngle = 20, MaxArea = 2 }.Compute(input);
+            Assert.Equal(Triangulation2Status.Success, qRes.Status);
+            var outerSubs = qRes.Mesh.Subsegments.Where(s => s.Marker == 1).ToList();
+            Assert.Equal(4, outerSubs.Count);
+            Assert.All(outerSubs, s => Assert.True(s.Locked));
+        }
     }
 }

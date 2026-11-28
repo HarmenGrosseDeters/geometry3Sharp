@@ -106,7 +106,7 @@ points <n>
 segments <m>
 <a> <b> <marker> <locked 0|1>                     # m lines; a and b are input indices
 rings <k>
-<outer|hole> <marker> <count> <i0> <i1> ...       # k lines; the closing edge is implied
+<outer|hole|outer-locked|hole-locked> <marker> <count> <i0> <i1> ...   # k lines; the closing edge is implied; -locked only when locked
 holeseeds <h>
 <x> <y>                                           # h lines
 regions <q>

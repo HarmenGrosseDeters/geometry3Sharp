@@ -177,19 +177,20 @@ namespace g3cli
                 if (e.ValueKind == JsonValueKind.Array)
                     return new Mesh2Ring(Indices(e, where));
                 if (e.ValueKind != JsonValueKind.Object)
-                    throw Fail(where, "must be an array of point indices or {\"vertices\", \"hole\", \"marker\"}, got " + Raw(e));
-                int[] vertices = null; bool hole = false; int marker = 0;
+                    throw Fail(where, "must be an array of point indices or {\"vertices\", \"hole\", \"marker\", \"locked\"}, got " + Raw(e));
+                int[] vertices = null; bool hole = false; int marker = 0; bool locked = false;
                 foreach (JsonProperty p in e.EnumerateObject()) {
                     switch (p.Name) {
                         case "vertices": vertices = Indices(p.Value, where + ".vertices"); break;
                         case "hole": hole = Bool(p.Value, where + ".hole"); break;
                         case "marker": marker = Index(p.Value, where + ".marker"); break;
-                        default: throw Fail(where, $"has an unknown key '{p.Name}' (known: vertices, hole, marker)");
+                        case "locked": locked = Bool(p.Value, where + ".locked"); break;
+                        default: throw Fail(where, $"has an unknown key '{p.Name}' (known: vertices, hole, marker, locked)");
                     }
                 }
                 if (vertices == null)
                     throw Fail(where, "needs 'vertices'");
-                return new Mesh2Ring(vertices, hole, marker);
+                return new Mesh2Ring(vertices, hole, marker, locked);
             }
 
             Mesh2Region Region(JsonElement e, string where)

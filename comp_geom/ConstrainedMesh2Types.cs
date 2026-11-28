@@ -26,7 +26,10 @@ namespace g3
         /// <summary> A hole removes everything inside it, including constraints (spec Q7). </summary>
         public bool Hole;
         public int Marker;
+        /// <summary> Refinement may not split the ring's edges (spec O8, O9); crossings with other constraints still do. </summary>
+        public bool Locked;
         public Mesh2Ring(int[] vertices, bool hole = false, int marker = 0) { Vertices = vertices; Hole = hole; Marker = marker; }
+        public Mesh2Ring(int[] vertices, bool hole, int marker, bool locked) { Vertices = vertices; Hole = hole; Marker = marker; Locked = locked; }
     }
 
     /// <summary> A region with a label, by ring or by a seed point (the cell of the constraints that contains it). </summary>

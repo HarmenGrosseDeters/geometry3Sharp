@@ -124,7 +124,7 @@ namespace Meshing2Acceptance
         {
             var input = new Mesh2Input { X = c.Points.Select(p => p.x).ToArray(), Y = c.Points.Select(p => p.y).ToArray() };
             foreach (var s in c.Segments) input.Segments.Add(new SegmentInput(s.A, s.B, s.Marker, s.Locked));
-            foreach (var r in c.Rings) input.Rings.Add(new RingInput(r.Vertices, r.Hole, r.Marker));
+            foreach (var r in c.Rings) input.Rings.Add(new RingInput(r.Vertices, r.Hole, r.Marker, r.Locked));
             foreach (var h in c.HoleSeeds) input.HoleSeeds.Add(new[] { h.x, h.y });
             foreach (var g in c.Regions)
                 input.Regions.Add(new RegionInput { Label = g.Label, MaxArea = g.MaxArea, Ring = g.Ring, Seed = g.Ring == null ? new[] { g.Seed.x, g.Seed.y } : null });
