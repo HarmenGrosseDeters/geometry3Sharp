@@ -664,7 +664,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void UnknownBitsAndBadLimits_AreInvalidInput()
         {
-            foreach (V bad in new[] { (V)4, (V)8, (V)(-1), (V)7 }) {
+            foreach (V bad in new[] { (V)32, (V)64, (V)(-1), (V)33 }) {
                 var p = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), U) { Verification = bad };
                 Assert.False(p.Compute());
                 Assert.Equal(Status.InvalidInput, p.Status);
@@ -1326,6 +1326,387 @@ namespace geometry3Sharp.Tests
             Assert.Single(p.Report.RemovedThinSolids);
             Assert.Equal(64.0, Volume(p.Result), 9);
             Assert.Equal(0.0, p.Report.InventedSurfaceShare);
+        }
+
+        // ---- Verification v2 (1B): ExactQuantities, TopologyPreservation, InputIntentGuard, Standard ----
+
+        [Fact]
+        public void ExactQuantities_BracketsExactVolumeAndArea_OnBoxesSpheresAndUtmFrame()
+        {
+            // 1. Exact analytical box difference: [0,4]^3 \ [1,6]^3 = 64 - 27 = 37, area = 6*16 = 96
+            var boxDiff = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), D) { Verification = V.ExactQuantities };
+            Assert.True(boxDiff.Compute(), boxDiff.Status + " " + boxDiff.Error);
+            AssertSolid(boxDiff.Result);
+            Assert.True(boxDiff.Report.ExactVolumeMin <= 37.0 && 37.0 <= boxDiff.Report.ExactVolumeMax,
+                $"expected 37 inside [{boxDiff.Report.ExactVolumeMin:R}, {boxDiff.Report.ExactVolumeMax:R}]");
+            Assert.True(boxDiff.Report.ExactAreaMin <= 96.0 && 96.0 <= boxDiff.Report.ExactAreaMax,
+                $"expected 96 inside [{boxDiff.Report.ExactAreaMin:R}, {boxDiff.Report.ExactAreaMax:R}]");
+            Assert.True(boxDiff.Report.ExactVolumeMax - boxDiff.Report.ExactVolumeMin < 1e-11 * 37.0);
+            Assert.True(boxDiff.Report.ExactAreaMax - boxDiff.Report.ExactAreaMin < 1e-11 * 96.0);
+
+            // 2. UTM 1e7 offset: 2x2x2 cube minus 1x1x1 corner cube -> exact volume 7.0, area 24.0
+            Vector3d utm = new Vector3d(600000.0, 5700000.0, 100.0);
+            var utmA = Box(utm, utm + new Vector3d(2, 2, 2));
+            var utmB = Box(utm + new Vector3d(1, 1, 1), utm + new Vector3d(3, 3, 3));
+            var utmOp = new SolidBooleanPipeline(utmA, utmB, D) { Verification = V.ExactQuantities };
+            Assert.True(utmOp.Compute(), utmOp.Status + " " + utmOp.Error);
+            AssertSolid(utmOp.Result);
+            Assert.True(utmOp.Report.ExactVolumeMin <= 7.0 && 7.0 <= utmOp.Report.ExactVolumeMax,
+                $"UTM: 7 not in [{utmOp.Report.ExactVolumeMin:R}, {utmOp.Report.ExactVolumeMax:R}]");
+            Assert.True(utmOp.Report.ExactAreaMin <= 24.0 && 24.0 <= utmOp.Report.ExactAreaMax,
+                $"UTM: 24 not in [{utmOp.Report.ExactAreaMin:R}, {utmOp.Report.ExactAreaMax:R}]");
+            Assert.True(utmOp.Report.ExactVolumeMax - utmOp.Report.ExactVolumeMin < 1e-11 * 7.0);
+            Assert.True(utmOp.Report.ExactAreaMax - utmOp.Report.ExactAreaMin < 1e-11 * 24.0);
+
+            // 3. Curved spheres: interval must bracket exact BooleanVolumeGradient volume with relative width < 1e-11
+            var spA = Sphere(Vector3d.Zero, 1.0, 6);
+            var spB = Sphere(new Vector3d(0.6, 0.25, 0.125), 1.0, 6);
+            var spOp = new SolidBooleanPipeline(spA, spB, U) { Verification = V.ExactQuantities };
+            Assert.True(spOp.Compute(), spOp.Status + " " + spOp.Error);
+            AssertSolid(spOp.Result);
+            var refEb = new ExactMeshBoolean(spA, spB, U) { RetainClassification = true };
+            Assert.True(refEb.Compute(), refEb.Error);
+            var bvg = new BooleanVolumeGradient(refEb);
+            Assert.True(bvg.Compute(), bvg.Error);
+            Assert.True(spOp.Report.ExactVolumeMin <= bvg.Volume + bvg.VolumeBound && spOp.Report.ExactVolumeMax >= bvg.Volume - bvg.VolumeBound);
+            Assert.True(spOp.Report.ExactVolumeMax - spOp.Report.ExactVolumeMin < 1e-11 * Math.Abs(bvg.Volume));
+
+            // 4. Thin plates whose rounding moves 0.7% volume must be refused by ExactQuantities alone
+            var plates = new SolidBooleanPipeline(Plates(), U) { Verification = V.ExactQuantities };
+            Assert.False(plates.Compute());
+            Assert.Equal(Status.VerificationFailed, plates.Status);
+            Assert.Contains("ExactQuantities", plates.Error);
+        }
+
+        [Fact]
+        public void ExactQuantities_SimilarityAll_ExactScalesBitIdenticalAndTight()
+        {
+            DMesh3 a0 = CubeAt(0, 2), b0 = CubeAt(1, 3);
+            var refP = new SolidBooleanPipeline(a0, b0, D) { Verification = V.ExactQuantities };
+            Assert.True(refP.Compute(), refP.Error);
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 Map(DMesh3 m) { var c = new DMesh3(m); foreach (int v in c.VertexIndices()) c.SetVertex(v, sim.Apply(c.GetVertex(v))); return c; }
+                var p = new SolidBooleanPipeline(Map(a0), Map(b0), D) { Verification = V.ExactQuantities };
+                Assert.True(p.Compute(), sim.Name + ": " + p.Status + " " + p.Error);
+                AssertSolid(p.Result);
+                double vMag = Math.Max(Math.Abs(p.Report.ExactVolumeMin), Math.Abs(p.Report.ExactVolumeMax));
+                double aMag = Math.Max(Math.Abs(p.Report.ExactAreaMin), Math.Abs(p.Report.ExactAreaMax));
+                Assert.True(p.Report.ExactVolumeMin <= p.Report.ExactVolumeMax, sim.Name);
+                Assert.True(p.Report.ExactAreaMin >= 0 && p.Report.ExactAreaMin <= p.Report.ExactAreaMax, sim.Name);
+                Assert.True(p.Report.ExactVolumeMax - p.Report.ExactVolumeMin < 1e-11 * vMag, sim.Name);
+                Assert.True(p.Report.ExactAreaMax - p.Report.ExactAreaMin < 1e-11 * aMag, sim.Name);
+                if (sim.IsExact) {
+                    double s3 = sim.Scale * sim.Scale * sim.Scale;
+                    double s2 = sim.Scale * sim.Scale;
+                    Assert.True(Same(refP.Report.ExactVolumeMin * s3, p.Report.ExactVolumeMin), sim.Name + " vMin");
+                    Assert.True(Same(refP.Report.ExactVolumeMax * s3, p.Report.ExactVolumeMax), sim.Name + " vMax");
+                    Assert.True(Same(refP.Report.ExactAreaMin * s2, p.Report.ExactAreaMin), sim.Name + " aMin");
+                    Assert.True(Same(refP.Report.ExactAreaMax * s2, p.Report.ExactAreaMax), sim.Name + " aMax");
+                }
+            }
+        }
+
+        [Fact]
+        public void TopologyPreservation_PassesMultiShellCavityTorusAndMinThickness_AndCatchesInjectedDefects()
+        {
+            // 1. Hollow box (multi-shell cavity: outer chi=2 (+1) + inner chi=2 (-1) -> 2 components, total chi=4)
+            var cavity = new SolidBooleanPipeline(Cube(4), Box(new Vector3d(1, 1, 1), new Vector3d(3, 3, 3)), D) {
+                Verification = V.TopologyPreservation
+            };
+            Assert.True(cavity.Compute(), cavity.Status + " " + cavity.Error);
+            AssertSolid(cavity.Result);
+            Assert.Equal(2, cavity.Report.ExactComponents);
+            Assert.Equal(4, cavity.Report.ExactEulerCharacteristic);
+            Assert.Equal(2, cavity.Report.RoundedComponents);
+            Assert.Equal(4, cavity.Report.RoundedEulerCharacteristic);
+            Assert.Equal(2, cavity.Report.ReducedComponents);
+            Assert.Equal(4, cavity.Report.ReducedEulerCharacteristic);
+
+            // 2. Genus-1 solid (box with through-hole -> 1 component, Euler chi = 0)
+            var torus = new SolidBooleanPipeline(Cube(4), Box(new Vector3d(1, 1, -1), new Vector3d(3, 3, 5)), D) {
+                Verification = V.TopologyPreservation
+            };
+            Assert.True(torus.Compute(), torus.Status + " " + torus.Error);
+            AssertSolid(torus.Result);
+            Assert.Equal(1, torus.Report.ExactComponents);
+            Assert.Equal(0, torus.Report.ExactEulerCharacteristic);
+            Assert.Equal(1, torus.Report.RoundedComponents);
+            Assert.Equal(0, torus.Report.RoundedEulerCharacteristic);
+            Assert.Equal(1, torus.Report.ReducedComponents);
+            Assert.Equal(0, torus.Report.ReducedEulerCharacteristic);
+
+            // 3. MinThickness drops a thin component cleanly (2 -> 2 rounded -> 1 reduced)
+            var thinSlab = Box(new Vector3d(10, 10, 10), new Vector3d(14, 14, 10.001));
+            var withThin = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), thinSlab }, U) {
+                MinThickness = 0.01, Verification = V.TopologyPreservation
+            };
+            Assert.True(withThin.Compute(), withThin.Status + " " + withThin.Error);
+            AssertSolid(withThin.Result);
+            Assert.Equal(2, withThin.Report.ExactComponents);
+            Assert.Equal(2, withThin.Report.RoundedComponents);
+            Assert.Equal(1, withThin.Report.ReducedComponents);
+            Assert.Equal(2, withThin.Report.ReducedEulerCharacteristic);
+
+            // 3b. MinThickness drops a HOLLOW thin-walled solid (2 shells: outer + cavity, 1 RemovedThinSolids entry with Shells == 2)
+            DMesh3 hollowThin = Box(new Vector3d(10, 10, 10), new Vector3d(14, 14, 14));
+            DMesh3 hollowCavity = Box(new Vector3d(10.002, 10.002, 10.002), new Vector3d(13.998, 13.998, 13.998));
+            hollowCavity.ReverseOrientation();
+            MeshEditor.Append(hollowThin, hollowCavity);
+            var withHollowThin = new SolidBooleanPipeline(new List<DMesh3> { Cube(4), hollowThin }, U) {
+                MinThickness = 0.01, Verification = V.TopologyPreservation
+            };
+            Assert.True(withHollowThin.Compute(), withHollowThin.Status + " " + withHollowThin.Error);
+            AssertSolid(withHollowThin.Result);
+            Assert.Single(withHollowThin.Report.RemovedThinSolids);
+            Assert.Equal(2, withHollowThin.Report.RemovedThinSolids[0].Shells);
+            Assert.Equal(3, withHollowThin.Report.ExactComponents);
+            Assert.Equal(3, withHollowThin.Report.RoundedComponents);
+            Assert.Equal(1, withHollowThin.Report.ReducedComponents);
+            Assert.Equal(2, withHollowThin.Report.ReducedEulerCharacteristic);
+
+            // 4. Documented RoundingRemoved (Slivers) passes TopologyPreservation
+            var slivers = new SolidBooleanPipeline(Slivers(), D) { Verification = V.TopologyPreservation };
+            Assert.True(slivers.Compute(), slivers.Status + " " + slivers.Error);
+            Assert.True(slivers.Report.ExactComponents > 0);
+            Assert.Equal(0, slivers.Report.RoundedComponents);
+            Assert.Equal(slivers.Report.ExactComponents, slivers.Report.RoundingRemoved.Count);
+
+            // 5. Seeded topology defects must be rejected by TopologyMatches
+            var sBox = SolidBooleanPipeline.MeasureTopology(Cube(4));
+            var sTorus = SolidBooleanPipeline.MeasureTopology(torus.Result);
+            var sCavity = SolidBooleanPipeline.MeasureTopology(cavity.Result);
+            DMesh3 flippedBox = Cube(4);
+            flippedBox.ReverseOrientation();
+            var sFlipped = SolidBooleanPipeline.MeasureTopology(flippedBox);
+            var sOpen = SolidBooleanPipeline.MeasureTopology(Bucket(0, 4, 0, 4));
+            string why;
+            Assert.True(SolidBooleanPipeline.TopologyMatches(sBox, sBox, 0, out why), why);
+            Assert.False(SolidBooleanPipeline.TopologyMatches(sBox, sTorus, 0, out why));
+            Assert.Contains("Euler", why);
+            Assert.False(SolidBooleanPipeline.TopologyMatches(sCavity, sBox, 0, out why));
+            Assert.Contains("component count", why);
+            Assert.False(SolidBooleanPipeline.TopologyMatches(sBox, sFlipped, 0, out why));
+            Assert.Contains("volumeSign", why);
+            Assert.False(SolidBooleanPipeline.TopologyMatches(sBox, sOpen, 0, out why));
+            Assert.Contains("Euler", why);
+            // Documented removal of 1 component from a 2-component mesh must still reject if the surviving component changed genus
+            Assert.False(SolidBooleanPipeline.TopologyMatches(sCavity, sTorus, 1, out why));
+            Assert.Contains("does not match", why);
+            // Sub-multiset match where the removed component sorts BEFORE the surviving component (exercises while-loop advance)
+            var sMixed = new SolidBooleanPipeline.TopologySnapshot {
+                Components = 2, Euler = 2,
+                Parts = new[] {
+                    new SolidBooleanPipeline.TopologyComponent { Closed = true, Euler = 0, VolumeSign = 1 },
+                    new SolidBooleanPipeline.TopologyComponent { Closed = true, Euler = 2, VolumeSign = 1 }
+                }
+            };
+            Assert.True(SolidBooleanPipeline.TopologyMatches(sMixed, sBox, 1, out why), why);
+            // TopologyComponent.CompareTo discriminating strictly on Closed when Euler and VolumeSign are equal
+            var closedOne = new SolidBooleanPipeline.TopologyComponent { Closed = true, Euler = 1, VolumeSign = 0 };
+            var openOne = new SolidBooleanPipeline.TopologyComponent { Closed = false, Euler = 1, VolumeSign = 0 };
+            Assert.True(openOne.CompareTo(closedOne) < 0);
+            Assert.True(closedOne.CompareTo(openOne) > 0);
+            Assert.False(SolidBooleanPipeline.TopologyMatches(
+                new SolidBooleanPipeline.TopologySnapshot { Components = 1, Euler = 1, Parts = new[] { closedOne } },
+                new SolidBooleanPipeline.TopologySnapshot { Components = 1, Euler = 1, Parts = new[] { openOne } }, 0, out why));
+            Assert.Contains("closed", why);
+        }
+
+        [Fact]
+        public void InputIntentGuard_RefusesOutwardCavityAndEmptyAfterRounding_AllowsValidAndEmptyExact()
+        {
+            // 1. Audit F2: outer box + outward-pointing inner cavity box in one input (winding 2 inside cavity)
+            DMesh3 outerAndOutwardCavity = Cube(4);
+            DMesh3 inner = Box(new Vector3d(1, 1, 1), new Vector3d(3, 3, 3)); // outward normals -> winding +2 inside!
+            MeshEditor.Append(outerAndOutwardCavity, inner);
+            DMesh3 cutter = Box(new Vector3d(2, -1, -1), new Vector3d(5, 5, 5));
+
+            var plainF2 = new SolidBooleanPipeline(outerAndOutwardCavity, cutter, D);
+            Assert.True(plainF2.Compute(), plainF2.Error);
+            Assert.Contains(0, plainF2.Report.InputsWithWindingOutsideZeroOne);
+
+            var guardF2 = new SolidBooleanPipeline(outerAndOutwardCavity, cutter, D) { Verification = V.InputIntentGuard };
+            Assert.False(guardF2.Compute());
+            Assert.Equal(Status.VerificationFailed, guardF2.Status);
+            Assert.Null(guardF2.Result);
+            Assert.Contains("InputIntentGuard", guardF2.Error);
+            Assert.Contains("winding number outside {0, 1}", guardF2.Error);
+
+            // 2. Audit F1: Slivers produce EmptyAfterRounding -> refused by InputIntentGuard
+            var plainF1 = new SolidBooleanPipeline(Slivers(), D);
+            Assert.True(plainF1.Compute(), plainF1.Error);
+            Assert.Equal(SolidBooleanResultKind.EmptyAfterRounding, plainF1.Report.ResultKind);
+
+            var guardF1 = new SolidBooleanPipeline(Slivers(), D) { Verification = V.InputIntentGuard };
+            Assert.False(guardF1.Compute());
+            Assert.Equal(Status.VerificationFailed, guardF1.Status);
+            Assert.Null(guardF1.Result);
+            Assert.Contains("EmptyAfterRounding", guardF1.Error);
+
+            // 3. Legitimate EmptyExact (disjoint intersection) and valid solid both pass InputIntentGuard
+            var disjoint = new SolidBooleanPipeline(CubeAt(0, 1), CubeAt(5, 6), I) { Verification = V.InputIntentGuard };
+            Assert.True(disjoint.Compute(), disjoint.Status + " " + disjoint.Error);
+            Assert.Equal(SolidBooleanResultKind.EmptyExact, disjoint.Report.ResultKind);
+
+            var valid = new SolidBooleanPipeline(CubeAt(0, 4), CubeAt(1, 6), D) { Verification = V.InputIntentGuard };
+            Assert.True(valid.Compute(), valid.Status + " " + valid.Error);
+            AssertSolid(valid.Result);
+        }
+
+        [Fact]
+        public void VerificationStandard_BitIdenticalToNone_DeterministicAndReusable()
+        {
+            Assert.Equal(V.NoInventedSurface | V.RoundingVolume | V.ExactQuantities | V.TopologyPreservation, V.Standard);
+
+            var spA = Sphere(Vector3d.Zero, 1.0, 5);
+            var spB = Sphere(new Vector3d(0.6, 0.25, 0.125), 1.0, 5);
+
+            var none = new SolidBooleanPipeline(spA, spB, U) { TargetFraction = 0.5 };
+            Assert.True(none.Compute(), none.Error);
+
+            var std = new SolidBooleanPipeline(spA, spB, U) { TargetFraction = 0.5, Verification = V.Standard };
+            Assert.True(std.Compute(), std.Status + " " + std.Error);
+            AssertSolid(std.Result);
+            Assert.Equal("", Invariance.Difference(none.Result, std.Result));
+            Assert.Equal(1, std.Report.ExactComponents);
+            Assert.Equal(2, std.Report.ExactEulerCharacteristic);
+            Assert.Equal(1, std.Report.ReducedComponents);
+            Assert.Equal(2, std.Report.ReducedEulerCharacteristic);
+            Assert.True(std.Report.ExactVolumeMin > 0 && std.Report.ExactVolumeMin <= std.Report.ExactVolumeMax);
+            Assert.True(std.Report.ExactAreaMin > 0 && std.Report.ExactAreaMin <= std.Report.ExactAreaMax);
+
+            // Serial vs parallel bit-identical result and report fields
+            var serial = new SolidBooleanPipeline(spA, spB, U) { TargetFraction = 0.5, Verification = V.Standard };
+            gParallel.SerialOnThisThread = true;
+            try { Assert.True(serial.Compute(), serial.Error); } finally { gParallel.SerialOnThisThread = false; }
+            Assert.Equal("", Invariance.Difference(std.Result, serial.Result));
+            Assert.True(Same(std.Report.ExactVolumeMin, serial.Report.ExactVolumeMin));
+            Assert.True(Same(std.Report.ExactVolumeMax, serial.Report.ExactVolumeMax));
+            Assert.True(Same(std.Report.ExactAreaMin, serial.Report.ExactAreaMin));
+            Assert.True(Same(std.Report.ExactAreaMax, serial.Report.ExactAreaMax));
+
+            // Reuse: toggling Verification off on the same instance resets all new report fields to 0
+            std.Verification = V.None;
+            Assert.True(std.Compute(), std.Error);
+            Assert.Equal("", Invariance.Difference(none.Result, std.Result));
+            Assert.Equal(0.0, std.Report.ExactVolumeMin);
+            Assert.Equal(0.0, std.Report.ExactVolumeMax);
+            Assert.Equal(0.0, std.Report.ExactAreaMin);
+            Assert.Equal(0.0, std.Report.ExactAreaMax);
+            Assert.Equal(0, std.Report.ExactComponents);
+            Assert.Equal(0, std.Report.ExactEulerCharacteristic);
+            Assert.Equal(0, std.Report.RoundedComponents);
+            Assert.Equal(0, std.Report.RoundedEulerCharacteristic);
+            Assert.Equal(0, std.Report.ReducedComponents);
+            Assert.Equal(0, std.Report.ReducedEulerCharacteristic);
+        }
+
+        [Fact]
+        public void ExactQuantities_ExactFallbackAgreesWithFastPath_AndHandlesDistantDisjointSolids()
+        {
+            // Fast path vs exact BigInteger fallback must overlap tightly on curved spheres
+            var spA = Sphere(Vector3d.Zero, 1.0, 5);
+            var spB = Sphere(new Vector3d(0.6, 0.25, 0.125), 1.0, 5);
+            var eb = new ExactMeshBoolean(spA, spB, U) { RecordCertificate = true };
+            Assert.True(eb.Compute(), eb.Error);
+            double fvLo, fvHi, faLo, faHi, evLo, evHi, eaLo, eaHi;
+            Assert.True(SolidBooleanPipeline.ComputeExactQuantities(eb, out fvLo, out fvHi, out faLo, out faHi, false));
+            Assert.True(SolidBooleanPipeline.ComputeExactQuantities(eb, out evLo, out evHi, out eaLo, out eaHi, true));
+            Assert.True(fvLo <= evHi && evLo <= fvHi, $"volume intervals disjoint: [{fvLo:R},{fvHi:R}] vs [{evLo:R},{evHi:R}]");
+            Assert.True(faLo <= eaHi && eaLo <= faHi, $"area intervals disjoint: [{faLo:R},{faHi:R}] vs [{eaLo:R},{eaHi:R}]");
+            Assert.True(evHi - evLo < 1e-11 * Math.Abs(evLo));
+            Assert.True(eaHi - eaLo < 1e-11 * Math.Abs(eaLo));
+
+            // Two small unit boxes 1e6 apart: Difference keeps only the far box; local-origin shift keeps interval < 1e-11
+            var farA = Box(new Vector3d(1e6, 1e6, 1e6), new Vector3d(1e6 + 1, 1e6 + 1, 1e6 + 1));
+            var nearB = Box(Vector3d.Zero, new Vector3d(1, 1, 1));
+            var farDiff = new SolidBooleanPipeline(farA, nearB, D) { Verification = V.ExactQuantities };
+            Assert.True(farDiff.Compute(), farDiff.Status + " " + farDiff.Error);
+            AssertSolid(farDiff.Result);
+            Assert.True(farDiff.Report.ExactVolumeMin <= 1.0 && 1.0 <= farDiff.Report.ExactVolumeMax);
+            Assert.True(farDiff.Report.ExactAreaMin <= 6.0 && 6.0 <= farDiff.Report.ExactAreaMax);
+            Assert.True(farDiff.Report.ExactVolumeMax - farDiff.Report.ExactVolumeMin < 1e-11);
+            Assert.True(farDiff.Report.ExactAreaMax - farDiff.Report.ExactAreaMin < 1e-11);
+
+            // Distant multi-component Union: Box(0,1) U Box(1e5, 1e5+1) (clean under NotCleanReason) and 1e8 separation (where global-center MeasureInput fails by ~1e7!)
+            var farUnion = new SolidBooleanPipeline(
+                Box(Vector3d.Zero, new Vector3d(1, 1, 1)),
+                Box(new Vector3d(1e5, 1e5, 1e5), new Vector3d(1e5 + 1, 1e5 + 1, 1e5 + 1)), U) {
+                Verification = V.ExactQuantities | V.TopologyPreservation
+            };
+            Assert.True(farUnion.Compute(), farUnion.Status + " " + farUnion.Error);
+            AssertSolid(farUnion.Result);
+            Assert.True(farUnion.Report.ExactVolumeMin <= 2.0 && 2.0 <= farUnion.Report.ExactVolumeMax,
+                $"distant union 1e5: 2 not in [{farUnion.Report.ExactVolumeMin:R}, {farUnion.Report.ExactVolumeMax:R}]");
+            Assert.True(farUnion.Report.ExactAreaMin <= 12.0 && 12.0 <= farUnion.Report.ExactAreaMax);
+            Assert.True(farUnion.Report.ExactVolumeMax - farUnion.Report.ExactVolumeMin < 1e-11 * 2.0);
+            Assert.Equal(2, farUnion.Report.ExactComponents);
+            Assert.Equal(4, farUnion.Report.ExactEulerCharacteristic);
+
+            var farUnion1e8 = new SolidBooleanPipeline(
+                Box(Vector3d.Zero, new Vector3d(1, 1, 1)),
+                Box(new Vector3d(1e8, 1e8, 1e8), new Vector3d(1e8 + 1, 1e8 + 1, 1e8 + 1)), U) {
+                Verification = V.ExactQuantities | V.TopologyPreservation
+            };
+            Assert.True(farUnion1e8.Compute(), farUnion1e8.Status + " " + farUnion1e8.Error);
+            Assert.True(farUnion1e8.Report.ExactVolumeMin <= 2.0 && 2.0 <= farUnion1e8.Report.ExactVolumeMax,
+                $"distant union 1e8: 2 not in [{farUnion1e8.Report.ExactVolumeMin:R}, {farUnion1e8.Report.ExactVolumeMax:R}]");
+            Assert.True(farUnion1e8.Report.ExactVolumeMax - farUnion1e8.Report.ExactVolumeMin < 1e-11 * 2.0);
+            Assert.Equal(2.0, SolidBooleanPipeline.ComponentShiftedVolume(farUnion1e8.Result), 12);
+        }
+
+        [Fact]
+        public void VerificationV2_BoundaryCases_EmptySubnormalClampAndReportOnly()
+        {
+            // 1. EmptyExact under ExactQuantities | TopologyPreservation
+            var emptyExact = new SolidBooleanPipeline(CubeAt(0, 1), CubeAt(5, 6), I) {
+                Verification = V.ExactQuantities | V.TopologyPreservation
+            };
+            Assert.True(emptyExact.Compute(), emptyExact.Status + " " + emptyExact.Error);
+            Assert.Equal(0.0, emptyExact.Report.ExactVolumeMin);
+            Assert.Equal(0.0, emptyExact.Report.ExactAreaMax);
+            Assert.Equal(0, emptyExact.Report.ExactComponents);
+
+            // 2. ThinInputs = TreatAsEmpty early exit (emptyResult without running boolean)
+            var thinEmpty = new SolidBooleanPipeline(Box(Vector3d.Zero, new Vector3d(1, 1, 1e-4)), Cube(2), I) {
+                MinThickness = 0.01, ThinInputs = SolidBooleanPipeline.ThinInputModes.TreatAsEmpty,
+                Verification = V.ExactQuantities | V.TopologyPreservation
+            };
+            Assert.True(thinEmpty.Compute(), thinEmpty.Status + " " + thinEmpty.Error);
+            Assert.Equal(0, thinEmpty.Result.TriangleCount);
+            Assert.Equal(0.0, thinEmpty.Report.ExactVolumeMin);
+            Assert.Equal(0, thinEmpty.Report.ExactComponents);
+
+            // 3. Report-only (MaxRoundingVolumeChange = PositiveInfinity) passes Plates() under ExactQuantities
+            var platesReportOnly = new SolidBooleanPipeline(Plates(), U) {
+                Verification = V.ExactQuantities, MaxRoundingVolumeChange = Inf
+            };
+            Assert.True(platesReportOnly.Compute(), platesReportOnly.Status + " " + platesReportOnly.Error);
+            AssertSolid(platesReportOnly.Result);
+            Assert.True(platesReportOnly.Report.ExactVolumeMin > 0 && platesReportOnly.Report.ExactVolumeMin <= platesReportOnly.Report.ExactVolumeMax);
+
+            // 4. Helper edge cases: CeilLog2 (subnormal + normal + MaxValue), ClampExp, null/non-finite inputs, ComponentShiftedVolume with unused vertex
+            Assert.Equal(-1073, SolidBooleanPipeline.CeilLog2(double.Epsilon));
+            Assert.Equal(-1070, SolidBooleanPipeline.CeilLog2(8.0 * double.Epsilon));
+            Assert.Equal(1, SolidBooleanPipeline.CeilLog2(1.0));
+            Assert.Equal(1024, SolidBooleanPipeline.CeilLog2(double.MaxValue));
+            Assert.Equal(-4096, SolidBooleanPipeline.ClampExp(-10000));
+            Assert.Equal(4096, SolidBooleanPipeline.ClampExp(10000));
+            Assert.Equal(42, SolidBooleanPipeline.ClampExp(42));
+            Assert.Equal(0, SolidBooleanPipeline.MeasureTopology(null).Components);
+            Assert.Equal(0.0, SolidBooleanPipeline.ComponentShiftedVolume(null));
+            double v0, v1, a0, a1;
+            Assert.False(SolidBooleanPipeline.ComputeExactQuantities(null, out v0, out v1, out a0, out a1));
+            // Unused vertex at 1e150 must not affect ComponentShiftedVolume
+            DMesh3 boxWithUnused = Cube(2);
+            boxWithUnused.AppendVertex(new Vector3d(1e150, 1e150, 1e150));
+            Assert.Equal(8.0, SolidBooleanPipeline.ComponentShiftedVolume(boxWithUnused), 12);
+            // Non-finite vertex produces VolumeSign == 0 in MeasureTopology without throwing
+            DMesh3 badMesh = Cube(2);
+            badMesh.SetVertex(0, new Vector3d(double.NaN, 0, 0));
+            var badTopo = SolidBooleanPipeline.MeasureTopology(badMesh);
+            Assert.Equal(1, badTopo.Components);
+            Assert.Equal(0, badTopo.Parts[0].VolumeSign);
         }
     }
 

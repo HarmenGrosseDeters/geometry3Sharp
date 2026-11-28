@@ -6,7 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/SolidBooleanPipeline.cs{118128..147238}"
+      "**/mesh_ops/SolidBooleanPipeline.cs{124812..153922}"
     ],
     "test-case-filter": "FullyQualifiedName~SolidBooleanPipelineTests.|FullyQualifiedName~SolidBooleanPairContactsTests|FullyQualifiedName~SolidBooleanPipelinePropertyTests|FullyQualifiedName~SolidBooleanPipelineInputGridTests|FullyQualifiedName~SolidBooleanPipelineThinSolidTests|FullyQualifiedName~SolidBooleanPipelineThinInputTests|FullyQualifiedName~ExactBooleanOrientationNestingTests.Pipeline_|FullyQualifiedName~SolidBooleanPipelineSheetTests|FullyQualifiedName~SolidBooleanPipelineGridStepTests|FullyQualifiedName~SolidBooleanPipelineCavityOwnerTests|FullyQualifiedName~SolidBooleanPipelineFinalCheckTests|FullyQualifiedName~InsideOutAdviceTests|FullyQualifiedName~InsideOutAdviceInternalTests|FullyQualifiedName~RepairSelfIntersectionTests|FullyQualifiedName~SolidBooleanPipelineThinInsideOutTests|FullyQualifiedName~SolidBooleanPipelineInsideOutPerInputTests|FullyQualifiedName~SolidBooleanPipelineInsideOutExtentTests|FullyQualifiedName~SolidBooleanPipelineThinInsideOutReportTests|FullyQualifiedName~SolidBooleanPipelineResultKindTests|FullyQualifiedName~SolidBooleanPipelineRobustRefusalTests|FullyQualifiedName~SolidBooleanPipelineSelfContactTests|FullyQualifiedName~SolidBooleanPipelineVerificationTests|FullyQualifiedName~SolidBooleanPipelineGridAfterRoundingTests|FullyQualifiedName~SolidBooleanPipelineGridBeforeFallbackTests|FullyQualifiedName~SolidBooleanPipelineGridBeforeFallbackEnumTests|FullyQualifiedName~SolidBooleanPipelineInventedSurfaceHoleTests",
     "coverage-analysis": "perTest",

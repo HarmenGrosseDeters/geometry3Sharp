@@ -1354,6 +1354,33 @@ namespace geometry3Sharp.Tests
                 dup.Keep = dup.Keep.Concat(new[] { true }).ToArray();
                 dup.Flip = dup.Flip.Concat(new[] { dup.Flip[keptIdx] }).ToArray();
                 Assert.NotEqual("", dup.CheckResult());
+
+                // Seeded mutant 4: 3-distinct-vertex collinear degenerate triangle injected identically into both E and E_s must NOT cancel silently
+                BooleanCertificate col = BooleanCertificate.From(eb);
+                col.Assembled = new DMesh3(col.Assembled, false, MeshComponents.None);
+                ExactPoint3 g0 = ExactPoint3.FromInteger(0, 0, 0), g1 = ExactPoint3.FromInteger(1, 0, 0), g2 = ExactPoint3.FromInteger(2, 0, 0);
+                // Convert grid collinear points to input coords via the same Center / ScaleExp
+                ExactPoint3 GridToIn(ExactPoint3 g) {
+                    BigInteger x = g.X + col.Center[0] * g.W, y = g.Y + col.Center[1] * g.W, z = g.Z + col.Center[2] * g.W, w = g.W;
+                    if (col.ScaleExp >= 0) { x <<= col.ScaleExp; y <<= col.ScaleExp; z <<= col.ScaleExp; }
+                    else w <<= -col.ScaleExp;
+                    return ExactPoint3.Create(x, y, z, w);
+                }
+                col.PieceMesh = col.PieceMesh.Concat(new[] { col.PieceMesh[keptIdx] }).ToArray();
+                col.PieceSource = col.PieceSource.Concat(new[] { col.PieceSource[keptIdx] }).ToArray();
+                col.PieceCorners = col.PieceCorners.Concat(new[] { new[] { g0, g1, g2 } }).ToArray();
+                col.Front = col.Front.Concat(new[] { col.Front[keptIdx] }).ToArray();
+                col.Keep = col.Keep.Concat(new[] { true }).ToArray();
+                col.Flip = col.Flip.Concat(new[] { false }).ToArray();
+                int c0 = col.Assembled.AppendVertex(Vector3d.Zero);
+                int c1 = col.Assembled.AppendVertex(new Vector3d(1, 0, 0));
+                int c2 = col.Assembled.AppendVertex(new Vector3d(2, 0, 0));
+                var colEx = col.AssembledExact.ToList();
+                while (colEx.Count <= c2) colEx.Add(default(ExactPoint3));
+                colEx[c0] = GridToIn(g0); colEx[c1] = GridToIn(g1); colEx[c2] = GridToIn(g2);
+                col.AssembledExact = colEx.ToArray();
+                col.Assembled.AppendTriangle(c0, c1, c2);
+                Assert.Contains("is degenerate", col.CheckResult());
             }
         }
 
