@@ -875,3 +875,120 @@ nonempty disk); p is not a box corner, by (R0). ∎
 - **I5.** Theorem B, perturbed: orthogonal spheres, and route (a) does not transfer.
 - **N1-N4.** The stale statements of 14.1, 14.4 and 14.6 are marked; the (E') count is per site triple (14.4 note); the
   conventions are stated; any increasing exponents of ε do.
+
+### 14.9 Stage 1b, PR B: the incremental clipping (the statements the code relies on)
+
+Status: written with PR B (2026-11-28), for review with the code (`mesh_ops/ExactRestrictedVoronoi.cs`,
+`mesh_ops/RestrictedDelaunayRefinement.cs`). Notation of 14.8: P the sites of a prefix of the run, V(s) the closed power
+cell of s in P, π_s(x) = |x − s|² − w_s, and H(s, p) = {x : π_s(x) ≤ π_p(x)}. P' = P ∪ {p} after an accepted insertion. All
+statements are for 0 < ε < ε0. ε0 is taken as in Lemma P1, over the finitely many prefixes of the run (each prefix is a
+finite site set, so (b) and (d) of P1 hold for each one with its own ε_k), plus the margins of Lemma R. The sites are
+distinct: `Insert` refuses a point closer than h_min to a vertex, and an equal point as `TooClose`.
+
+**Clipping (what the code computes).** For a site i and a triangle t, the piece t ∩ V(i) is computed as t clipped by the
+half-spaces H(i, j) of i's Delaunay neighbours j, which is V(i) by 14.8 (c). Each polygon edge carries its supporting
+element: an edge of t, or bisector(i, j). Each vertex is the meeting point of its two edges, with the key of its kind:
+
+- a mesh vertex (two edges of t);
+- (e, j) for mesh edge e and bisector(i, j);
+- (t, {j, l}) for two bisectors.
+
+The side of bisector(i, j) at a vertex is `Side1`, `Side2` or `Side3` of `ExactBisectorSoS`.
+
+**Lemma Z (no zero side; the obligation of 14.8 (a)).** Every side test of the clipping is at a point that exists, so it
+is never 0. Every piece is empty or a polygon with at least three vertices and nonempty relative interior.
+*Proof.* A mesh vertex exists, and `Side1` ends at ±1. A kind-2 point is made only on a polygon edge on mesh edge e,
+between two vertices whose sides of bisector(i, j) are strictly opposite. The perturbed π_i − π_j is affine along the line
+of e. If d = 2 (p_j − p_i)·(q1 − q0) were 0, it would be constant there and the two signs equal. So d ≠ 0, the point
+exists, and every later `Side2` at it is nonzero by Lemma S1 (BISECTOR_PREDICATES.md section 3). A kind-3 point is made
+only on a polygon edge on bisector(i, l) in plane(t), between strictly opposite sides of bisector(i, j). The same argument
+on that line gives det ≠ 0, so every later `Side3` is nonzero. With no vertex on a clipping line, a nonempty result of the
+clipping cannot be a point or a segment: its ends would be vertices on a clipping line. ∎
+The code throws if a side is 0 (`side`). The tests check that `Side2` and `Side3` were called and that nothing was thrown.
+
+**Lemma U (the cut lemma; insertion only).** Let p be inserted.
+
+1. Every old site j has V'(j) = V(j) ∩ H(j, p).
+2. If V'(j) ≠ V(j), then j is a Delaunay neighbour of p in P'.
+3. t ∩ V'(p) ≠ ∅ only if, for some neighbour j of p, a vertex of the old piece t ∩ V(j) lies strictly on p's side of
+   bisector(j, p).
+
+*Proof.* (1) V'(j) is the set where π_j is smallest over P', that is V(j) intersected with the one new half-space.
+(2) If H(j, p) cuts V(j), the plane π_j = π_p meets V(j) on both sides. By 14.8 (d), the site j itself is interior to
+V(j) and has π_j(j) < π_p(j). And there is a point of V(j) with π_p < π_j. So the plane meets the interior of the convex
+polytope V(j), in a 2-face that V'(j) and V'(p) share. By duality under general position (14.8 (b), (c)), j and p are
+adjacent in the regular triangulation of P'.
+(3) By Lemma Z for P', a nonempty t ∩ V'(p) has relative interior. Pick a point x in it off the finitely many old cell
+boundaries; then x is interior to some old piece t ∩ V(j) with π_p(x) < π_j(x). π_j − π_p is affine, so its minimum over
+the convex old piece is at a vertex, where it is negative. That vertex has strict signs (Lemma Z). The cut is
+nonempty, so j is a neighbour by (2). ∎
+
+So the update is exact. The neighbours of p are the vertices of `Insert`'s added cells. Each of their stored pieces is
+clipped by bisector(j, p) only (1). The pieces of other sites stay (2). p's cell is clipped on the triangles where a
+neighbour's piece had a vertex on p's side (3).
+
+**Lemma R (the skip radius).** Let R = max over the vertices v of t of |v − p_i|. If |p_j − p_i| > 2R, bisector(i, j)
+cuts nothing of t ∩ V(i).
+*Proof.* For x ∈ t, |x − p_i| ≤ R (the distance is convex, so its maximum on t is at a vertex). Then
+|x − p_j| ≥ |p_j − p_i| − |x − p_i| > R ≥ |x − p_i|. On the compact t this gives
+|x − p_j|² − |x − p_i|² ≥ δ = (|p_j − p_i| − 2R) · |p_j − p_i| > 0. Indeed with a = |x − p_i| ≤ R and
+D = |p_j − p_i|, (D − a)² − a² = D (D − 2a) ≥ D (D − 2R). δ depends on the input only, so the perturbed
+π_j − π_i ≥ δ − w_j + w_i > 0 for ε < ε0 (one more of the finitely many conditions). No point of t is on j's side. ∎
+
+*The float test* (`skip`): skip iff R̂² ≥ 2^-960, d̂² is finite and d̂² > 4 R̂² (1 + 2^-40), where d̂², R̂² are the double
+evaluations of |p_j − p_i|² and max_v |v − p_i|² (three differences, three squares, two additions, left to right; no FMA,
+which is banned in the file).
+
+*Rounding bound.* In the normal range each of the nonnegative sums has relative error at most γ5 = 5u / (1 − 5u),
+u = 2^-53 (Higham, Accuracy and Stability of Numerical Algorithms, Lemma 3.1 and section 3.1: a difference, a product and
+two additions of nonnegative terms). A term below the normal range adds an absolute error of at most 2^-1074, so at most
+3 · 2^-1074 for the sum. Against R̂² ≥ 2^-960 that is a relative 2^-112. The maximum of three values, each within these
+bounds of its exact value, is within them of the exact maximum. So the exact values satisfy
+R² ≤ R̂² (1 + γ5 + 2^-112), and d² ≥ d̂² (1 − γ5 − 2^-112), since d̂² > 4 R̂² is normal too. The test gives
+d² > 4 R² (1 + 2^-40)(1 − γ5 − 2^-112) / (1 + γ5 + 2^-112) > 4 R², since 2^-40 > 3 (γ5 + 2^-112). A test that fails
+(underflow, overflow, or a margin it cannot prove) only clips, which is always correct. ∎
+
+**Lemma F (restricted facets from the clipping).** A facet pqr of the regular triangulation of P is restricted (its dual
+power edge e_pqr meets S) iff some piece t ∩ V(p) has a kind-3 vertex with the key (t, {q, r}). The number of such
+triangles t is |e_pqr ∩ S|. The same keys appear in the pieces of q and r.
+*Proof.* (⇒) Let x ∈ e_pqr ∩ S. By (G3), x is interior to one triangle t, and the line of e_pqr is not in plane(t). x is in
+V(p) on bisector(p, q) and bisector(p, r) and on no other bisector of p (G1). So in plane(t), x is the meeting point of two
+supporting lines of the convex polygon t ∩ V(p), on its boundary. That makes x a vertex, between the edges labelled q and
+r, with the key (t, {q, r}).
+(⇐) Such a vertex is the point x of bisector(p, q), bisector(p, r) and plane(t), with det ≠ 0 (Lemma Z). It lies in t,
+and in V(p) as a vertex of the piece. π_p = π_q = π_r there, so x ∈ V(q) ∩ V(r) too, a point of e_pqr ∩ S. By (G1) the
+three cells at x are exactly those of p, q and r, so pqr is a Delaunay facet.
+Distinct points of e_pqr ∩ S lie in distinct triangles (G3) and give distinct keys. The argument is symmetric in p, q and
+r. ∎
+So the (E') count of a triple is taken in the cell of its smallest site only (`facetPoints`), the facets of D are the
+triples with a count, and their surface Delaunay ball centres are these points. The spike's dual-edge test (circumcentres,
+an AABB ray query) is not needed.
+
+**Lemma K (the counts of (C') and (F') as implemented).** Under (G), the pieces of V(p), with their edges and vertices
+identified by key, form a cell decomposition of S ∩ V(p):
+
+- a mesh vertex in V(p) is in the pieces of all its triangles;
+- a kind-2 point and a mesh-edge segment are in the pieces of both triangles of their edge;
+- a kind-3 point and a bisector edge are in one piece.
+
+The code counts each vertex and each mesh-edge segment once, in the piece of its smallest triangle; it counts every
+bisector edge, and every piece as a face. Then χ = V − E + F, and the components are joined through shared mesh-edge
+segments. Pieces around a mesh vertex in V(p) are consecutive and share edges, so a vertex-only contact does not occur.
+Lemma 1 then decides (C'): one component and χ = 1.
+
+For (F'), S ∩ F_pq is the union of the bisector-q edges of p's pieces, a compact 1-manifold (G4). Each triangle has at most
+one such edge (the piece is convex). A kind-2 end is shared with the edge of the other triangle of its mesh edge; a kind-3
+end is an end of the curve. So S ∩ F_pq is one arc iff these edges form one component with nodes − edges = 1. ∎
+
+**The refinement driver (what changed against the spike).**
+
+- **Queue.** The facet rules R0, (E'), R2 (the ball) and R3 run in a queue keyed by the float squared radius of the
+  farthest point, ties by the triple. The cell rules R0, (C'), (F') and R2 (the cell) run in rounds over the cells
+  changed since the last round, which the probe measured as cut_lazy. Neither changes a proof: every check is decided at
+  the end on the final state (`final_check`), and only the order of insertions depends on the keys.
+- **Initial sample.** The input vertices in id order, skipping those within 4 r_max of an earlier choice along the mesh
+  (a breadth-first search through vertices within that distance), then `Insert` with separation 4 r_max. This replaces
+  trying `Insert` on every vertex, which cost two thirds of the run on the sphere (refused insertions of nearly
+  cospherical points reach the BigInteger in-sphere test). Theorem C needs only an h-separated set of input vertices.
+- **Output orientation.** Each facet pqr takes the orientation of the triangle t of its point, by `DetSitesNormal(p, q, r;
+  t)`. Its sign is that of det ≠ 0 (Lemma Z).

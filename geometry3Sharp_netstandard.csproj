@@ -75,6 +75,8 @@
     <InternalsVisibleTo Include="SheetExtensionProbe" />
     <!-- predicate counts of the self-intersection checks (benchmarks/SelfIntersectionBenchmark) -->
     <InternalsVisibleTo Include="SelfIntersectionBenchmark" />
+    <!-- the exact bisector predicates and the restricted Delaunay refinement (benchmarks/RestrictedDelaunaySpike) -->
+    <InternalsVisibleTo Include="RestrictedDelaunaySpike" />
     <!-- the internal variants and diagnostics of RemeshQualityPass (benchmarks/RemeshQualityBenchmark post=) -->
     <InternalsVisibleTo Include="RemeshQualityBenchmark" />
     <!-- the doubling series of coplanar fans with RegionClipping (benchmarks/CoplanarRegionClipping, #1630) -->

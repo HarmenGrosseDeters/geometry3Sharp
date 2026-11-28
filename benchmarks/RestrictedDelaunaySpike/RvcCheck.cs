@@ -25,6 +25,9 @@ namespace RestrictedDelaunaySpike
         }
 
         public readonly Dictionary<int, Cell> Cells = new Dictionary<int, Cell>();
+        /// <summary> per sample: the input triangles its cell meets (RvcIncremental's seed) </summary>
+        public readonly Dictionary<int, List<int>> TriLists = new Dictionary<int, List<int>>();
+        public Dictionary<int, List<int>> ComputeTriangleLists() { Compute(); return TriLists; }
         public double Seconds;
         public long Clips, ClipsSkippedBySecurityRadius;
 
@@ -160,6 +163,8 @@ namespace RestrictedDelaunaySpike
                 pieceParent[i] = new List<int>();
             }
             int piece = cell.Pieces++;
+            if (!TriLists.TryGetValue(i, out var tl)) TriLists[i] = tl = new List<int>();
+            tl.Add(t);
             var par = pieceParent[i];
             par.Add(piece);
             cell.Area += area;
