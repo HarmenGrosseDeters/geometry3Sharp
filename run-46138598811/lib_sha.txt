@@ -1,0 +1,7 @@
+2959dfaa04df6bfcbcacfe255a278587b6cf3a70
+2959dfaa04df6bfcbcacfe255a278587b6cf3a70
+4
+Version: 6.1.1-2
+Version: 3.0.1
+geogram 1.10.2 commit 16440c45c6ec5015b50f4a430c5ea1a300c2542f, built with GEOGRAM_WITH_TRIANGLE=OFF GEOGRAM_WITH_TETGEN=OFF, threads 4
+threads all
