@@ -149,12 +149,19 @@ namespace geometry3Sharp.Tests
         {
             BooleanVolumeGradient g = Run(Fx.Unit(), BooleanFuzzShapes.Box(0.5, 0.25, 0.5, 1.5, 0.75, 1), Ops.Union, out ExactMeshBoolean b);
             string first = Bits(g);
+            int firstUncut = g.UncutFastCount;
+            bool firstFastVol = g.FastVolumeUsed;
+            Assert.True(firstUncut > 0 && firstFastVol);
             Assert.True(g.Compute(), g.Error);
             Assert.Equal(first, Bits(g));
+            Assert.Equal(firstUncut, g.UncutFastCount);
+            Assert.Equal(firstFastVol, g.FastVolumeUsed);
             // and after the boolean is computed again
             Assert.True(b.Compute());
             Assert.True(g.Compute(), g.Error);
             Assert.Equal(first, Bits(g));
+            Assert.Equal(firstUncut, g.UncutFastCount);
+            Assert.Equal(firstFastVol, g.FastVolumeUsed);
         }
 
         [Fact]
@@ -473,6 +480,304 @@ namespace geometry3Sharp.Tests
                 Assert.True(Contains(y, BigRational.Of(x.Lo) * BooleanGradient.Pow2(k)) && Contains(y, BigRational.Of(x.Hi) * BooleanGradient.Pow2(k)), $"k={k}: [{y.Lo:R}, {y.Hi:R}]");
             }
             Assert.Equal(new ExactInterval(6, 2 * ExactInterval.Up(3)).Hi, BooleanVolumeGradient.scale(x, 1).Hi);    // (exact where it can be)
+        }
+
+        [Fact]
+        public void UncutFastPath_EngagesForNormalAndFlippedUncutFaces_AndMatchesExactOracle()
+        {
+            // Hollow box: B strictly inside A -> A \ B has 12 unflipped uncut faces (A) + 12 flipped uncut faces (B)
+            DMesh3 outer = BooleanFuzzShapes.Box(0, 0, 0, 4, 4, 4);
+            DMesh3 inner = BooleanFuzzShapes.Box(1, 1, 1, 2, 2, 2);
+            BooleanVolumeGradient hollow = Run(outer, inner, Ops.Difference);
+            Assert.True(hollow.FastVolumeUsed);
+            Assert.Equal(24, hollow.UncutFastCount);
+            BooleanGradient exactHollow = BooleanGradient.Compute(outer, inner, Ops.Difference, area: false);
+            Assert.True(Within(hollow.Volume, hollow.VolumeBound, exactHollow.Volume), $"volume {hollow.Volume} +- {hollow.VolumeBound}");
+            Assert.True(hollow.VolumeBound <= 1e-14 * Math.Abs(hollow.Volume));
+            for (int m = 0; m < 2; ++m) {
+                DMesh3 mesh = m == 0 ? outer : inner;
+                foreach (int v in mesh.VertexIndices()) {
+                    BigRational[] ex = exactHollow.VolumeGradientAt(m, v);
+                    for (int k = 0; k < 3; ++k)
+                        Assert.True(Within(hollow.Gradient[m][v][k], hollow.GradientBound[m][v][k], ex[k]),
+                            $"hollow m={m} v={v} k={k}: {hollow.Gradient[m][v][k]:R} +- {hollow.GradientBound[m][v][k]:R}");
+                }
+            }
+
+            // UTM-shifted rotated boxes: both uncut and cut pieces far from origin
+            Vector3d utm = new Vector3d(500000.0, 5000000.0, 100.0);
+            DMesh3 ua = BooleanFuzzShapes.Map(Fx.Unit(), p => p + utm);
+            DMesh3 ub = BooleanFuzzShapes.Map(Fx.RotatedBox(), p => p + utm);
+            BooleanVolumeGradient ug = Run(ua, ub, Ops.Difference);
+            Assert.True(ug.FastVolumeUsed);
+            Assert.True(ug.UncutFastCount > 0);
+            BooleanGradient exactUtm = BooleanGradient.Compute(ua, ub, Ops.Difference, area: false);
+            Assert.True(Within(ug.Volume, ug.VolumeBound, exactUtm.Volume), $"utm volume {ug.Volume:R} +- {ug.VolumeBound:R}");
+            Assert.True(ug.VolumeBound <= 1e-14 * Math.Max(1, Math.Abs(ug.Volume)), $"utm vol bound {ug.VolumeBound:E2}");
+            for (int m = 0; m < 2; ++m) {
+                DMesh3 mesh = m == 0 ? ua : ub;
+                foreach (int v in mesh.VertexIndices()) {
+                    BigRational[] ex = exactUtm.VolumeGradientAt(m, v);
+                    for (int k = 0; k < 3; ++k) {
+                        Assert.True(Within(ug.Gradient[m][v][k], ug.GradientBound[m][v][k], ex[k]), $"utm m={m} v={v} k={k}");
+                        Assert.True(ug.GradientBound[m][v][k] <= 1e-13 * Math.Max(1, Math.Abs(ug.Gradient[m][v][k])));
+                    }
+                }
+            }
+
+            // Intersecting spheres: most pieces uncut, inclusion-exclusion V(A u B) + V(A n B) == V(A) + V(B)
+            DMesh3 sa = new Sphere3Generator_NormalizedCube { Radius = 1.0, EdgeVertices = 6 }.Generate().MakeDMesh();
+            DMesh3 sb = new Sphere3Generator_NormalizedCube { Radius = 0.85, EdgeVertices = 6 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(sb, new Vector3d(0.6, 0.2, 0.1));
+            BooleanVolumeGradient gu = Run(sa, sb, Ops.Union);
+            BooleanVolumeGradient gi = Run(sa, sb, Ops.Intersection);
+            BooleanVolumeGradient gd = Run(sa, sb, Ops.Difference);
+            Assert.True(gu.FastVolumeUsed && gi.FastVolumeUsed && gd.FastVolumeUsed);
+            Assert.True(gu.UncutFastCount > 0 && gi.UncutFastCount > 0 && gd.UncutFastCount > 0);
+            // V(A u B) - V(A \ B) == V(B) and V(A n B) + V(A \ B) == V(A)
+            double volA = MeshMeasurements.VolumeArea(sa, sa.TriangleIndices(), sa.GetVertex).x;
+            double volB = MeshMeasurements.VolumeArea(sb, sb.TriangleIndices(), sb.GetVertex).x;
+            Assert.True(Math.Abs((gu.Volume - gd.Volume) - volB) <= gu.VolumeBound + gd.VolumeBound + 1e-12);
+            Assert.True(Math.Abs((gi.Volume + gd.Volume) - volA) <= gi.VolumeBound + gd.VolumeBound + 1e-12);
+            // Inclusion-exclusion on sphere A's gradient: dV(A n B)/dx_A + dV(A \ B)/dx_A == dV(A)/dx_A
+            var singleGradA = new Vector3d[sa.MaxVertexID];
+            foreach (int tid in sa.TriangleIndices()) {
+                Index3i t = sa.GetTriangle(tid);
+                Vector3d v0 = sa.GetVertex(t.a), v1 = sa.GetVertex(t.b), v2 = sa.GetVertex(t.c);
+                Vector3d gTri = (v1 - v0).Cross(v2 - v0) / 6.0;
+                singleGradA[t.a] += gTri;
+                singleGradA[t.b] += gTri;
+                singleGradA[t.c] += gTri;
+            }
+            foreach (int v in sa.VertexIndices()) {
+                Vector3d sum = gi.Gradient[0][v] + gd.Gradient[0][v];
+                Assert.True((sum - singleGradA[v]).MaxAbs <= gi.GradientBound[0][v].MaxAbs + gd.GradientBound[0][v].MaxAbs + 1e-12,
+                    $"sphere A vertex {v}: {sum} vs {singleGradA[v]}");
+            }
+            foreach (var g in new[] { gu, gi, gd })
+                for (int m = 0; m < 2; ++m)
+                    for (int v = 0; v < g.Gradient[m].Length; ++v)
+                        Assert.True(g.GradientBound[m][v].MaxAbs <= 1e-12);
+
+            // Reused instance: failed Compute() after a succeeded Compute() resets UncutFastCount and FastVolumeUsed
+            var reusedBool = new ExactMeshBoolean(Fx.Unit(), Fx.ShiftedBox(), Ops.Union) { RetainClassification = true };
+            Assert.True(reusedBool.Compute(), reusedBool.Error);
+            var reusedGrad = new BooleanVolumeGradient(reusedBool);
+            Assert.True(reusedGrad.Compute(), reusedGrad.Error);
+            Assert.True(reusedGrad.UncutFastCount > 0);
+            Assert.True(reusedGrad.FastVolumeUsed);
+            reusedBool.RetainClassification = false;
+            Assert.True(reusedBool.Compute(), reusedBool.Error);
+            Assert.False(reusedGrad.Compute());
+            Assert.Equal(0, reusedGrad.UncutFastCount);
+            Assert.False(reusedGrad.FastVolumeUsed);
+        }
+
+        [Fact]
+        public void TryTwoDiff_EnclosesExactDifference_AndRejectsOutOfRangeOrSubnormal()
+        {
+            // Exact difference (err == 0): point interval
+            Assert.True(BooleanVolumeGradient.try_two_diff(1.5, 0.5, out ExactInterval d0, out int e0));
+            Assert.Equal(1.0, d0.Lo);
+            Assert.Equal(1.0, d0.Hi);
+            Assert.Equal(1, e0);
+
+            // Sterbenz UTM difference (exact)
+            Assert.True(BooleanVolumeGradient.try_two_diff(500000.001, 500000.000, out ExactInterval dutm, out int eutm));
+            Assert.Equal(dutm.Lo, dutm.Hi);
+            Assert.True(Contains(dutm, BigRational.Of(500000.001) - BigRational.Of(500000.000)));
+            Assert.True(ExactPoint3.ScaleB(1, eutm - 1) <= Math.Abs(dutm.Lo) && Math.Abs(dutm.Lo) < ExactPoint3.ScaleB(1, eutm));
+
+            // Rounding error for both |a| > |b| and |a| < |b|, positive and negative d and err (kills FastTwoDiff collapse)
+            double tiny = ExactPoint3.ScaleB(1, -60);
+            foreach (var (a, b, expLo, expHi) in new[] {
+                (1.0, -tiny, 1.0, ExactInterval.Up(1.0)),
+                (1.0, tiny, ExactInterval.Down(1.0), 1.0),
+                (tiny, 1.0, -1.0, ExactInterval.Up(-1.0)),
+                (-tiny, 1.0, ExactInterval.Down(-1.0), -1.0),
+                (tiny, -1.0, 1.0, ExactInterval.Up(1.0)),
+                (-tiny, -1.0, ExactInterval.Down(1.0), 1.0),
+            }) {
+                Assert.True(BooleanVolumeGradient.try_two_diff(a, b, out ExactInterval iv, out int ex));
+                Assert.Equal(expLo, iv.Lo);
+                Assert.Equal(expHi, iv.Hi);
+                Assert.Equal(1, ex);
+                BigRational exact = BigRational.Of(a) - BigRational.Of(b);
+                Assert.True((BigRational.Of(iv.Lo) - exact).Sign < 0 && (BigRational.Of(iv.Hi) - exact).Sign > 0,
+                    $"({a:R}, {b:R}) -> [{iv.Lo:R}, {iv.Hi:R}]");
+            }
+
+            // Equal values
+            Assert.True(BooleanVolumeGradient.try_two_diff(3.25, 3.25, out ExactInterval dz, out int ez));
+            Assert.Equal(0, dz.Lo);
+            Assert.Equal(0, dz.Hi);
+            Assert.Equal(int.MinValue, ez);
+
+            // Boundaries: TwoDiffMax accepted, above TwoDiffMax rejected; Up(MinNormal) accepted, MinNormal/subnormal rejected
+            double twoDiffMax = ExactPoint3.ScaleB(1, 1020);
+            double minNormal = 2.2250738585072014E-308;
+            Assert.True(BooleanVolumeGradient.try_two_diff(twoDiffMax, -twoDiffMax, out ExactInterval dmax, out int emax));
+            Assert.Equal(ExactPoint3.ScaleB(1, 1021), dmax.Lo);
+            Assert.Equal(dmax.Lo, dmax.Hi);
+            Assert.Equal(1022, emax);
+            Assert.True(BooleanVolumeGradient.try_two_diff(ExactInterval.Up(minNormal), 0.0, out ExactInterval dmin, out int emin));
+            Assert.Equal(ExactInterval.Up(minNormal), dmin.Lo);
+            Assert.Equal(-1021, emin);
+
+            Assert.False(BooleanVolumeGradient.try_two_diff(ExactPoint3.ScaleB(1, 1021), 0.0, out _, out _));
+            Assert.False(BooleanVolumeGradient.try_two_diff(0.0, -ExactPoint3.ScaleB(1, 1021), out _, out _));
+            Assert.False(BooleanVolumeGradient.try_two_diff(double.PositiveInfinity, double.PositiveInfinity, out _, out _));
+            Assert.False(BooleanVolumeGradient.try_two_diff(double.NaN, double.NaN, out _, out _));
+            Assert.False(BooleanVolumeGradient.try_two_diff(minNormal, 0.0, out _, out _));
+            Assert.False(BooleanVolumeGradient.try_two_diff(ExactPoint3.ScaleB(1, -1050), 0.0, out _, out _));
+
+            // try_uncut_frame: degenerate all-equal gives E=0; out-of-range rejects
+            Assert.True(BooleanVolumeGradient.try_uncut_frame(new Vector3d(1, 2, 3), new Vector3d(1, 2, 3), new Vector3d(1, 2, 3), out int eDeg, out var fd1, out var fd2));
+            Assert.Equal(0, eDeg);
+            Assert.Equal(0, fd1.X.Hi);
+            Assert.Equal(0, fd2.Z.Hi);
+            Assert.False(BooleanVolumeGradient.try_uncut_frame(Vector3d.Zero, new Vector3d(ExactPoint3.ScaleB(1, 1021), 0, 0), Vector3d.AxisY, out _, out _, out _));
+        }
+
+        [Fact]
+        public void IsCyclicMatch_AcceptsOnlyCyclicPermutations()
+        {
+            Assert.True(BooleanVolumeGradient.is_cyclic_match(10, 20, 30, 10, 20, 30));
+            Assert.True(BooleanVolumeGradient.is_cyclic_match(20, 30, 10, 10, 20, 30));
+            Assert.True(BooleanVolumeGradient.is_cyclic_match(30, 10, 20, 10, 20, 30));
+            // reversed orientations must NOT match
+            Assert.False(BooleanVolumeGradient.is_cyclic_match(10, 30, 20, 10, 20, 30));
+            Assert.False(BooleanVolumeGradient.is_cyclic_match(30, 20, 10, 10, 20, 30));
+            Assert.False(BooleanVolumeGradient.is_cyclic_match(20, 10, 30, 10, 20, 30));
+            // cut piece with a different vertex must NOT match
+            Assert.False(BooleanVolumeGradient.is_cyclic_match(10, 20, 99, 10, 20, 30));
+        }
+
+        [Fact]
+        public void Enclose_53BitBoundary_AndScaleFastSlowBoundaries()
+        {
+            // 53-bit exact integers: exact point interval
+            long max53 = (1L << 53) - 1;
+            ExactInterval ePos = BooleanVolumeGradient.enclose(max53, 1, 0);
+            Assert.Equal(ePos.Lo, ePos.Hi);
+            Assert.Equal((double)max53, ePos.Lo);
+            ExactInterval eNeg = BooleanVolumeGradient.enclose(-max53, 1, -10);
+            Assert.Equal(eNeg.Lo, eNeg.Hi);
+            Assert.True(Contains(eNeg, new BigRational(-max53, 1) * BooleanGradient.Pow2(-10)));
+
+            // 54-bit odd integer (2^53 + 1): not representable as double, must strictly bracket
+            long over53 = (1L << 53) + 1;
+            ExactInterval eOver = BooleanVolumeGradient.enclose(over53, 1, 0);
+            Assert.True((BigRational.Of(eOver.Lo) - BigRational.Of(over53)).Sign < 0);
+            Assert.True((BigRational.Of(eOver.Hi) - BigRational.Of(over53)).Sign > 0);
+
+            // 53-bit shortcut with subnormal underflow and overflow
+            ExactInterval eUnder = BooleanVolumeGradient.enclose(1, 1, -1075);
+            Assert.True(Contains(eUnder, BooleanGradient.Pow2(-1075)));
+            ExactInterval eOverflow = BooleanVolumeGradient.enclose(1, 1, 1024);
+            Assert.Equal(double.MaxValue, eOverflow.Lo);
+            Assert.Equal(double.PositiveInfinity, eOverflow.Hi);
+
+            // scale() fast and slow boundaries
+            var unit = ExactInterval.Of(1.0);
+            Assert.Equal(unit.Lo, BooleanVolumeGradient.scale(unit, 0).Lo);
+            Assert.Equal(0, BooleanVolumeGradient.scale(ExactInterval.Of(0), 500).Hi);
+            Assert.Equal(ExactPoint3.ScaleB(1.0, -1022), BooleanVolumeGradient.scale(unit, -1022).Lo);
+            Assert.Equal(ExactPoint3.ScaleB(1.0, 1023), BooleanVolumeGradient.scale(unit, 1023).Hi);
+            ExactInterval sub = BooleanVolumeGradient.scale(ExactInterval.Of(2.2250738585072014E-308), -1);
+            Assert.Equal(ExactPoint3.ScaleB(1.0, -1023), sub.Lo);
+            Assert.Equal(sub.Lo, sub.Hi);
+            ExactInterval norm = BooleanVolumeGradient.scale(ExactInterval.Of(double.Epsilon), 52);
+            Assert.Equal(2.2250738585072014E-308, norm.Lo);
+            Assert.Equal(norm.Lo, norm.Hi);
+            ExactInterval ovf = BooleanVolumeGradient.scale(ExactInterval.Of(1e300), 100);
+            Assert.Equal(double.MaxValue, ovf.Lo);
+            Assert.Equal(double.PositiveInfinity, ovf.Hi);
+            ExactInterval inf = BooleanVolumeGradient.scale(new ExactInterval(double.NegativeInfinity, 1.0), 1);
+            Assert.Equal(double.NegativeInfinity, inf.Lo);
+            Assert.Equal(2.0, inf.Hi);
+
+            // Regression: subnormal exact product tying-to-even UP to +-MinNormal must NOT be treated as exact
+            double below2MinNormal = BitConverter.Int64BitsToDouble(0x001FFFFFFFFFFFFFL); // 2^-1021 - 2^-1074
+            foreach (var (v, k) in new[] {
+                (ExactInterval.Down(1.0), -1022),
+                (-ExactInterval.Down(1.0), -1022),
+                (below2MinNormal, -1),
+                (-below2MinNormal, -1),
+            }) {
+                ExactInterval y = BooleanVolumeGradient.scale(ExactInterval.Of(v), k);
+                BigRational exact = BigRational.Of(v) * BooleanGradient.Pow2(k);
+                Assert.True(y.Lo < y.Hi, $"expected widened interval for ({v:R}, {k}), got [{y.Lo:R}, {y.Hi:R}]");
+                Assert.True(Contains(y, exact), $"({v:R}, {k}) exact value outside [{y.Lo:R}, {y.Hi:R}]");
+            }
+        }
+
+        [Fact]
+        public void LargeClippingBox_KeepsTightVolumeBound_WithoutScaleInflation()
+        {
+            // Large clipping box (M = 1e6) cutting unit box [0,1]^3: cut pieces on the large face have V0 at distance M,
+            // while ot.A lies in [0,1]^3. Using ot.A keeps E_vol at O(1) and avoids multiplying N_P's width by M.
+            double M = 1e6;
+            DMesh3 unit = Fx.Unit();
+            DMesh3 giant = BooleanFuzzShapes.Box(0.5, -M, -M, M, M, M);
+            BooleanVolumeGradient g = Run(unit, giant, Ops.Intersection);
+            Assert.True(g.FastVolumeUsed);
+            BooleanGradient exact = BooleanGradient.Compute(unit, giant, Ops.Intersection, area: false);
+            Assert.True(Within(g.Volume, g.VolumeBound, exact.Volume), $"giant clip volume {g.Volume:R} +- {g.VolumeBound:R}");
+            Assert.True(g.VolumeBound <= 1e-8, $"giant clip volume bound inflated: {g.VolumeBound:E2}");
+
+            // Tilted large clipping box (M = 1e6) cutting unit box [0,1]^3: without ot.A, N_P . (V0 - O) loses another factor of M
+            Matrix3d rot = Matrix3d.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 35.0);
+            DMesh3 slab = BooleanFuzzShapes.Box(0.0, -M, -M, M, M, M);
+            slab = BooleanFuzzShapes.Map(slab, p => rot * p + new Vector3d(0.5, 0.5, 0.5));
+            BooleanVolumeGradient gt = Run(unit, slab, Ops.Intersection);
+            Assert.True(gt.FastVolumeUsed);
+            BooleanGradient exactT = BooleanGradient.Compute(unit, slab, Ops.Intersection, area: false);
+            Assert.True(Within(gt.Volume, gt.VolumeBound, exactT.Volume), $"tilted giant volume {gt.Volume:R} +- {gt.VolumeBound:R}");
+            Assert.True(gt.VolumeBound <= 1e-8, $"tilted giant volume bound inflated: {gt.VolumeBound:E2}");
+        }
+
+        [Fact]
+        public void FallbackPaths_SubnormalExtremeAndEmptyBooleans_AreSound()
+        {
+            // Subnormal coordinates (~2^-1040): forces BigInteger fallback for both volume and uncut frames
+            double sub = ExactPoint3.ScaleB(1, -1040);
+            DMesh3 sa = BooleanFuzzShapes.Map(Fx.Unit(), p => p * sub);
+            DMesh3 sb = BooleanFuzzShapes.Map(Fx.ShiftedBox(), p => p * sub);
+            BooleanVolumeGradient gs = Run(sa, sb, Ops.Union);
+            Assert.False(gs.FastVolumeUsed);
+            Assert.Equal(0, gs.UncutFastCount);
+            BooleanGradient exactSub = BooleanGradient.Compute(sa, sb, Ops.Union, area: false);
+            Assert.True(Within(gs.Volume, gs.VolumeBound, exactSub.Volume), $"subnormal volume {gs.Volume:R} +- {gs.VolumeBound:R}");
+            for (int m = 0; m < 2; ++m) {
+                DMesh3 mesh = m == 0 ? sa : sb;
+                foreach (int v in mesh.VertexIndices()) {
+                    BigRational[] ex = exactSub.VolumeGradientAt(m, v);
+                    for (int k = 0; k < 3; ++k)
+                        Assert.True(Within(gs.Gradient[m][v][k], gs.GradientBound[m][v][k], ex[k]), $"sub m={m} v={v} k={k}");
+                }
+            }
+
+            // Coordinates above TwoDiffMax (2^1021), shifted away from origin so volOrigin itself exceeds TwoDiffMax
+            double huge = ExactPoint3.ScaleB(1, 1021);
+            DMesh3 ha = BooleanFuzzShapes.Map(Fx.Unit(), p => (p + Vector3d.One) * huge);
+            DMesh3 hb = BooleanFuzzShapes.Map(Fx.ShiftedBox(), p => (p + Vector3d.One) * huge);
+            var bh = new ExactMeshBoolean(ha, hb, Ops.Union) { RetainClassification = true };
+            Assert.True(bh.Compute(), bh.Error);
+            var gh = new BooleanVolumeGradient(bh);
+            Assert.False(gh.Compute());
+            Assert.False(gh.FastVolumeUsed);
+            Assert.Equal(0, gh.UncutFastCount);
+            Assert.Contains("double range", gh.Error);
+
+            // Empty boolean (disjoint intersection): zero volume, zero gradient
+            DMesh3 da = Fx.Unit();
+            DMesh3 db = BooleanFuzzShapes.Box(3, 0, 0, 4, 1, 1);
+            BooleanVolumeGradient ge = Run(da, db, Ops.Intersection);
+            Assert.Equal(0, ge.Volume);
+            Assert.Equal(0, ge.VolumeBound);
+            Assert.Equal(0, ge.UncutFastCount);
+            Assert.All(ge.Gradient, row => Assert.All(row, v => Assert.Equal(Vector3d.Zero, v)));
         }
     }
 }

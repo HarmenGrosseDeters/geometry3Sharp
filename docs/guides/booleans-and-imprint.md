@@ -287,8 +287,9 @@ capped, the realized branch at a flush contact, each iteration's contacts report
   at every scale.
 - The bounds are relative to each entry's own magnitude, also when the inputs span many orders of magnitude (tested
   with boxes of size 1 and 2^-400 in one boolean).
-- The cost is linear in the number of kept pieces, about 3-4 µs per piece. It measured 15-142 % of the boolean's own time
-  ([benchmarks/BooleanVolumeGradient](../../benchmarks/BooleanVolumeGradient/README.md)).
+- The cost is linear in the number of kept pieces (16–30 % of the boolean's own time on spheres and flush boxes;
+  2.7–7.8× faster than the all-`BigInteger` local-frame baseline, see
+  [benchmarks/BooleanVolumeGradient](../../benchmarks/BooleanVolumeGradient/README.md)).
 
 **Formula.**
 A kept piece P of an input triangle T moves with T. So, by the Hadamard formula, the volume changes by the integral of
@@ -304,17 +305,30 @@ differentiated.
 
 **The error bound (proof).**
 1. *Corners, in a local frame per triangle.*
-   - The exact points are the arrangement's, in grid units: the input is 2^e times (grid point + center).
-   - Each term of input triangle T is evaluated in T's local frame. The coordinates are taken relative to T's first
-     corner and scaled by 2^-S_T, where 2^S_T bounds T's edge coordinates (from the bit lengths of the exact
-     differences), so T's edges have length at most about 1.
-   - Each difference (q − p) 2^-S_T of two exact points is formed exactly in integers, (X_q W_p − X_p W_q) / (W_p W_q),
-     and converted once with `ExactPoint3.ToDouble`, which is correctly rounded (by its documented method). The exact
-     value then lies within half a spacing of the result x, and therefore within [Down(x), Up(x)], the two neighbouring
-     doubles.
-   - The interval is the single point x only when den = 1 and x is an integer equal to num, which the code checks.
-   - The volume, V = Σ s_P N_P · p_0 / 3, uses the corner p_0 relative to the center, scaled by 2^-S, where 2^S bounds
-     every coordinate of the kept pieces. Its N_P comes from the local frame, scaled exactly by 2^(2(S_T − S)) (step 4).
+   - The exact points are the arrangement's, in grid units: the input is 2^e times (grid point + center). Every input
+     vertex also has its exact binary64 input coordinates stored by the arrangement.
+   - Each term of input triangle T is evaluated in T's local frame, with coordinates taken relative to T's first corner
+     and scaled by 2^-E_T (in input units), where 2^E_T bounds T's edge coordinates, so T's edges have length at most
+     about 1.
+   - When both endpoints of a difference (q − p) 2^-E are input vertices whose coordinates satisfy |a|, |b| ≤ 2^1020 and
+     whose rounded difference d = fl(a − b) is either 0 or strictly normal (|d| > 2^-1022), the code forms the exact
+     error-free transformation a − b = d + err via Knuth's TwoDiff (exact with IEEE 754 gradual underflow when no
+     intermediate overflows; Boldo & Melquiond 2005). Because d is the nearest double to a − b, err = 0 gives the exact
+     point [d, d], err > 0 gives [d, Up(d)], and err < 0 gives [Down(d), d], which is then scaled by 2^-E (step 4).
+   - For constructed intersection points, or outside the TwoDiff normal range, each difference (q − p) 2^-E is formed
+     exactly in integers, (X_q W_p − X_p W_q) / (W_p W_q) · 2^(e − E). When den = 1 and |num| < 2^53, `(double)num` is
+     exact and is scaled by step 4; otherwise `ExactPoint3.ToDouble` rounds once to nearest x and the code widens to
+     [Down(x), Up(x)].
+   - For an uncut kept piece (P = T in cyclic corner order), the centroid's exact barycentric coordinates are (1/3, 1/3,
+     1/3) and its area vector is (1/2)(V_1 − V_0) × (V_2 − V_0), so each corner directly receives s_P (1/6)(V_1 − V_0) ×
+     (V_2 − V_0) in T's local frame without forming a `Tri` or dividing by |N|^2.
+   - For the volume, V = Σ s_P N_P · (p_0 − O) / 3 (invariant under any fixed shift O for a closed surface, since
+     Σ s_P N_P = 0), Pass 1 picks an actual input vertex O of a kept piece and bounds E_vol over every kept piece's
+     vertex (V_0 for uncut pieces, ot.A for cut pieces) relative to O, falling back to the arrangement's center if any
+     vertex is outside the TwoDiff normal range or no kept piece has an input vertex at ot.A. Because every kept piece's
+     vertex lies in the plane of T and within the result itself, N_P · (V_0 − O) = N_P · (p_0 − O) for uncut pieces,
+     far-from-origin offsets such as UTM cancel, and a large clipping triangle does not inflate E_vol. Its N_P comes from
+     the local frame, scaled by 2^(2(E_T − E_vol)) (step 4).
    - So no product is formed of quantities much larger or smaller than 1. The evaluation neither overflows nor loses a
      small triangle far from the center, however far apart the magnitudes of the inputs are.
 2. *Terms and sums.*
@@ -326,8 +340,8 @@ differentiated.
      axis-aligned face, would become ±2^-1074 and underflow when it is scaled.
    - By induction over the evaluation, each per-vertex sum interval [Lo, Hi] contains the exact derivative. These sums
      add the terms of the formula in piece order.
-   - The same holds for the volume, Σ s_P p_0·(p_1×p_2)/6, and for the alternatives of the contact regions. No new error
-     constant is involved.
+   - The same holds for the volume, Σ s_P N_P · (p_0 − O) / 3, and for the alternatives of the contact regions. No new
+     error constant is involved.
 3. *Value and bound.*
    - The value is m = fl(Lo/2 + Hi/2), and the bound is b = Up(fl(max(Hi − m, m − Lo))).
    - For d ≥ 0, fl(d) ≥ d − ulp(d)/2. `Up` then adds one spacing of fl(d), which is at least ulp(d)/2. The spacing of
@@ -337,9 +351,12 @@ differentiated.
    - For a single point, Lo = Hi, the bound is 0.
    - A NaN or infinite end gives b = +∞.
 4. *Scaling to the input's units.*
-   - Each term interval is scaled by 2^(2(S_T + e)) into the input's units before it is added to its vertex. The volume
-     is scaled by 2^(3(S + e)) at the end.
-   - A scaling by a power of two is exact unless its result is subnormal or overflows. The code checks exactness by
+   - Each term interval is scaled by 2^(2 E_T) into the input's units before it is added to its vertex. The volume is
+     scaled by 2^(3 E_vol) at the end.
+   - A scaling by 2^k (−1022 ≤ k ≤ 1023) via multiplication by the exact power of two 2^k is exact whenever each nonzero
+     product is finite and strictly above MinNormal (2^-1022): by monotonicity of rounding, |fl(v · 2^k)| > 2^-1022
+     excludes subnormal products that could tie-to-even up to 2^-1022, so the 53-bit product is exact. All other cases
+     (k outside [−1022, 1023], |fl(v · 2^k)| ≤ 2^-1022, or overflow) use `ExactPoint3.ScaleB` and check exactness by
      scaling back.
    - Where it is not exact, the interval's ends are widened by one spacing: ScaleB rounds once, by less than one spacing
      of its result. An end that overflows to infinity is at least as far out as the exact value.
