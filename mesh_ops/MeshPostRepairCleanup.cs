@@ -472,6 +472,48 @@ namespace gs
         }
 
         /// <summary>
+        /// The nesting of the closed components of mesh (RemeshCertificate): per closed component (triangles connected across edges, no
+        /// boundary edge), the number of other closed components that enclose it, read as FindInvertedComponents reads it (a vote of
+        /// sample points slightly inside the component, |winding number| above 0.5; floating point, so checked, not exact), and the
+        /// exact sign of its own volume. Components in the order of MeshConnectedComponents
+        /// </summary>
+        internal static List<(int depth, int volumeSign, int triangles)> NestingDepths(DMesh3 mesh)
+        {
+            var result = new List<(int, int, int)>();
+            var comps = new MeshConnectedComponents(mesh);
+            comps.FindConnectedT();
+            var closed = new List<int[]>();
+            foreach (var c in comps.Components)
+                if (c.Indices.All(t => { Index3i te = mesh.GetTriEdges(t); return !mesh.IsBoundaryEdge(te.a) && !mesh.IsBoundaryEdge(te.b) && !mesh.IsBoundaryEdge(te.c); }))
+                    closed.Add(c.Indices);
+            if (closed.Count == 0) return result;
+            Vector3d center = mesh.GetBounds().Center;
+            var volAreas = closed.Select(c => MeshMeasurements.VolumeArea(mesh, c, (vid) => mesh.GetVertex(vid) - center)).ToList();
+            var signs = closed.Select(c => volume_sign(mesh, c)).ToList();
+            var boxes = closed.Select(c => {
+                var box = AxisAlignedBox3d.Empty;
+                foreach (int t in c) box.Contain(mesh.GetTriBounds(t));
+                return box;
+            }).ToList();
+            var trees = new DMeshAABBTree3[closed.Count];
+            var containers = enclosing_boxes(boxes);
+            for (int i = 0; i < closed.Count; ++i) {
+                int depth = 0;
+                List<Vector3d> samples = null;
+                foreach (int j in containers[i]) {
+                    if (trees[j] == null) trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
+                    if (samples == null)
+                        samples = interior_samples(mesh, closed[i], signs[i] < 0,
+                            Math.Min(1e-4 * boxes[i].DiagonalLength, 0.25 * Math.Abs(volAreas[i].x) / Math.Max(volAreas[i].y, double.MinValue)));
+                    int votes = samples.Count(p => Math.Abs(trees[j].FastWindingNumber(p)) > 0.5);
+                    if (2 * votes > samples.Count) depth++;
+                }
+                result.Add((depth, signs[i], closed[i].Length));
+            }
+            return result;
+        }
+
+        /// <summary>
         /// The count of NestingReadings without the copies of the two readings: the flagged components of FindInvertedComponents that are outward by
         /// their own volume. 0 without a possible nesting (MayHaveNestedShells)
         /// </summary>

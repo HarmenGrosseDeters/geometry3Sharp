@@ -313,6 +313,29 @@ search, triangle-tetrahedron instead of triangle-triangle tests), and the collap
 bound: only monotone (the min angle does not drop, Hu et al. 2017). Independent of the RDR work; can run first if a
 caller needs it.
 
+### 10.1 Built (items 1 and 2, 2026-11-28)
+
+- **Item 1: `Remesher.MaxDeviation`, `SetDeviationReference`, `DeviationRejected`.**
+  - Hooks: the band check sits next to every `PreventSelfIntersections` check of `ProcessEdge` (collapse, flip, the projection of a split's new
+    vertex) and in `ApplyVertexBuffer` (the buffered smoothing and projection moves).
+  - Buffered moves: the moves of every triangle that would leave the band are reverted until none is left. The rounds work on sets, and the
+    first runs in parallel, so parallel equals serial. With `PreventNormalFlips` / `MinTriangleQuality` the flip check and the band check
+    alternate on the mix the other left. With `PreventSelfIntersections` its later rounds also check the band of the mixed triangles.
+  - A split itself is not checked: its halves lie in the old triangles, up to the rounding of the midpoint.
+  - Measured and dropped:
+    - the patch bound (slower, 111 against 85 s);
+    - a cache of the answers by corner positions (3 % hits, slower: 99 s).
+  - Cost and fidelity: `benchmarks/RemeshQualityBenchmark` README, section "Remesher.MaxDeviation".
+- **Item 2: `gs.RemeshCertificate.Compute(input, result, maxDeviation)`**, composed of existing checks:
+  - `IsClosed`, and `CheckValidity` without bowties;
+  - `MeshRepairMetrics.SelfIntersections` (exact);
+  - `MeshHausdorffDistance` with `CertifiedUpper`, one run per direction;
+  - `MeshTopologySummary` (with the genus per component as a multiset);
+  - `MeshPostRepairCleanup.NestingDepths` (the nesting depth and exact volume sign of each closed component, by a vote of winding
+    numbers at interior samples, as `FindInvertedComponents` reads it: checked, not exact);
+  - `NotCleanReason`.
+- **Not built:** item 3, the isotopy guard (tier M, the collapse lemma open).
+
 ## 11. Staged plan
 
 | Stage | Content | Tier | Stop rule / gate |

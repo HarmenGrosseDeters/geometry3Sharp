@@ -106,6 +106,13 @@ Implemented from the papers, no code taken over. Hu et al.'s implementation buil
 | Reference-to-mesh coverage (two-sided band): a correspondence kept under local operations | R. Klein, G. Liebich, W. Strasser, *Mesh Reduction with Error Control*, IEEE Visualization 1996; the cascade of S. Sacht, A. Jacobson (SGP 2024) as in `ReducerReverseCoverage` |
 | The band guard, the exact self-intersection test, the crease band (Lipschitz and convexity bound of the distance to a set of segments) | this library (`TriangleDeviationBounds.IsWithin`, `TriangleTriangleFilter`; the crease bound in the design note) |
 
+## Remesher band guard and remesh certificate (`Remesher.MaxDeviation`, `RemeshCertificate`)
+
+| Part | Source |
+|---|---|
+| The remesher the guard runs in (splits, collapses, flips, tangential smoothing, projection) | M. Botsch, L. Kobbelt, *A Remeshing Approach to Multiresolution Modeling*, SGP 2004 (the upstream `Remesher`) |
+| The band test of new triangles, the certified Hausdorff distance, the exact self-intersection count, the topology and nesting reading | this library (`TriangleDeviationBounds.IsWithin` as in `Reducer.MaxDeviation`, `MeshHausdorffDistance.CertifiedUpper` #742, `MeshRepairMetrics.SelfIntersections`, `MeshTopologySummary`, `MeshPostRepairCleanup`); the plan: [design/CERTIFIED_REMESHING.md](../design/CERTIFIED_REMESHING.md) section 10 |
+
 ## Tetrahedral meshing (`MeshTetrahedralization`, `Delaunay3.RefinementSupport`, `docs/design/TET_MESHING.md`)
 
 Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (GPL / LGPL), CGAL (GPL) are not to be read or ported.
