@@ -482,6 +482,9 @@ on = the same with the band at 0.5 % of the diagonal:
 | band refusals (operations and moves) | - | 169765 |
 | time s | 9.9 | 81.7 (8.3x) |
 
+Re-run after the review fixes (projection and smoothing always buffered with the band, the default reference taken before the first change):
+the same quality numbers, 9.5 / 80.3 s (raw output appended to the same file).
+
 With `si=1` (the safe preset and the band) the pairs fall to 1173 in 5 cases (the inputs' own intersections stay), at 168.2 s; the band is held
 the same way. The procedural groups (`runs=1`): primitives 129 -> 0 pairs, Hausdorff / target 0.348 -> 0.044, 5.0 -> 22.0 s; tubes (thin walls far
 below the edge length) 5324 -> 0 pairs, F 0.5 % 0.267 -> 0.958, 0.2 -> 9.4 s; gears unchanged in quality at 0.3 -> 14.1 s.

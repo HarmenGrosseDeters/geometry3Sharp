@@ -56,3 +56,19 @@ Cases that get worse with the option (more self-intersecting pairs, more q<1e-3,
 | primitives | 0.8273 / 0.8957 | 0.9241 / 0.9975 | 0.9896 / 0.9983 | 0.0151 / 0.0157 | 0.9012 / 0.9888 | 27.7563 / 23.4367 | 0 / 0 | 2 / 0 | 1 / 0 |
 | gears | 1.0000 / 1.0000 | 1.0000 / 1.0000 | 1.0000 / 1.0000 | 0.0000 / 0.0000 | 1.0000 / 1.0000 | 4.4996 / 4.4996 | 0 / 0 | 0 / 0 | 0 / 0 |
 | tubes | 0.0865 / 0.4619 | 0.2673 / 0.9582 | 0.9368 / 0.9929 | 0.0601 / 0.0020 | 0.3505 / 0.9221 | 4.3717 / 8.2074 | 0 / 0 | 23 / 0 | 0 / 0 |
+
+# re-run of the first command after the stage 2 review fixes (projection and smoothing always buffered with the band; the default reference taken before the first change), summary; the per-case results are the same but for the times
+## MinTriangleQuality = 0.2 (on) vs 0.2 (off)
+
+| group | cases | q<0.1 off / on | q<1e-3 off / on | cases with q<1e-3 off / on | self-intersecting pairs off / on | cases with self-int. off / on | cases inside-out off / on | cases with rejected passes off / on | mean hausdorff/target off / on | time s off / on | worse: more pairs / more q<1e-3 / hausdorff / inside-out |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| thingi | 20 | 1530 / 1456 | 210 / 207 | 9 / 8 | 1962 / 878 | 15 / 8 | 0 / 0 | 1 / 0 | 0.945 / 0.267 | 9.5 / 80.3 | 1 / 1 / 1 / 0 |
+
+| group | F 0.1% off / on | F 0.5% off / on | normal consistency off / on | Edge Chamfer off / on | edge recall 0.5% off / on | min angle 1% worst off / on | cases with degenerate tris off / on | cases not clean off / on | worse: F 0.1% by > 0.01 / edge recall by > 0.02 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| thingi | 0.7231 / 0.7651 | 0.9116 / 0.9984 | 0.9456 / 0.9813 | 0.0093 / 0.0081 | 0.9286 / 0.9858 | 9.6707 / 10.3195 | 1 / 0 | 15 / 8 | 0 / 0 |
+
+Cases that get worse with the option (more self-intersecting pairs, more q<1e-3, a Hausdorff distance more than 0.02 target larger, or inside-out only with it):
+- 1053376: pairs 9 -> 5, q<1e-3 8 -> 9, hausdorff/target 0.523 -> 0.449, inside-out components 0 -> 0
+- 196126: pairs 11 -> 19, q<1e-3 43 -> 41, hausdorff/target 3.675 -> 0.338, inside-out components 0 -> 0
+- 63709: pairs 795 -> 792, q<1e-3 0 -> 0, hausdorff/target 0.439 -> 0.529, inside-out components 0 -> 0
