@@ -214,6 +214,180 @@ namespace g3 {
         public int SelfIntersectionsRejected = 0;
 
         /// <summary>
+        /// Opt-in band (default 0 = off, docs/design/CERTIFIED_REMESHING.md section 10): if positive, every triangle a
+        /// collapse, flip or split creates, and every triangle a smoothing or projection move changes, must lie within
+        /// MaxDeviation of the deviation reference (TriangleDeviationBounds.IsWithin, as Reducer.MaxDeviation; floating
+        /// point, no explicit rounding term), else the operation is refused (a split's new vertex stays at the edge
+        /// midpoint, a move is reverted). Triangles the remesher does not touch are the reference's own (with the default
+        /// reference), so the result is within MaxDeviation of it (one-sided: mesh to reference; a feature thinner than
+        /// the band can still be cut off). The reference is the mesh at the first pass with MaxDeviation set, or the one
+        /// given to SetDeviationReference. Refusals are counted in DeviationRejected. With MaxDeviation set, smoothing and
+        /// projection are buffered (EnableSmoothInPlace is ignored) so that every move is checked; not guarded: vertex moves
+        /// made outside ProcessEdge and ApplyVertexBuffer (eg by a subclass; RemesherPro's passes go through both).
+        /// Cost: about 8.4 times the time of MinTriangleQuality alone at a band of 0.5 % of the diagonal (20 Thingi10K meshes,
+        /// benchmarks/RemeshQualityBenchmark). RemeshCertificate checks a result afterwards, both ways.
+        /// </summary>
+        public double MaxDeviation = 0;
+
+        /// <summary> status: edge operations and vertex moves refused by MaxDeviation so far </summary>
+        public int DeviationRejected = 0;
+
+        // MaxDeviation: the reference (a copy), its tree and bounds
+        DMesh3 deviationReference;
+        DMeshAABBTree3 deviationTree;
+        TriangleDeviationBounds deviationBounds;
+
+        /// <summary> the surface MaxDeviation is measured from (a copy is kept); default: the mesh at the first pass with MaxDeviation set </summary>
+        public void SetDeviationReference(DMesh3 reference)
+        {
+            deviationReference = reference == null ? null : new DMesh3(reference);
+            deviationTree = null; deviationBounds = null;
+        }
+
+        void ensure_deviation_reference()
+        {
+            if (deviationReference == null) deviationReference = new DMesh3(mesh);
+            if (deviationTree == null) {
+                deviationTree = new DMeshAABBTree3(deviationReference, true);
+                deviationBounds = new TriangleDeviationBounds(deviationReference);
+            }
+        }
+
+        // MaxDeviation: is every triangle within the band of the reference?
+        bool within_band(List<Triangle3d> tris)
+        {
+            ensure_deviation_reference();
+            foreach (Triangle3d t in tris)
+                if (!triangle_within_band(t.V0, t.V1, t.V2))
+                    return false;
+            return true;
+        }
+
+        // MaxDeviation: IsWithin of one triangle (thread-safe: the buffered moves test in parallel). (A cache of the answers by
+        // the corners was measured and dropped: 3 % hits on the 20 Thingi10K meshes, slower than certifying again)
+        bool triangle_within_band(Vector3d a, Vector3d b, Vector3d c)
+        {
+            return deviationBounds.IsWithin(deviationTree, a, b, c, MaxDeviation);
+        }
+
+        List<Triangle3d> bandTrisList;
+        List<Triangle3d> bandTris { get { if (bandTrisList == null) bandTrisList = new List<Triangle3d>(); return bandTrisList; } }
+
+        // MaxDeviation: the triangles around a and b after collapsing edge [a,b] to newPos (those of the edge removed)
+        bool collapse_leaves_band(int a, int b, Vector3d newPos)
+        {
+            bandTris.Clear();
+            var seen = new HashSet<int>();
+            foreach (int v in new[] { a, b })
+                foreach (int tid in mesh.VtxTrianglesItr(v)) {
+                    if (!seen.Add(tid)) continue;
+                    Index3i t = mesh.GetTriangle(tid);
+                    bool hasA = t.a == a || t.b == a || t.c == a, hasB = t.a == b || t.b == b || t.c == b;
+                    if (hasA && hasB) continue;
+                    Vector3d p0 = (t.a == a || t.a == b) ? newPos : mesh.GetVertex(t.a);
+                    Vector3d p1 = (t.b == a || t.b == b) ? newPos : mesh.GetVertex(t.b);
+                    Vector3d p2 = (t.c == a || t.c == b) ? newPos : mesh.GetVertex(t.c);
+                    bandTris.Add(new Triangle3d(p0, p1, p2));
+                }
+            return !within_band(bandTris);
+        }
+
+        // MaxDeviation: the triangles [c,d,b] and [d,c,a] after flipping edge [a,b]
+        bool flip_leaves_band(int a, int b, int c, int d)
+        {
+            bandTris.Clear();
+            bandTris.Add(new Triangle3d(mesh.GetVertex(c), mesh.GetVertex(d), mesh.GetVertex(b)));
+            bandTris.Add(new Triangle3d(mesh.GetVertex(d), mesh.GetVertex(c), mesh.GetVertex(a)));
+            return !within_band(bandTris);
+        }
+
+        // MaxDeviation: after a split, vNew (created at vMid) may have been projected; back to vMid if its triangles leave the band.
+        // A vertex with a constraint Target then stays at vMid, off its Target (as check_split_vertex leaves it for a crossing)
+        internal void check_split_vertex_band(int vNew, Vector3d vMid)
+        {
+            if (mesh.GetVertex(vNew) == vMid)
+                return;
+            bandTris.Clear();
+            foreach (int tid in mesh.VtxTrianglesItr(vNew)) {
+                Index3i t = mesh.GetTriangle(tid);
+                bandTris.Add(new Triangle3d(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c)));
+            }
+            if (!within_band(bandTris)) {
+                DeviationRejected++;
+                mesh.SetVertex(vNew, vMid);
+                if (PreventSelfIntersections)
+                    update_triangle_grid_around(vNew);
+            }
+        }
+
+        // MaxDeviation, buffered passes: the moves (vModifiedV, vBufferV) of every triangle that would leave the band are
+        // reverted (vModifiedV cleared) until every triangle with a moved vertex is within it. Each round tests a set of
+        // triangles and reverts a set of vertices (the first round in parallel when the pass is): the result does not depend
+        // on the order or the thread timing. The mesh is not changed here
+        int count_moved()
+        {
+            int n = 0;
+            foreach (int vid in mesh.VertexIndices()) if (vModifiedV[vid]) n++;
+            return n;
+        }
+
+        int revert_band_leaving_moves(bool bParallel)
+        {
+            int reverted = 0;
+            ensure_deviation_reference();
+            var dirty = new SortedSet<int>();
+            foreach (int vid in mesh.VertexIndices())
+                if (vModifiedV[vid])
+                    foreach (int tid in mesh.VtxTrianglesItr(vid))
+                        dirty.Add(tid);
+            Vector3d pos(int v) { return vModifiedV[v] ? vBufferV[v] : mesh.GetVertex(v); }
+            bool first = true;
+            while (dirty.Count > 0) {
+                int[] tris = new int[dirty.Count];
+                dirty.CopyTo(tris);
+                bool[] fails = new bool[tris.Length];
+                Action<int> test = (k) => {
+                    Index3i t = mesh.GetTriangle(tris[k]);
+                    if (!(vModifiedV[t.a] || vModifiedV[t.b] || vModifiedV[t.c]))
+                        return;
+                    fails[k] = !triangle_within_band(pos(t.a), pos(t.b), pos(t.c));
+                };
+                if (bParallel && first)
+                    gParallel.ForEach(Interval1i.Range(tris.Length), test);
+                else
+                    for (int k = 0; k < tris.Length; ++k) test(k);
+                first = false;
+                var revert = new SortedSet<int>();
+                for (int k = 0; k < tris.Length; ++k) {
+                    if (!fails[k]) continue;
+                    Index3i t = mesh.GetTriangle(tris[k]);
+                    if (vModifiedV[t.a]) revert.Add(t.a);
+                    if (vModifiedV[t.b]) revert.Add(t.b);
+                    if (vModifiedV[t.c]) revert.Add(t.c);
+                }
+                dirty.Clear();
+                foreach (int vid in revert) {
+                    vModifiedV[vid] = false;
+                    DeviationRejected++;
+                    reverted++;
+                    OnVertexMoveRejected(vid);
+                }
+                foreach (int vid in revert)
+                    foreach (int tid in mesh.VtxTrianglesItr(vid))
+                        dirty.Add(tid);
+            }
+            return reverted;
+        }
+
+        // MaxDeviation in the later rounds of apply_moves_without_intersections: triangle tid (some vertex still moved, the
+        // mesh at the current mix) leaves the band
+        bool leaves_band_now(int tid)
+        {
+            Index3i t = mesh.GetTriangle(tid);
+            return !triangle_within_band(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c));
+        }
+
+        /// <summary>
         /// status: the number of vertices with a NaN or infinite coordinate at the start of the last pass
         /// (BasicRemeshPass, RemesherPro.RemeshIteration, RemesherPro.FastSplitIteration). Such a pass does nothing:
         /// smoothing, splits and projection would spread the value to the neighbouring vertices.
@@ -398,6 +572,8 @@ namespace g3 {
                 return;
 
             begin_pass();
+            if (MaxDeviation > 0)
+                ensure_deviation_reference();       // the default reference: the mesh before the pass changes it
             detect_closed_mesh();       // (the mesh may have been changed since the last pass)
             object inversionGuard = begin_inversion_guard();
 
@@ -428,7 +604,7 @@ namespace g3 {
 
             begin_smooth();
             if (EnableSmoothing && SmoothSpeedT > 0) {
-                if (EnableSmoothInPlace)
+                if (EnableSmoothInPlace && !(MaxDeviation > 0))     // (MaxDeviation: buffered, so the moves are checked)
                     FullSmoothPass_InPlace(EnableParallelSmooth);
                 else
                     FullSmoothPass_Buffer(EnableParallelSmooth);
@@ -686,6 +862,8 @@ namespace g3 {
 		protected virtual ProcessResult ProcessEdge(int edgeID) 
 		{
             RuntimeDebugCheck(edgeID);
+            if (MaxDeviation > 0)
+                ensure_deviation_reference();       // (the default reference: the mesh before this edge's operations)
 
             EdgeConstraint constraint =
                 (constraints == null) ? EdgeConstraint.Unconstrained : constraints.GetEdgeConstraint(edgeID);
@@ -763,6 +941,11 @@ namespace g3 {
 
                 if (PreventSelfIntersections && collapse_creates_intersection(a, b, iKeep, vNewPos)) {
                     SelfIntersectionsRejected++;
+                    goto abort_collapse;
+                }
+
+                if (MaxDeviation > 0 && collapse_leaves_band(a, b, vNewPos)) {
+                    DeviationRejected++;
                     goto abort_collapse;
                 }
 
@@ -847,6 +1030,11 @@ namespace g3 {
                     bTryFlip = false;
                 }
 
+                if (bTryFlip && MaxDeviation > 0 && flip_leaves_band(a, b, c, d)) {
+                    DeviationRejected++;
+                    bTryFlip = false;
+                }
+
                 if (bTryFlip) {
                     DMesh3.EdgeFlipInfo flipInfo;
                     COUNT_FLIPS++;
@@ -870,6 +1058,8 @@ namespace g3 {
 			if ( EnableSplits && constraint.CanSplit && edge_len_sqr > maxEdgeLen*maxEdgeLen
                     && (!(MinTriangleQuality > 0) || has_flat_neighbour(ref vA, ref vB, c, d) == false)
                     && (PreventSelfIntersections == false || split_creates_intersection_counted(a, b, c, d, t0, t1) == false) ) {
+                // (MaxDeviation: the split itself needs no check: its halves lie in the old triangles, up to the rounding of
+                // the midpoint, so they are within the band wherever those are; the projection of the new vertex is checked)
 
 				DMesh3.EdgeSplitInfo splitInfo;
                 COUNT_SPLITS++;
@@ -879,6 +1069,8 @@ namespace g3 {
                     update_after_split(edgeID, a, b, ref splitInfo);
                     if (PreventSelfIntersections)
                         check_split_vertex(splitInfo.vNew, vMid);
+                    if (MaxDeviation > 0)
+                        check_split_vertex_band(splitInfo.vNew, vMid);
                     OnEdgeSplit(edgeID, a, b, splitInfo);
                     DoDebugChecks();
 					return ProcessResult.Ok_Split;
@@ -1643,10 +1835,16 @@ namespace g3 {
                         continue;
                     Index3i t = mesh.GetTriangle(tid);
                     Triangle3d A = new Triangle3d(mesh.GetVertex(t.a), mesh.GetVertex(t.b), mesh.GetVertex(t.c));
-                    if (ExactTriangleIntersection.IsDegenerate(ref A))
-                        continue;
                     bool aMoved = is_moved(t.a) || is_moved(t.b) || is_moved(t.c);
                     int self = tid;
+                    // MaxDeviation: the band, checked by revert_band_leaving_moves on the moves before these reverts (before
+                    // the degenerate skip: a degenerate triangle can still leave the band)
+                    if (aMoved && MaxDeviation > 0 && leaves_band_now(tid)) {
+                        revert_moved_of(self);
+                        continue;
+                    }
+                    if (ExactTriangleIntersection.IsDegenerate(ref A))
+                        continue;
                     // PreventNormalFlips / MinTriangleQuality: revert_flipping_moves checked all moves together; with some of
                     // them reverted the mix around a reverted vertex was not checked (a triangle with one move kept and one reverted)
                     if (aMoved && (PreventNormalFlips || MinTriangleQuality > 0) && flipped_against_before(tid, oldPos)) {
@@ -1990,8 +2188,18 @@ namespace g3 {
 
         protected virtual void ApplyVertexBuffer(bool bParallel)
         {
+            if (MaxDeviation > 0)
+                ensure_deviation_reference();
             if (PreventNormalFlips || MinTriangleQuality > 0)
                 revert_flipping_moves();
+            if (MaxDeviation > 0) {
+                // (reverts only: the two checks alternate until neither reverts, each on the mix the other left)
+                while (revert_band_leaving_moves(bParallel) > 0 && (PreventNormalFlips || MinTriangleQuality > 0)) {
+                    int before = count_moved();
+                    revert_flipping_moves();
+                    if (count_moved() == before) break;
+                }
+            }
             if (PreventSelfIntersections) {
                 apply_moves_without_intersections(bParallel);
                 return;
@@ -2076,7 +2284,7 @@ namespace g3 {
         // We can do projection in parallel if we have .net 
         protected virtual void FullProjectionPass()
         {
-            if (PreventNormalFlips || MinTriangleQuality > 0 || PreventSelfIntersections) {
+            if (PreventNormalFlips || MinTriangleQuality > 0 || PreventSelfIntersections || MaxDeviation > 0) {
                 // each move is checked against the positions before the pass: buffered, so the result does not
                 // depend on the order (or thread timing) in which the vertices are projected
                 InitializeVertexBufferForPass();

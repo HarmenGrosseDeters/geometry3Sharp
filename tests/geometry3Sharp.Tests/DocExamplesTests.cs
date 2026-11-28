@@ -436,6 +436,20 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void RemeshCertificateExample_ResultInBand_CertificateHolds()
+        {
+            DMesh3 cyl = new CappedCylinderGenerator() { BaseRadius = 0.5f, TopRadius = 0.5f, Height = 1, Slices = 24, NoSharedVertices = false }.Generate().MakeDMesh();
+            DMesh3 m = new DMesh3(cyl);
+            double band = 0.005, d = band * cyl.CachedBounds.DiagonalLength;
+            RemeshCertificate c = RemeshCertificateExample.Run(m, 0.12, band);
+            Assert.True(m.TriangleCount > cyl.TriangleCount);
+            Assert.True(c.HausdorffResultToInput <= d * (1 + 1e-9), $"{c.HausdorffResultToInput / d}");
+            Assert.True(c.Closed && c.Manifold && c.SelfIntersectingPairs == 0 && c.NestingPreserved);
+            Assert.Equal(MeshTopologySummary.Changes.None, c.TopologyChanges);
+            Assert.Equal(c.HausdorffInputToResult <= d, c.WithinBand);
+        }
+
+        [Fact]
         public void RemeshQualityExample_NeverLowersTheMinAngle_StaysInBand()
         {
             DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.6, 0.3)), NoSharedVertices = false }.Generate().MakeDMesh();

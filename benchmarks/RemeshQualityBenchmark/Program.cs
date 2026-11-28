@@ -29,6 +29,8 @@ static class Program
     class Result
     {
         public int Tris, Poor, Flat, SelfPairs, Inverted, RejectedPasses, Degenerate, SelfIntersectionsRejected;
+        // band=<f>: refusals of the band guard, and the RemeshCertificate of the result (band f x diagonal)
+        public int DeviationRejected; public bool CertPassed, CertWithinBand, CertNesting; public double CertFwd = double.NaN, CertBwd = double.NaN; public string CertTopology;
         // sweep=1: the buffered move passes (smoothing, projection) checked by a MeshSweepCollision over each pass's motion
         // (outside Seconds): passes with moves, passes whose path touches a primitive (sweep status Collision / IterationLimit),
         // of those the ones that end intersection-free after starting so (a move through a wall that a static end check
@@ -147,6 +149,7 @@ static class Program
         sweep = A.ContainsKey("sweep") && A["sweep"] == "1";
         sizing = A.ContainsKey("sizing") ? double.Parse(A["sizing"], CultureInfo.InvariantCulture) : 0;
         int runs = A.ContainsKey("runs") ? int.Parse(A["runs"]) : 1;
+        remeshBand = A.ContainsKey("band") ? double.Parse(A["band"], CultureInfo.InvariantCulture) : 0;
         postBand = A.ContainsKey("post") ? double.Parse(A["post"], CultureInfo.InvariantCulture) : 0;
         postVariant = A.ContainsKey("post_variant") ? A["post_variant"] : "";
 
@@ -182,7 +185,9 @@ static class Program
         foreach (var c in cases) {
             if (only != null && !only.IsMatch(c.name)) continue;
             Result off = Measure(c.input, c.target, baseQuality, false, 0, 0, runs);
+            bandOn = true;
             Result[] on = qualities.Select(q => Measure(c.input, c.target, q, preventOn, pinAngle, sizing, runs)).ToArray();
+            bandOn = false;
             rows.Add((c.group, c.name, off, on));
             var line = new Dictionary<string, object>() {
                 ["group"] = c.group, ["case"] = c.name, ["input_tris"] = c.input.TriangleCount, ["input_self_pairs"] = MeshRepairMetrics.SelfIntersections(c.input),
@@ -207,6 +212,11 @@ static class Program
     // after, the operation counts, and the crease-sector bound (the smallest angle at the 1 % rank between two crease edges
     // of one vertex, the most any triangulation that keeps those creases can reach there)
     static double postBand = 0;
+    // band=<f>: Remesher.MaxDeviation = f x the input's diagonal in the "on" runs (the band guard, CERTIFIED_REMESHING.md section 10);
+    // the JSON then has the RemeshCertificate of the result (Cert*) and DeviationRejected
+    static double remeshBand = 0;
+    static int lastDeviationRejected;
+    static bool bandOn;     // (the "on" runs only)
     static string postVariant = "";
 
     class PostResult
@@ -406,6 +416,13 @@ static class Program
         // directly: NotCleanReason stops at its first failed check (degenerate triangles come before inside-out)
         r.Inverted = MeshPostRepairCleanup.FindInvertedComponents(m).Count;
         r.NotClean = MeshRobustRepair.NotCleanReasons(m, true);
+        if (remeshBand > 0) {
+            double diag = input.CachedBounds.DiagonalLength;
+            var cert = RemeshCertificate.Compute(input, m, remeshBand * diag);
+            r.DeviationRejected = lastDeviationRejected;
+            r.CertPassed = cert.Passed; r.CertWithinBand = cert.WithinBand; r.CertNesting = cert.NestingPreserved;
+            r.CertFwd = cert.HausdorffResultToInput / diag; r.CertBwd = cert.HausdorffInputToResult / diag; r.CertTopology = cert.TopologyChanges.ToString();
+        }
         if (fidelity) {
             var f = new MeshFidelityMetrics(input, m) { SurfaceSamples = 20000, VolumeSamples = 0, Curvature = false, RelativeThresholds = new[] { 0.001, 0.005 } };
             if (f.Compute()) {
@@ -428,12 +445,15 @@ static class Program
             MeshConstraintUtil.PinSharpVertices(r, pinAngle);
         if (sizingFraction > 0)
             r.TargetEdgeLengthF = RemeshSizing.FromWallThickness(input, sizingFraction);     // (included in the time)
+        if (remeshBand > 0 && bandOn)
+            r.MaxDeviation = remeshBand * input.CachedBounds.DiagonalLength;
         r.SetTargetEdgeLength(target);
         for (int k = 0; k < 20; ++k) {
             r.PreventSelfIntersections = prevent && k >= preventFrom;
             r.BasicRemeshPass();
         }
         rejectedPasses = r.InvertingPassesRejected;      // RejectInvertingPasses (default on)
+        lastDeviationRejected = r.DeviationRejected;
         siRejected = r.SelfIntersectionsRejected;
         return mesh;
     }

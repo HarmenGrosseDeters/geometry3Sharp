@@ -53,7 +53,7 @@ the mesh. Hence
     min angle(mesh after) = min(min over unchanged, min over new) >= min(min over unchanged, min over R) = min angle(mesh before)
 
 bit for bit, by induction over the operations. The first benchmark run, with an order-dependent acos measure, showed one case 1e-10 relative below
-(5.40386976337e-05 to 5.40386976253e-05 degrees, Thingi10K 39460). With the canonical measure the count is 0
+(5.40386976337e-05 to 5.40386976253e-05 degrees, on one Thingi10K mesh). With the canonical measure the count is 0
 (`MinAngle_IndependentOfTheCornerOrder`). Normals may not turn by more than 30 degrees, and no new triangle may be degenerate. An old triangle of zero
 area has no normal: its replacement is held to the area-weighted normal of the triangles the operation replaces (a collapse or relocation), to the
 other old triangle (a flip, a split); two flat old triangles refuse. So exactly flat needles are repaired (`ZeroAreaTriangle_IsRepaired`); before,
@@ -90,7 +90,7 @@ Every covered reference triangle T keeps a set D(T) of current mesh triangle ids
   operation.
 
 The certificate is the cascade of `ReducerReverseCoverage.Within`. It runs breadth first, with the same answer, and with at most 256 sub-triangles per
-certificate, refused beyond. That bound sets the cost: on 104582 and 93370 the depth-first, unbounded cascade took 148 and 88 s, mostly in certificates
+certificate, refused beyond. That bound sets the cost: on two of the meshes the depth-first, unbounded cascade took 148 and 88 s, mostly in certificates
 that end refused at depth 10. With the bound they take 3.5 and 8.5 s, and 6739 instead of 6087 of the two meshes' reference triangles are uncovered.
 Tests: `Coverage_RefusesCuttingASpike_AcceptsAFlatChange`, `TwoSided_AcceptRefusesFlatteningASpike` (accepted one-sided, refused two-sided),
 `CoverageWithin_CornersNearButInteriorFar_NotCovered`, and `TwoSided` in `Invariance_OverSimilarities`.
@@ -127,7 +127,7 @@ over small cells (cells are 2 x the mean crease length, at least 1 / 256 of the 
 
 `benchmarks/RemeshQualityBenchmark`, `post=0.005 runs=3 fidelity=0` on the 20 Thingi10K meshes of `benchmarks/RemeshBenchmark`
 (`fetch_data.py`, nothing committed): g3cli remesh settings with `MinTriangleQuality = 0.2`, then the pass with a band of 0.5 % of the input's
-diagonal. 4 cores, net10.0, Release; the raw output is `benchmarks/RemeshQualityBenchmark/perf/post_pass_2026-11-28.txt`. The metric is the min angle at the 1 % rank
+diagonal. 4 cores, net10.0, Release, run in a session container (a GitHub-hosted re-run is to come); the raw output, summaries only, is `benchmarks/RemeshQualityBenchmark/perf/post_pass_2026-11-28.txt`. The metric is the min angle at the 1 % rank
 (`TriangleQualityStatistics`), mean / median over the 20. The sector bound (last but one column) is the angle at the 1 % rank of the sectors between two
 crease edges at one vertex of the result, the most any triangulation that keeps those creases can reach there.
 
@@ -158,11 +158,11 @@ certificates (a profile with stopwatches, not committed; large flat faces triang
 coordinator (2026-11-28, opt-in, at most 0.4 s per case); no speed-up is built. On the Thingi10K set it is 1.07x.
 
 Reading:
-1. **Crease-angle limit.** 5 of the 20 have crease sectors below 20 degrees at the 1 % rank (104582, 196126, 39460, 93370, 63709; sectors 0 to 11
+1. **Crease-angle limit.** 5 of the 20 have crease sectors below 20 degrees at the 1 % rank (sectors 0 to 11
    degrees). Any triangulation that keeps those creases keeps those angles. This is the surface analogue of small input angles, which Delaunay
    refinement cannot remove, only isolate (Shewchuk 2002). The other 15 are in the column after it (11.99 to 14.55 for the default).
 2. **Noisy crease networks.** Most of the remaining worst triangles are needles whose short edge is a crease edge between junctions, or crosses a narrow
-   strip between two creases (299291: 129 of 171). Fixing them needs merging or dropping crease fragments, a fidelity decision
+   strip between two creases (on one mesh: 129 of 171). Fixing them needs merging or dropping crease fragments, a fidelity decision
    ([REMESHER_CREASE_SLIVERS.md](REMESHER_CREASE_SLIVERS.md)), or graded refinement of both creases (triangle count about strip length over width).
 3. **The band.** 8 of the 20 remesh outputs are 1 to 25 % of the diagonal off the input, and 14 already self-intersect, so a band of 0.5 % refuses most
    operations there. Without any creases the pass reaches 17.6 at this band (table), and 23.5 without creases and band (the plan's upper bound, a scratch probe).
