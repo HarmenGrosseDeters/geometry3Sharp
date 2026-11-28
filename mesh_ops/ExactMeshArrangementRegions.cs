@@ -86,10 +86,11 @@ namespace g3
         /// </summary>
         internal int[] RegionOf { get; private set; }
 
-        // eligible (RegionClipping, from find_intersections): the triangles that are in a candidate pair and share their exact plane (planeRep) with another such triangle; only they can have
-        // a coplanar partner, so only they are put into regions (a lean version: the others are regions of their own, their edges are boundary edges and clipped as before, and the exact
-        // planes of the triangles far from every other mesh are never computed). null: every triangle (BuildRegions alone, the tests).
-        void build_regions(bool[] eligible = null, int[] rep = null)
+        // eligible (RegionClipping, from find_intersections): the triangles that are in a candidate pair; only they can have
+        // a coplanar partner, so only they are put into regions (the others are regions of their own, their edges are boundary
+        // edges and clipped as before, and no exact planes are computed for triangles far from every other mesh).
+        // null: every triangle (BuildRegions alone, the tests).
+        void build_regions(bool[] eligible = null)
         {
             var parent = new int[Triangles.Count];
             for (int i = 0; i < parent.Length; ++i) parent[i] = i;
@@ -101,17 +102,16 @@ namespace g3
                 foreach (int ti in MeshTriangles[mi]) {
                     if (triDegenerate[ti] || (eligible != null && eligible[ti] == false)) continue;
                     for (int k = 0; k < 3; ++k) {
-                        long e = EdgeKey(triCorners[ti][k], triCorners[ti][(k + 1) % 3]);
-                        int other;
+                        int a = triCorners[ti][k], b = triCorners[ti][(k + 1) % 3];
+                        long e = EdgeKey(a, b);
+                        int other, oj;
                         if (first.TryGetValue(e, out other) == false)
                             first[e] = ti;
-                        else if (flat_edge(other, ti, triCorners[ti][k], triCorners[ti][(k + 1) % 3], rep)) {
+                        else if (flat_edge(other, ti, a, b, triCorners[ti][(k + 2) % 3], out oj)) {
                             join(parent, other, ti);
                             if (flatMask != null) {
                                 flatMask[ti] |= (byte)(1 << k);
-                                for (int j = 0; j < 3; ++j)
-                                    if (triCorners[other][j] == triCorners[ti][(k + 1) % 3] && triCorners[other][(j + 1) % 3] == triCorners[ti][k])
-                                        flatMask[other] |= (byte)(1 << j);
+                                flatMask[other] |= (byte)(1 << oj);
                             }
                         }
                     }
@@ -135,23 +135,21 @@ namespace g3
             }
         }
 
-        // the edge a-b of triangle ti is a flat edge shared with triangle oi
-        bool flat_edge(int oi, int ti, int a, int b, int[] rep)
+        // the edge a->b (opposite corner c) of non-degenerate triangle ti is a flat edge shared with non-degenerate triangle oi;
+        // sets oj to the edge index of b->a in oi when flat
+        bool flat_edge(int oi, int ti, int a, int b, int c, out int oj)
         {
-            // (a degenerate O has its third corner on the line a-b: Orient is 0 and the edge is not flat)
-            InputTriangle T = Triangles[ti], O = Triangles[oi];
-            // (the exact plane of both: planeRep says it for the eligible triangles, the planes of the others are not computed)
-            if (rep != null ? rep[ti] != rep[oi] : same_plane(T.P, O.P) == false) return false;
-            // O traverses the edge as b->a, and the third corners are strictly on opposite sides
-            int c = -1, d = -1;
-            bool reversed = false;
-            for (int j = 0; j < 3; ++j) {
-                int x = T.Corners[j], y = O.Corners[j];
-                if (x != a && x != b) c = x;
-                if (y != a && y != b) d = y;
-                if (y == b && O.Corners[(j + 1) % 3] == a) reversed = true;
-            }
-            return reversed && c >= 0 && d >= 0 && Orient(T, a, b, c) * Orient(T, a, b, d) < 0;
+            // oi holds edge {a, b}; it traverses b->a iff the corner after b is a (so the opposite corner d != a;
+            // for a flipped neighbour traversing a->b, d == a so Orient(T, a, b, a) == 0 != -1 below)
+            Index3i oc = triCorners[oi];
+            oj = oc[0] == b ? 0 : oc[1] == b ? 1 : 2;
+            int d = oc[(oj + 2) % 3];
+            // exact coplanarity of two non-degenerate triangles sharing edge a-b: Orient3d(a, b, c, d) == 0
+            // (filtered double on non-coplanar edges, exact adaptive fallback; independent of plane_bucket / round_key / MaxPlaneCandidates
+            // and does no BigInteger work in flat_edge on non-coplanar edges)
+            if (ExactPredicates.Orient3d(inputCoords[a], inputCoords[b], inputCoords[c], inputCoords[d]) != 0) return false;
+            // (a, b, c) is a cyclic permutation of T's corners, so Orient(T, a, b, c) == +1; d lies strictly on the opposite side iff Orient == -1
+            return Orient(Triangles[ti], a, b, d) == -1;
         }
 
         // union by the lowest index as the root
