@@ -26,6 +26,14 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+#### Coplanar fans: the pair stage is still quadratic (#1630, E' stages 0 to 3, 2026-11-27)
+
+E' ([design/COPLANAR_REGION_CLIPPING.md](../design/COPLANAR_REGION_CLIPPING.md), internal switch `ExactMeshBoolean.RegionClipping`, off by default) made the pieces of two
+overlaid coplanar fans linear and the union of the 2 ulp pair at ring 481 20 times faster (27.5 s to 1.4 s). **Open:** the time still grows x2.6 to x3.9 per doubling
+(gate x2.5 missed; decided 2026-11-27 to accept) because the intersecting coplanar pairs grow x3.9 per doubling (the wedges of the two fans really cross at the common
+centre). Upper bound for a linear pair stage (stacks by spatial query, no clipping and recording of the pairs that cannot cut anything): about 0.9 s of the 1.4 s at ring
+481 and 3.9 s of the 5.3 s at ring 961 (probe that clips only neighbouring wedges, results invalid; benchmarks/CoplanarRegionClipping). Not built. Stage 4: the owner decides the default.
+
 #### The result does not depend on the order of the input (#1464, merged 2026-11-24)
 
 **Decided 2026-11-23 (owner): option A with A2 and D** of

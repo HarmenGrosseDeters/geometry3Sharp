@@ -258,6 +258,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, unrepaired.Status);
             Assert.Equal("Refused:0", Names(unrepaired));
             Assert.Contains("no allowed repair closed it (InputRepair = AutoRepairThenRobust)", unrepaired.Report.Route[0].Reason);
+            Assert.Contains("MeshRobustRepair did not repair it", unrepaired.Error);
         }
 
         [Fact]

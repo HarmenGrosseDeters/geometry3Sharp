@@ -55,6 +55,21 @@ for (int i = 0; i < 50; ++i) {
 - **Spatially varying edge length (`TargetEdgeLengthF`):** Provide a custom sizing function, or use `RemeshSizing.FromWallThickness` to refine thin walls so opposite faces do not fold through each other.
 - **`RemesherPro`:** Extends `Remesher` with active-set `FastestRemesh()`, `SharpEdgeReprojectionRemesh()`, and `FastSplitIteration()`. Queued passes are deterministic across thread counts.
 
+### Quality Post-Pass (`RemeshQualityPass`, opt-in)
+
+- **Namespace & classes:** `gs.RemeshQualityPass`, `gs.RemeshQualityResult`, `gs.RemeshQualityStatus`. A separate step after `Remesher` / `RemesherPro` (their behaviour and defaults are unchanged).
+- **What it does:** Visits the triangles below `TargetMinAngleDegrees` (30) worst first and tries needle collapses, cap splits, needle splits, edge flips and vertex relocations. Crease vertices move, are inserted (crease edge split) and removed (crease edge collapsed) along the reference's creases (Hu et al. 2017; Wang et al. 2019). Crease corners, junctions and span ends keep their position.
+- **Guarantees:** The smallest angle never drops: an operation is made only if the smallest angle of its triangles rises. The measure is order-independent, so this holds bit for bit. Every triangle the pass makes is certified within `MaxDeviation` of the reference (`TriangleDeviationBounds.IsWithin`, as `Reducer.MaxDeviation`), and every crease edge it makes is certified within it of the reference's crease edges. With `TwoSided`, every reference triangle that was within the band at the start stays within it of the result. With `PreventSelfIntersections` (default), no new triangle intersects another (exact test). Serial and deterministic; scale invariant (2^k scales give the same result bit for bit).
+- **Limits:** No quality floor is promised. The pass certifies only the triangles it makes: `StartWithinBand` / `ResultWithinBand` report whether the whole mesh is in the band. A remesh that left triangles outside it stays outside there, and the pass does not pull them back. `TwoSided` needs a reference of about the mesh's resolution: the triangles of a much coarser reference (a CAD input's few large faces) cannot be certified within the piece budget and are reported as uncovered (`StartWithinBand` false). Acute crease sectors keep their angle: two crease edges meeting at a vertex at angle a bound every triangle between them by a. On the 20 Thingi10K meshes of `benchmarks/RemeshQualityBenchmark` (band 0.5 % of the diagonal) the angle at the 1 % rank rises from 9.7 to 11.7 degrees mean (median 5.7 to 6.9), at 1.07 times the remesh's time (`TwoSided` 2.2 times; small CAD-like gears up to 7 times); see [REMESH_QUALITY_PASS.md](../design/REMESH_QUALITY_PASS.md) for the measurements and the reasons it stays below 20.
+- **Example:** [RemeshQualityExample.cs](../examples/RemeshQualityExample.cs)
+
+```csharp
+using gs;
+
+var pass = new RemeshQualityPass(remeshed, input) { MaxDeviation = 0.005 * input.CachedBounds.DiagonalLength };
+RemeshQualityResult r = pass.Compute();   // r.MinAngleAfter >= r.MinAngleBefore; r.ResultWithinBand
+```
+
 ---
 
 ## Mesh Simplification (`Reducer`, `PartitionedReducer`, `MeshEnvelope`)
@@ -103,6 +118,7 @@ bool inside = envelope.Status == MeshEnvelope.EnvelopeStatus.Ready
 - **Input / mutability:** Read-only manifold triangle mesh (`DMesh3`); outputs a new `DPolyMesh` (with whole quad/polygon faces).
 - **Guarantees & limits:** Computes a smooth cross field (or principal-curvature-aligned / crease-aligned via `CurvatureAlignment`, `AlignCreases`, `CreaseAngleDegrees` when `Field == null`), integrates an integer-lattice position field (boundary corners pinned above `CornerAngleDegrees`), and extracts a quad-dominant polygon mesh (mostly quads with a few triangles/pentagons/hexagons near singularities). Requires an explicit `TargetEdgeLength`.
 - **Opt-in size adaptation (`SizeAdaptation`):** `Off` (default, uniform spacing), `Scale`, or `ScaleAndRotation` runs `IntegrableFrames` to reduce lattice curl on closed smooth shapes (applied only if curl drops by at least `SizeAdaptationMinGain`, default 20 %; can be combined with `PureQuads`).
+- **Same bits on every platform (#1713):** the cross field, the position field, the extraction, the size adaptation and the principal curvature directions call the correctly rounded `CoreMath` sine, cosine, atan2, exp and log, not the platform libm, and so does their crease threshold, so the same input gives the same output bits on Windows and Linux (the libm rule G3E0004 makes a platform call there a build error). This matters because the extraction is sensitive: on a gear at 18 remesh passes a 1-ulp change of an input point decides whether a face is dropped. Not covered: an input built with `Math.Sin / Cos`, a `SizeFunction` you pass. `MeshTopology` used directly keeps `Math.Cos` for its crease threshold, as in 1.0.324.
 - **Example:** [QuadRemeshExample.cs](../examples/QuadRemeshExample.cs)
 - **Further reading:** [QUAD_REMESHING.md](../design/QUAD_REMESHING.md)
 

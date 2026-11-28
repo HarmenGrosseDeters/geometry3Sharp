@@ -75,6 +75,10 @@
     <InternalsVisibleTo Include="SheetExtensionProbe" />
     <!-- predicate counts of the self-intersection checks (benchmarks/SelfIntersectionBenchmark) -->
     <InternalsVisibleTo Include="SelfIntersectionBenchmark" />
+    <!-- the internal variants and diagnostics of RemeshQualityPass (benchmarks/RemeshQualityBenchmark post=) -->
+    <InternalsVisibleTo Include="RemeshQualityBenchmark" />
+    <!-- the doubling series of coplanar fans with RegionClipping (benchmarks/CoplanarRegionClipping, #1630) -->
+    <InternalsVisibleTo Include="CoplanarRegionClipping" />
     <!-- the floor switch of refinement on the grid (benchmarks/Meshing2Benchmark gridcounts) -->
     <InternalsVisibleTo Include="Meshing2Benchmark" />
     <!-- the statistics and the A/B switch of the volume check (benchmarks/MeshRepairBenchmark, BENCH_IOU_CELLS) -->

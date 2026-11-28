@@ -21,7 +21,7 @@ on:
   # The Markdown in the paths is what the tests or the tier rule read (tools/ci_scope.py CI_MARKDOWN, kept equal by its tests).
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
-    paths: ['**', '!**/*.md', 'docs/OPERATIONS.md', 'docs/ROBUSTNESS_SWEEP.md', 'docs/design/EXACT_FALLBACK_MONOMIALS.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md', 'docs/design/INDIRECT_PREDICATES.md', 'docs/design/MESHING2D_GOLDEN_FORMAT.md', 'docs/design/MESHING2D_CATALOGUE.md', 'docs/guides/**']
+    paths: ['**', '!**/*.md', 'docs/OPERATIONS.md', 'docs/ROBUSTNESS_SWEEP.md', 'docs/design/EXACT_FALLBACK_MONOMIALS.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md', 'docs/design/INDIRECT_PREDICATES.md', 'docs/design/BISECTOR_PREDICATES.md', 'docs/design/MESHING2D_GOLDEN_FORMAT.md', 'docs/design/MESHING2D_CATALOGUE.md', 'docs/guides/**']
   schedule:
     - cron: '41 */2 * * *'     # every 2 hours: the batched master run (skipped when there is nothing new to test)
   workflow_dispatch:
@@ -261,6 +261,7 @@ jobs:
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_pairs_runs.py' -v
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_contact.py' -v
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_imprint.py' -v
+          python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_certify_thingi.py' -v
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_abc_chained.py' -v
           python3 -m unittest discover -s benchmarks/net48-compare -p 'test_report.py' -v
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_t6.py' -v
@@ -443,6 +444,48 @@ jobs:
           name: ${{ matrix.name }}-results
           path: test-results/
 
+  # The Windows net10.0 leg (owner 2026-11-27, #1713; docs/qa/ci-and-gates.md): the platform libm differs between the Windows CRT and
+  # glibc, and the netstandard jobs above run .NET Framework, whose libm is another one again, so a result that depends on Math.Sin /
+  # Cos / Atan2 ... showed up only in a local Windows run (QuadRemesherCrossingTests gear/18). The net10.0 tests of the changed areas
+  # (tools/ci_scope.py --platform: the selection of the quick stage) plus a fixed platform-sensitive set (the quad pipeline and the
+  # CoreMath tests), without Slow and Nightly. A run that is not a PR has no changed list and runs the fixed set alone. Like the
+  # netstandard jobs it starts on every full run (a fixed check name) and skips its steps when no library test is in scope.
+  windows-net10:
+    needs: scope
+    if: needs.scope.outputs.full == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.scope.outputs.library == 'true'
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-dotnet@v4
+        if: needs.scope.outputs.library == 'true'
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the library and the tests (net10.0)
+        if: needs.scope.outputs.library == 'true'
+        run: dotnet build tests/geometry3Sharp.Tests -c Release -f net10.0
+      - name: Which tests
+        if: needs.scope.outputs.library == 'true'
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then git diff --name-only --no-renames HEAD^1 HEAD > changed.txt; else : > changed.txt; fi
+          python tools/ci_scope.py --platform --summary "$GITHUB_STEP_SUMMARY" < changed.txt > which.txt
+          sed -n 's/^filter=//p' which.txt > filter.txt
+          cat filter.txt
+      - name: Test the platform-sensitive set and the changed areas (net10.0, Windows)
+        if: needs.scope.outputs.library == 'true'
+        shell: bash
+        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --blame-hang --blame-hang-timeout 10m --filter "$(cat filter.txt)" --logger "trx;LogFileName=windows-net10.trx" --results-directory test-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-net10-results
+          path: test-results/
+          if-no-files-found: ignore
+
   # The tier rule of the golden-master policy (docs/design/DETERMINISM.md 6b; .github/workflows/tier-rule.yml for a manual run): a
   # documented operation of tier 1 may not gain a call path to the platform libm. A merge-gate check, so a job of the full stage
   # (about 2 minutes; it ran on library PRs only before, now on every full run, which keeps the gate free of path filters).
@@ -484,7 +527,7 @@ jobs:
   # A later push gets no status until its own run ends, so an old green never covers a new head. (Fork PRs: the token cannot
   # write statuses; the step warns and the owner checks the jobs by hand.)
   full-ci-status:
-    needs: [scope, linux, isolated, time-rule, netstandard, tier-rule, new-tests-on-base, determinism]
+    needs: [scope, linux, isolated, time-rule, netstandard, windows-net10, tier-rule, new-tests-on-base, determinism]
     # (!cancelled(): a run that a newer one cancelled posts nothing; the newer one posts for its head)
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.scope.result == 'success' }}
     runs-on: ubuntu-latest
@@ -498,6 +541,7 @@ jobs:
       FULL: ${{ needs.scope.outputs.full }}
       LINUX: ${{ needs.linux.result }}
       NETSTANDARD: ${{ needs.netstandard.result }}
+      WINDOWS_NET10: ${{ needs.windows-net10.result }}
       ISOLATED: ${{ needs.isolated.result }}
       TIME_RULE: ${{ needs.time-rule.result }}
       TIER_RULE: ${{ needs.tier-rule.result }}
@@ -510,10 +554,10 @@ jobs:
           ok() { [ "$1" = success ] || [ "$1" = skipped ]; }
           if [ "$FULL" != true ]; then
             state=pending; desc="label full-ci not set: the full matrix has not run on this head"
-          elif [ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && [ "$TIER_RULE" = success ] && [ "$NEW_TESTS" = success ] && ok "$ISOLATED" && ok "$TIME_RULE" && ok "$DETERMINISM"; then
+          elif [ "$LINUX" = success ] && [ "$NETSTANDARD" = success ] && [ "$WINDOWS_NET10" = success ] && [ "$TIER_RULE" = success ] && [ "$NEW_TESTS" = success ] && ok "$ISOLATED" && ok "$TIME_RULE" && ok "$DETERMINISM"; then
             state=success; desc="full matrix passed on this head"
           else
-            state=failure; desc="linux $LINUX, netstandard $NETSTANDARD, tier-rule $TIER_RULE, new-tests $NEW_TESTS, isolated $ISOLATED, time-rule $TIME_RULE, determinism $DETERMINISM"
+            state=failure; desc="linux $LINUX, netstandard $NETSTANDARD, windows-net10 $WINDOWS_NET10, tier-rule $TIER_RULE, new-tests $NEW_TESTS, isolated $ISOLATED, time-rule $TIME_RULE, determinism $DETERMINISM"
             desc="${desc:0:140}"
           fi
           echo "full-ci: $state ($desc)"

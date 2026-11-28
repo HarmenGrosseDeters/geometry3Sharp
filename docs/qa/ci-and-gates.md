@@ -255,6 +255,23 @@ one full run). The bad merge gets a fix PR (with `bugfix`), a revert only for a 
 minute). A `paths` filter would make the check disappear for PRs without gate files (a required check would then wait forever)
 and an early exit inside the job saves seconds, not billed minutes, so it stays as it is.
 
+## 2.15 The Windows net10.0 leg (owner 2026-11-27)
+
+`QuadRemesherCrossingTests` gear/18 failed in a local Windows net10.0 run and passed in CI (#1713). The Windows jobs of CI
+(`netstandard`, `netstandard-b`) run .NET Framework, whose libm is again a different one, so a result that depended on the
+Windows CRT's `Math.Sin / Cos / Atan2` was not tested anywhere. The owner chose a filtered leg (proposal C of the diagnosis)
+over the whole net10.0 suite on Windows: about 30-40 min wall time, 60-80 billed minutes per run.
+
+- Job `windows-net10` of `ci.yml`, on `windows-latest`, in the full stage only: label `full-ci`, master batches,
+  `workflow_dispatch` and tags; not in `quick`, not on a draft. Like the `netstandard` jobs it starts on every full run (a fixed
+  check name) and skips its steps when no library test is in scope (a tools-only change or batch).
+- Builds the library and the test project for net10.0, and tests with `tools/ci_scope.py --platform`. That is the selection of the
+  quick stage (the changed areas; none for a run that is not a PR) plus a fixed platform-sensitive set (`PLATFORM_PREFIXES`:
+  `Quad*`, `CrossField*`, `PureQuad*`, `QuadFixtureInput*`, `CoreMath*`), without Slow and Nightly. PositionField and IntegrableFrames
+  have no test class of their own: the Quad* classes and PureQuadTests test them.
+- `full-ci-status` needs it: the merge gate `full-ci` is green only with `windows-net10` passed.
+- Budget: 5-8 min wall time, 10-16 billed minutes (Windows minutes count twice). The measured run is in the PR that added the job.
+
 ## 3.1 Micro benchmarks with regression detection
 
 BenchmarkDotNet (MIT) covers the kernels:

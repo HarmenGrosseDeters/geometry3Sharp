@@ -175,6 +175,74 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // ---------------------------------------------------------------- C5: the exact area sums only in mixed planes (#1683 follow-up)
+
+        // the verdict of C5 with and without the skip of the exact area sums in planes of one orientation
+        static (string skipped, string exact, BooleanCertificate cs, BooleanCertificate ce) BothAreaPaths(DMesh3 a, DMesh3 b, Ops op)
+        {
+            Action<ExactMeshBoolean> cfg = x => x.Orientation = ExactMeshBoolean.OrientationModes.AreaMajority;
+            BooleanCertificate cs = Certify(a, b, op, out _, cfg), ce = Certify(a, b, op, out _, cfg);
+            Assert.Equal("", cs.CheckInputs()); Assert.Equal("", cs.CheckPieces());
+            Assert.Equal("", ce.CheckInputs()); Assert.Equal("", ce.CheckPieces());
+            ce.ForceExactAreas = true;
+            return (cs.CheckResult(), ce.CheckResult(), cs, ce);
+        }
+
+        [Theory, MemberData(nameof(SolidCases))]
+        public void AreaSkip_GivesTheVerdictOfTheExactSums(string name)
+        {
+            var (a, b) = Solids[name]();
+            foreach (Ops op in BooleanOracle.AllOps) {
+                var (rs, re, cs, ce) = BothAreaPaths(a, b, op);
+                Assert.Equal(re, rs);
+                // (the exact path takes every plane, the skip the planes of one orientation: the same planes in all)
+                Assert.Equal(0, ce.AreaPlanesSkipped);
+                Assert.Equal(ce.AreaPlanesExact, cs.AreaPlanesExact + cs.AreaPlanesSkipped);
+            }
+        }
+
+        [Fact]
+        public void AreaSkip_GivesTheVerdictOfTheExactSums_UnderEverySimilarity()
+        {
+            var (a0, b0) = Solids["spheres overlapping"]();
+            int idExact = -1, idSkipped = -1;
+            foreach (Similarity s in Similarity.All().OrderBy(x => x == Similarity.Identity ? 0 : 1)) {
+                DMesh3 Map(DMesh3 m) { var r = new DMesh3(m); foreach (int v in r.VertexIndices()) r.SetVertex(v, s.Apply(r.GetVertex(v))); return r; }
+                var (rs, re, cs, ce) = BothAreaPaths(Map(a0), Map(b0), Ops.Union);
+                Assert.True(rs == re, $"{s.Name}: '{rs}' against '{re}'");
+                Assert.Equal(ce.AreaPlanesExact, cs.AreaPlanesExact + cs.AreaPlanesSkipped);
+                // (the planes of a similar copy are the planes of the original: the same counts under every similarity)
+                if (idExact < 0) { idExact = cs.AreaPlanesExact; idSkipped = cs.AreaPlanesSkipped; Assert.True(idSkipped > 0); }
+                Assert.True(cs.AreaPlanesExact == idExact && cs.AreaPlanesSkipped == idSkipped,
+                    $"{s.Name}: {cs.AreaPlanesExact} exact / {cs.AreaPlanesSkipped} skipped against {idExact} / {idSkipped}");
+            }
+        }
+
+        [Fact]
+        public void AreaSkip_MixedPlane_KeepsTheExactSums_AndTheVerdict()
+        {
+            Certify(Solids["spheres overlapping"]().Item1, Solids["spheres overlapping"]().Item2, Ops.Union, out ExactMeshBoolean eb);
+            DMesh3 Copy(DMesh3 m) => new DMesh3(m, false, MeshComponents.None);
+            foreach (bool force in new[] { false, true }) {
+                // (a triangle and its reverse on top of the result before rounding: the chains are equal, the areas are not, and the
+                // plane has both orientations)
+                BooleanCertificate sheet = BooleanCertificate.From(eb);
+                sheet.ForceExactAreas = force;
+                sheet.Assembled = Copy(sheet.Assembled);
+                Index3i t = sheet.Assembled.GetTriangle(sheet.Assembled.TriangleIndices().First());
+                int va = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.a)), vb = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.b)), vc = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.c));
+                int vd = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.a)), ve = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.b)), vf = sheet.Assembled.AppendVertex(sheet.Assembled.GetVertex(t.c));
+                sheet.Assembled.AppendTriangle(va, vb, vc); sheet.Assembled.AppendTriangle(vd, vf, ve);
+                var ex = sheet.AssembledExact.ToList();
+                while (ex.Count < sheet.Assembled.MaxVertexID) ex.Add(default(ExactPoint3));
+                ex[va] = ex[vd] = sheet.AssembledExact[t.a]; ex[vb] = ex[ve] = sheet.AssembledExact[t.b]; ex[vc] = ex[vf] = sheet.AssembledExact[t.c];
+                sheet.AssembledExact = ex.ToArray();
+                Assert.Contains("another area than the kept pieces", sheet.CheckResult());
+                Assert.True(sheet.AreaPlanesExact >= 1, $"force {force}: {sheet.AreaPlanesExact} planes with exact sums");
+                if (force == false) Assert.True(sheet.AreaPlanesSkipped >= 1);
+            }
+        }
+
         [Fact]
         public void Timing_IsLogged()
         {
@@ -987,7 +1055,9 @@ namespace geometry3Sharp.Tests
         public void InjectedMissedSplit_OnFineFaces_IsCaughtThroughTheBoxTree()
         {
             var (a, b) = FineFaceContact();
-            Certify(a, b, Ops.Union, out ExactMeshBoolean eb);
+            // (RegionClipping = false: this brute force asks per triangle whether the unsplit piece straddles a coplanar triangle, which is the rule of
+            // the old clips; with regions a flat edge between two triangles of one region is no boundary, the region-aware checker rightly accepts it)
+            Certify(a, b, Ops.Union, out ExactMeshBoolean eb, x => x.RegionClipping = false);
             BooleanCertificate probe = BooleanCertificate.From(eb);
             Assert.Equal("", probe.CheckPieces());
             Assert.Equal("", probe.CheckEmbedding());

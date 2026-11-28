@@ -1,0 +1,170 @@
+name: Region clipping corpus
+
+# The corpus gate of E' stage 4 (docs/design/COPLANAR_REGION_CLIPPING.md, #1630): ExactMeshBoolean with and without the internal switch RegionClipping on the
+# procedural corpora (the BooleanFuzzCases families and the pipeline audit corpus) and on Thingi10K (self-unions, the thingi-pairs pairs and the thingi-contact
+# variants). Per case and operation (tests/geometry3Sharp.Tests/Harness/RegionClippingCompare.cs): the same Status, the same NotCleanReason, an exact difference of the
+# two results that is empty both ways, the certifying checker on the result with the switch on, and the time with and without. Manual only (workflow_dispatch, no
+# schedule): the Thingi jobs fetch the models from huggingface at run time, which a PR-tier test never does; no model is committed and the rows hold no mesh. GitHub-hosted
+# runners only. The report (the summary and every row that is not `same`, with the exact / exact_tris / min_edge / round_res / repair_tol fields and the stderr tail of a failing case) goes to
+# the job log as well as the step summary; the procedural job and the Thingi kinds / contact variants can be switched off to make a re-run cheaper. The library and the tool come from library_ref (it must contain the region-compare command), the scripts from the ref the workflow runs on.
+on:
+  workflow_dispatch:
+    inputs:
+      library_ref:
+        description: 'Ref of the library and benchmark tool (must contain RegionClipping and the region-compare command of BooleanComparison)'
+        default: 'master'
+      fuzz_count:
+        description: 'Seeds per fuzz family (0..N-1; 12 families rows each, three operations)'
+        default: '300'
+      self_count:
+        description: 'Thingi10K self-unions (the first N models of clean_models.csv in the seeded order)'
+        default: '60'
+      pairs_count:
+        description: 'Thingi10K pairs (a prefix of thingi-pairs/pairs.csv)'
+        default: '100'
+      contact_count:
+        description: 'Pairs per variant of thingi-pairs/contact_pairs.csv (face-contact, partial-overlap, ulp-shift, ulp-shift-few, mirror)'
+        default: '20'
+      max_tris:
+        description: 'Only models with at most this many triangles (the budget of a job)'
+        default: '20000'
+      timeout_s:
+        description: 'Timeout per case in seconds (all three operations, both settings and the certificate)'
+        default: '900'
+      procedural:
+        description: 'Run the procedural job (the fuzz families and the audit corpus)'
+        type: boolean
+        default: true
+      thingi_kinds:
+        description: 'The Thingi10K jobs to run: a comma list of self, pairs, contact (empty: none)'
+        default: 'self,pairs,contact'
+      contact_variants:
+        description: 'The contact variants to run (a comma list of face-contact, partial-overlap, ulp-shift, ulp-shift-few, mirror; empty: all five)'
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  procedural:
+    if: github.repository == 'harmengrossedeters/geometry3Sharp' && inputs.procedural
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.library_ref }}
+          path: lib
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: scripts
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the benchmark tool
+        run: |
+          dotnet build lib/benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
+          cp -r lib/benchmarks/BooleanComparison/bin/Release/net10.0 frozen
+          git -C lib rev-parse HEAD > lib_sha.txt
+          nproc >> lib_sha.txt
+      - name: The fuzz families and the audit corpus
+        env:
+          FUZZ_COUNT: ${{ inputs.fuzz_count }}
+        run: |
+          dotnet frozen/BooleanComparison.dll region-compare fuzz all 0 "$FUZZ_COUNT" > rows-procedural.jsonl
+          dotnet frozen/BooleanComparison.dll region-compare audit >> rows-procedural.jsonl
+      - name: Report
+        if: always()
+        run: |
+          set -o pipefail
+          python3 scripts/benchmarks/BooleanComparison/data/certify_thingi.py summary --region rows-procedural.jsonl | tee report-procedural.md | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: region-procedural
+          path: |
+            rows-procedural.jsonl
+            report-procedural.md
+            lib_sha.txt
+
+  kinds:
+    # the matrix of the thingi job from the thingi_kinds input (a job-level `if` cannot read `matrix`)
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 5
+    outputs:
+      list: ${{ steps.k.outputs.list }}
+    steps:
+      - id: k
+        env:
+          KINDS: ${{ inputs.thingi_kinds }}
+        run: |
+          python3 -c "import json, os; ks = [k.strip() for k in os.environ['KINDS'].split(',') if k.strip()]; bad = [k for k in ks if k not in ('self', 'pairs', 'contact')]; assert not bad, f'unknown thingi kinds: {bad}'; print('list=' + json.dumps(ks))" >> "$GITHUB_OUTPUT"
+
+  thingi:
+    needs: kinds
+    if: github.repository == 'harmengrossedeters/geometry3Sharp' && needs.kinds.outputs.list != '[]'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        kind: ${{ fromJSON(needs.kinds.outputs.list) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.library_ref }}
+          path: lib
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: scripts
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the benchmark tool
+        run: |
+          dotnet build lib/benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
+          cp -r lib/benchmarks/BooleanComparison/bin/Release/net10.0 frozen
+          git -C lib rev-parse HEAD > lib_sha.txt
+          nproc >> lib_sha.txt
+      - name: Cases and models (fetched from huggingface, outside the repository, never committed)
+        env:
+          KIND: ${{ matrix.kind }}
+          SELF: ${{ inputs.self_count }}
+          PAIRS: ${{ inputs.pairs_count }}
+          CONTACT: ${{ inputs.contact_count }}
+          VARIANTS: ${{ inputs.contact_variants }}
+          MAX_TRIS: ${{ inputs.max_tris }}
+        run: |
+          S=scripts/benchmarks/BooleanComparison/data/certify_thingi.py
+          n_self=0; n_pairs=0; n_contact=0
+          case "$KIND" in self) n_self=$SELF ;; pairs) n_pairs=$PAIRS ;; contact) n_contact=$CONTACT ;; esac
+          python3 $S plan cases.jsonl --self "$n_self" --pairs "$n_pairs" --contact "$n_contact" --max-tris "$MAX_TRIS" --variants "$VARIANTS"
+          python3 $S fetch data cases.jsonl
+      - name: Run each case with and without RegionClipping
+        env:
+          TIMEOUT: ${{ inputs.timeout_s }}
+        run: |
+          python3 scripts/benchmarks/BooleanComparison/data/certify_thingi.py run cases.jsonl data "rows-${{ matrix.kind }}.jsonl" --timeout "$TIMEOUT" --tool frozen/BooleanComparison.dll --command region-compare
+      - name: Report
+        if: always()
+        run: |
+          set -o pipefail
+          python3 scripts/benchmarks/BooleanComparison/data/certify_thingi.py summary --region "rows-${{ matrix.kind }}.jsonl" | tee "report-${{ matrix.kind }}.md" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: region-thingi-${{ matrix.kind }}
+          path: |
+            rows-${{ matrix.kind }}.jsonl
+            report-${{ matrix.kind }}.md
+            lib_sha.txt

@@ -479,6 +479,35 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void AnOpenInput_IsNeverFlagged_ByTheExactStage()
+        {
+            // an open input that overlaps itself (two overlapping boxes, one triangle missing) is classified by the generalized winding number,
+            // which is thresholded: the exact stage flags closed inputs only
+            DMesh3 open = Together(Box(0.5, 0, 0, 0.5), Box(0.8, 0, 0, 0.5));
+            open.RemoveTriangle(0);
+            var op = new ExactMeshBoolean(new List<DMesh3> { Box(0, 0, 0, 0.5), open, TwoOverlapping(3) }, U) { AllowOpenMeshes = true };
+            op.Compute();
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, op.Status);
+            Assert.False(op.ExactWinding[1]);
+            Assert.Equal(new[] { false, false, true }, op.WindingOutsideZeroOneOfInput);
+        }
+
+        [Fact]
+        public void AFailureOfTheBooleanItself_LeavesTheListEmpty_ButAFailureAfterTheClassificationKeepsIt()
+        {
+            // BudgetExceeded (before the classification): nothing is read
+            var budget = Run(Box(0, 0, 0, 0.5), TwoOverlapping(0.5), U, x => x.ConfigureBoolean = o => o.MaxPieces = 1);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.BooleanFailed, budget.Status);
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.BudgetExceeded, budget.BooleanStatus);
+            Assert.Empty(budget.Report.InputsWithWindingOutsideZeroOne);
+            Assert.Equal(SolidBooleanResultKind.None, budget.Report.ResultKind);
+            // InsideOutInput (after it): kept
+            var refused = Run(Box(0, 0, 0, 0.5), Box(0.5, 0, 0, 0.5, true), U);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InsideOutInput, refused.Status);
+            Assert.Equal(new[] { 1 }, refused.Report.InputsWithWindingOutsideZeroOne.ToArray());
+        }
+
+        [Fact]
         public void TheWarning_IsTheSameInEveryFrame_AndSerialAndParallel()
         {
             DMesh3 a = Box(0, 0, 0, 0.5), b = TwoOverlapping(0.5);

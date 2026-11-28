@@ -21,10 +21,14 @@ With --quick (the job `quick` of ci.yml, the first stage of PR CI, owner 2026-11
                                   the smoke set plus the directly named classes only; the full matrix (label `full-ci`) is the gate
 and with --summary <file> a markdown summary of the selection (appended).
 
+With --platform (the job `windows-net10` of the full stage, owner 2026-11-27) it prints filter=<dotnet test filter>: the --quick
+selection of the changed paths on stdin (none for a run that is not a PR) plus the fixed set PLATFORM_PREFIXES.
+
 Usage:
     git diff --name-only HEAD^1 HEAD | python3 tools/ci_scope.py
     python3 tools/ci_scope.py --all        # push to master, manual runs: everything
     git diff --name-only HEAD^1 HEAD | python3 tools/ci_scope.py --quick [--summary <file>]
+    git diff --name-only HEAD^1 HEAD | python3 tools/ci_scope.py --platform [--summary <file>]
 """
 
 import os
@@ -51,6 +55,7 @@ SHARED = (
     "tools/PredicateCompiler/predicates.spec",
     "tools/PredicateCompiler/indirect.spec",
     "tools/PredicateCompiler/doubles.spec",
+    "tools/PredicateCompiler/bisector.spec",   # GeneratedPredicatesBisectorTests
     "tools/g3cli/TrianglePolyFormat.cs",
     "tools/ReaderFuzzPilot/FuzzTarget.cs",        # ReaderFuzzReplayTests
     "tools/ReaderFuzzPilot/ReaderTargets.cs",
@@ -62,6 +67,7 @@ SHARED = (
     "docs/design/FIXED_WIDTH_EXACT_POINTS.md",
     "docs/design/DETERMINISM_PROOF.md",       # DeterminismScopeAnalyzerTests (the stage 0 ledger)
     "docs/design/INDIRECT_PREDICATES.md",
+    "docs/design/BISECTOR_PREDICATES.md",     # GeneratedPredicatesBisectorTests (the bound table)
     "docs/design/MESHING2D_GOLDEN_FORMAT.md",
     "docs/design/MESHING2D_CATALOGUE.md",
 )
@@ -237,14 +243,32 @@ def _users(path, text, files, classes, notes):
     return False
 
 
+def _class_terms(classes, in_global=()):
+    terms = []
+    for c in sorted(classes):
+        terms += [f"FullyQualifiedName~{c}."] if c in in_global else [f"FullyQualifiedName~.{c}.", f"FullyQualifiedName~+{c}."]
+    return terms
+
+
 def quick_filter(classes, in_global=()):
     """the dotnet test filter for the classes: `.C.` matches the class C in any namespace (not C2 or XC), `+C.` a nested class C,
     and `C.` a class of the global namespace (FullyQualifiedName `C.M`; it may match more, never less); '' for none"""
     if not classes:
         return ""
-    terms = []
-    for c in sorted(classes):
-        terms += [f"FullyQualifiedName~{c}."] if c in in_global else [f"FullyQualifiedName~.{c}.", f"FullyQualifiedName~+{c}."]
+    return "(" + "|".join(_class_terms(classes, in_global)) + ")&" + QUICK_FILTER_TAIL
+
+
+# --- the Windows net10.0 leg of the full stage (job windows-net10 of ci.yml, owner 2026-11-27, #1713): the quick selection of the
+# changed areas plus a fixed set whose results depend on the platform libm if a call slips back in (the quad pipeline, whose
+# extraction a 1-ulp change can decide, and the correctly rounded CoreMath itself). Class-name prefixes: `.P` matches every class
+# whose name starts with P in any namespace.
+PLATFORM_PREFIXES = ("Quad", "CrossField", "PureQuad", "QuadFixtureInput", "CoreMath")
+# (PositionField and IntegrableFrames have no test class of their own: their tests are in the Quad* classes and PureQuadTests)
+
+
+def platform_filter(classes=(), in_global=()):
+    """the filter of the Windows net10.0 leg: the fixed platform-sensitive set, plus the classes of the quick selection; never empty"""
+    terms = [f"FullyQualifiedName~.{p}" for p in PLATFORM_PREFIXES] + _class_terms(classes, in_global)
     return "(" + "|".join(terms) + ")&" + QUICK_FILTER_TAIL
 
 
@@ -287,6 +311,15 @@ DETERMINISM_PATHS = ("tools/DeterminismHarness/", "tools/DeterminismReach/", "do
 def main(argv):
     if "--docs-only" in argv:
         print("docs_only=" + ("true" if docs_only(sys.stdin.read().split("\n")) else "false"))
+        return 0
+    if "--platform" in argv:
+        # (a run that is not a PR has no changed list: stdin is empty, and the fixed set runs alone)
+        result = quick_tests(sys.stdin.read().split("\n"))
+        print("filter=" + platform_filter(result["classes"], result["global"]))
+        if "--summary" in argv:
+            with open(argv[argv.index("--summary") + 1], "a", encoding="utf-8") as f:
+                f.write("### Windows net10.0: the platform-sensitive set (" + ", ".join(f"`{p}*`" for p in PLATFORM_PREFIXES) + ") and the changed areas\n\n"
+                        + quick_summary(result).split("\n", 2)[2])
         return 0
     if "--quick" in argv:
         result = quick_tests(sys.stdin.read().split("\n"))

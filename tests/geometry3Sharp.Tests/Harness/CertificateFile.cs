@@ -75,6 +75,7 @@ namespace geometry3Sharp.Tests
             var sections = LastSections = new List<(string, int)>();
             if (c.NotApplicableReason != null) throw new NotSupportedException("no certificate: " + c.NotApplicableReason);
             if (c.Operation == null) throw new NotSupportedException("a custom winding predicate has no file format");
+            if (c.RegionClipping) throw new NotSupportedException("region-clipped: the file format has no regions (the stand-alone checker would reject a correct result with a C2 straddle)");
             var w = new W();
             foreach (byte b in Magic) w.Byte(b);
             w.U(Version); w.U(1);                                           // format R

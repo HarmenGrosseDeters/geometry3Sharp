@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static string Print(DMesh3 m)
+        internal static string Print(DMesh3 m)
         {
             var sb = new System.Text.StringBuilder();
             foreach (int v in m.VertexIndices()) {
@@ -120,7 +120,7 @@ namespace geometry3Sharp.Tests
         // ---- the boxes of the pending triangles are kept from query to query (ROUNDING_COST_2026-11.md section 6) ----
 
         // a prism of height h over a regular n-gon of radius r around (cx, cy), from z0
-        static DMesh3 Prism(int n, double r, double cx, double cy, double z0, double h)
+        internal static DMesh3 Prism(int n, double r, double cx, double cy, double z0, double h)
         {
             var m = new DMesh3();
             for (int k = 0; k < 2; ++k)
@@ -140,7 +140,7 @@ namespace geometry3Sharp.Tests
         // a plate with holes x holes holes (the difference of a box and prisms: long thin triangles between the holes)
         // and its copy, rotated and shifted: a boolean whose rounding evaluates many edits (the `plate` case of
         // benchmarks/SnapRoundingExperiment gen)
-        static Func<ExactMeshBoolean> PlateWithHoles(int holes, Ops op)
+        internal static Func<ExactMeshBoolean> PlateWithHoles(int holes, Ops op)
         {
             var parts = new List<DMesh3> { new GridBox3Generator() { Box = new Box3d(new Vector3d(1, 1, 0.1), new Vector3d(1, 1, 0.1)), EdgeVertices = 2 }.Generate().MakeDMesh() };
             double pitch = 2.0 / holes;

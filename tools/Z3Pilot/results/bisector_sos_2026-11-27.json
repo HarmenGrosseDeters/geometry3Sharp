@@ -1,0 +1,216 @@
+{
+  "z3": "4.15.4",
+  "passed": true,
+  "obligations": [
+    {
+      "name": "side3_cramer_identity",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side3_cramer_without_two_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side3_geometric_value",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side3_geometric_without_residual_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side3_linear_coefficients",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side3_coefficients_sum_to_zero",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side3_sum_wrong_a_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side3_cascade_decides",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side3_without_tested_site_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side3_wrong_sign_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side2_crossing_identity",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side2_crossing_reversed_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side2_geometric_value",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side2_geometric_factor_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side2_linear_coefficients",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side2_coefficient_c_is_d",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side2_coefficient_c_sign_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side2_cascade_decides",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side2_cascade_one_site_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side2_missing_factor_two_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side1_is_the_power_difference",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side1_weight_sign_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "side1_tie_goes_to_the_larger_weight",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "side1_tie_reversed_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "anchor_independence",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "anchor_without_tie_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "crossing_inside_the_edge",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "crossing_closed_edge_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "parallel_edge_never_crosses",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "parallel_edge_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "r2_crossing_is_the_distance",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "r2_crossing_unsquared_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "r2_btpi_is_the_distance",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "r2_btpi_without_two_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "r2_missing_point_is_zero",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "r2_missing_point_without_factor_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "r3_circumcentre_identity",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "r3_circumcentre_without_two_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "r3_circumradius_identity",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "r3_circumradius_without_nn_mutant",
+      "result": "sat",
+      "expected": "sat"
+    },
+    {
+      "name": "r3_is_the_circumradius_test",
+      "result": "unsat",
+      "expected": "unsat"
+    },
+    {
+      "name": "r3_without_four_mutant",
+      "result": "sat",
+      "expected": "sat"
+    }
+  ]
+}

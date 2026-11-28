@@ -1147,3 +1147,35 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+## Bisector predicates and their symbolic perturbation (`bisector_sos.py`, certified remeshing stage 1b)
+
+Real-arithmetic lemmas (quantifier free, nonlinear) about the exact formulas of `tools/PredicateCompiler/bisector.spec`
+and the cascades of `math/ExactBisectorSoS.cs` ([design/BISECTOR_PREDICATES.md](../../docs/design/BISECTOR_PREDICATES.md)
+section 3). The error bounds of the generated filters are not modelled: the generator's rules and its Symbolic Taylor check
+own them. The source contracts pin the transcribed spans: the spec entries of `BisectorSide2`, `BisectorSide3`,
+`DistanceAbove2`, `DistanceAbove3` and `RadiusEdgeAbove`, and `Side1` to `Side3` of the perturbation. Each of the 21 UNSAT
+lemmas has a SAT mutant beside it (a broken rule or a dropped factor), and the test checks that they pair up.
+
+* **The perturbation** (P1 = `BisectorSide3`, P4 = `BisectorSide2`, P3 = `BisectorSide1`). The weights are free reals,
+  so the lemmas also hold for the infinitesimal weights of the cascade. Lemmas:
+  * Cramer's rule for the weighted point is an identity up to the residuals of its plane equations.
+  * The perturbed value equals the denominator times the weighted power difference at that point.
+  * The perturbed value is the plain value plus the linear form with the cascade's coefficients.
+  * The coefficients sum to 0.
+  * The coefficient of the tested site is the denominator, so the cascade decides wherever the point exists.
+  * A tie of P3 goes to the larger weight (the smaller id).
+* **Consistency.** At a point of the power bisectors of (a, b) and (a, c), the side against e is the same for every
+  anchor. Along a clipped edge the side value is affine: a crossing between ends of opposite signs lies strictly inside the
+  edge, and an edge parallel to the bisector never has ends on two sides (so a point with d = 0 or det = 0 is never
+  constructed).
+* **R2 and R3.**
+  * `|N|^2 - (r d)^2` times `sign(d^2)` has the sign of `|y|^2 - r^2` for `y = N / d`. With `2 r det` it is the same for
+    the BTPI point.
+  * The result is 0 where the point does not exist.
+  * The circumcentre identity, `4 |n|^2 R^2 = |b|^2 |c - b|^2 |c|^2`, makes `RadiusEdgeAbove` the sign of
+    `R^2 - rho^2 |pq|^2`.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_bisector_sos.py -v
+```

@@ -147,6 +147,8 @@ static class Program
         sweep = A.ContainsKey("sweep") && A["sweep"] == "1";
         sizing = A.ContainsKey("sizing") ? double.Parse(A["sizing"], CultureInfo.InvariantCulture) : 0;
         int runs = A.ContainsKey("runs") ? int.Parse(A["runs"]) : 1;
+        postBand = A.ContainsKey("post") ? double.Parse(A["post"], CultureInfo.InvariantCulture) : 0;
+        postVariant = A.ContainsKey("post_variant") ? A["post_variant"] : "";
 
         var cases = new List<(string group, string name, DMesh3 input, double target)>();
         foreach (int s in new[] { 6, 8, 10, 12, 16, 24, 32 })
@@ -173,6 +175,8 @@ static class Program
             }
 
         Remesh(cases[0].input, cases[0].target, qualities[0], preventOn, pinAngle, sizing, out _, out _);      // warm-up (JIT)
+        if (postBand > 0)
+            return Post(cases.Where(c => only == null || only.IsMatch(c.name)).ToList(), qualities[0], runs);
         var json = new JsonSerializerOptions() { IncludeFields = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
         var rows = new List<(string group, string name, Result off, Result[] on)>();
         foreach (var c in cases) {
@@ -194,6 +198,132 @@ static class Program
             Summary(rows.Select(r => (r.group, r.name, r.off, r.on[k])).ToList());
         }
         return 0;
+    }
+
+    // post=<f>: RemeshQualityPass after the "on" remesh, band f x the input's diagonal (one-sided; post_variant: a
+    // comma list of twosided, free (corners not pinned), merge (strips between creases collapsed), c60 / c180 (crease angle),
+    // nocrease (crease operations off)). Per case the min angle (worst and at the 1 % rank) before and after, the time of
+    // the remesh and of the pass, the Hausdorff distance to the input, self-intersecting pairs and NotCleanReason before and
+    // after, the operation counts, and the crease-sector bound (the smallest angle at the 1 % rank between two crease edges
+    // of one vertex, the most any triangulation that keeps those creases can reach there)
+    static double postBand = 0;
+    static string postVariant = "";
+
+    class PostResult
+    {
+        public int TrisBefore, TrisAfter, PairsBefore, PairsAfter;
+        public double RemeshSeconds, PassSeconds, MinBefore, MinAfter, P01Before, P01After, HdBefore, HdAfter, SectorBound;
+        public string CleanBefore, CleanAfter, Status;
+        public bool StartWithinBand, ResultWithinBand;
+        public double CoverageInit, CoverageCheck; public long CoverageCertified; public int Uncovered;
+        public int Flips, Collapses, Splits, Relocations, CreaseInsertions, CreaseRemovals, CreaseRelocations, RejectedByBand, RejectedByIntersection, RejectedByAngle, Uncertified, StartUncertified;
+    }
+
+    static RemeshQualityPass MakePass(DMesh3 mesh, DMesh3 input, double band)
+    {
+        var v = new HashSet<string>(postVariant.Split(',', StringSplitOptions.RemoveEmptyEntries));
+        return new RemeshQualityPass(mesh, input) {
+            MaxDeviation = band, TwoSided = v.Contains("twosided"), PinCreaseCorners = !v.Contains("free"), MergeCreases = v.Contains("merge"),
+            CreaseAngleDegrees = v.Contains("c60") ? 60 : v.Contains("c180") ? 180 : 30, EnableCreaseOperations = !v.Contains("nocrease"),
+            CoverageDepth = v.Contains("cd6") ? 6 : v.Contains("cd4") ? 4 : 10,
+            CoveragePieces = v.Contains("mp64") ? 64 : v.Contains("mp1k") ? 1024 : v.Contains("mpinf") ? int.MaxValue : 256 };
+    }
+
+    static int Post(List<(string group, string name, DMesh3 input, double target)> cases, double quality, int runs)
+    {
+        var json = new JsonSerializerOptions() { IncludeFields = true, NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
+        var rows = new List<(string group, string name, PostResult r)>();
+        foreach (var c in cases) {
+            var r = new PostResult();
+            double diag = c.input.CachedBounds.DiagonalLength, band = postBand * diag;
+            var remeshTimes = new List<double>(); var passTimes = new List<double>();
+            DMesh3 remeshed = null, m = null; RemeshQualityResult q = null; RemeshQualityPass pass = null;
+            for (int k = 0; k < runs; ++k) {
+                GC.Collect(); GC.WaitForPendingFinalizers();
+                var sw = Stopwatch.StartNew();
+                remeshed = Remesh(c.input, c.target, quality, preventOn, 0, 0, out _, out _);
+                remeshTimes.Add(sw.Elapsed.TotalSeconds);
+                m = new DMesh3(remeshed);
+                GC.Collect(); GC.WaitForPendingFinalizers();
+                sw.Restart();
+                pass = MakePass(m, c.input, band);
+                q = pass.Compute();
+                passTimes.Add(sw.Elapsed.TotalSeconds);
+            }
+            remeshTimes.Sort(); passTimes.Sort();
+            r.RemeshSeconds = remeshTimes[runs / 2]; r.PassSeconds = passTimes[runs / 2];
+            r.TrisBefore = remeshed.TriangleCount; r.TrisAfter = m.TriangleCount;
+            r.MinBefore = q.MinAngleBefore; r.MinAfter = q.MinAngleAfter; r.P01Before = q.Worst1PercentBefore; r.P01After = q.Worst1PercentAfter;
+            r.PairsBefore = MeshRepairMetrics.SelfIntersections(remeshed); r.PairsAfter = MeshRepairMetrics.SelfIntersections(m);
+            r.CleanBefore = MeshRobustRepair.NotCleanReason(remeshed); r.CleanAfter = MeshRobustRepair.NotCleanReason(m);
+            var h0 = new MeshHausdorffDistance(c.input, remeshed) { Tolerance = 0.001 * diag }; h0.Compute();
+            var h1 = new MeshHausdorffDistance(c.input, m) { Tolerance = 0.001 * diag }; h1.Compute();
+            r.HdBefore = h0.UpperBound / diag; r.HdAfter = h1.UpperBound / diag;
+            r.Status = q.Status.ToString(); r.StartWithinBand = q.StartWithinBand; r.ResultWithinBand = q.ResultWithinBand;
+            r.Flips = q.Flips; r.Collapses = q.Collapses; r.Splits = q.Splits; r.Relocations = q.Relocations; r.CreaseInsertions = q.CreaseInsertions;
+            r.CreaseRemovals = q.CreaseRemovals; r.CreaseRelocations = q.CreaseRelocations; r.RejectedByBand = q.RejectedByBand;
+            r.RejectedByIntersection = q.RejectedByIntersection; r.RejectedByAngle = q.RejectedByAngle;
+            r.Uncertified = q.UncertifiedTriangles; r.StartUncertified = q.StartUncertifiedTriangles;
+            r.SectorBound = SectorBound(m, pass);
+            if (pass.Coverage != null) { r.CoverageInit = pass.Coverage.InitSeconds; r.CoverageCheck = pass.Coverage.CheckSeconds; r.CoverageCertified = pass.Coverage.Certified; r.Uncovered = pass.Coverage.Uncovered; }
+            rows.Add((c.group, c.name, r));
+            Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object>() { ["group"] = c.group, ["case"] = c.name, ["post"] = r }, json));
+        }
+        Console.WriteLine();
+        Console.WriteLine($"## RemeshQualityPass after MinTriangleQuality = {quality.ToString(CultureInfo.InvariantCulture)}, band {postBand.ToString(CultureInfo.InvariantCulture)} x diagonal{(postVariant.Length > 0 ? ", " + postVariant : "")}");
+        Console.WriteLine("| group | cases | p01 mean before / after | p01 median before / after | min angle lower after | new self-int. pairs (cases) | not clean before / after | result in band | sector bound < 20: cases, p01 mean of the others before / after | remesh s / pass s |");
+        Console.WriteLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
+        foreach (var g in rows.GroupBy(x => x.group)) {
+            var l = g.Select(x => x.r).ToList();
+            double med(IEnumerable<double> xs) { var a = xs.OrderBy(x => x).ToList(); return a.Count % 2 == 1 ? a[a.Count / 2] : 0.5 * (a[a.Count / 2 - 1] + a[a.Count / 2]); }
+            var wide = l.Where(x => !(x.SectorBound < 20)).ToList();
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "| {0} | {1} | {2:F2} / {3:F2} | {4:F2} / {5:F2} | {6} | {7} | {8} / {9} | {10} | {11}, {12:F2} / {13:F2} | {14:F1} / {15:F1} |",
+                g.Key, l.Count, l.Average(x => x.P01Before), l.Average(x => x.P01After), med(l.Select(x => x.P01Before)), med(l.Select(x => x.P01After)),
+                l.Count(x => x.MinAfter < x.MinBefore), l.Count(x => x.PairsAfter > x.PairsBefore), l.Count(x => x.CleanBefore != ""), l.Count(x => x.CleanAfter != ""),
+                l.Count(x => x.ResultWithinBand), l.Count - wide.Count, wide.Count > 0 ? wide.Average(x => x.P01Before) : double.NaN, wide.Count > 0 ? wide.Average(x => x.P01After) : double.NaN,
+                l.Sum(x => x.RemeshSeconds), l.Sum(x => x.PassSeconds)));
+        }
+        return 0;
+    }
+
+    // the smallest angle at the 1 % rank of the sectors at the vertices with two or more crease edges (per triangle the
+    // smallest sector one of its corners lies in; 180 for a triangle at no such vertex)
+    static double SectorBound(DMesh3 m, RemeshQualityPass pass)
+    {
+        double angle_at(int t, int v)
+        {
+            Index3i tv = m.GetTriangle(t);
+            int o1 = tv.a == v ? tv.b : tv.a, o2 = tv.c == v ? tv.b : tv.c;
+            Vector3d p = m.GetVertex(v);
+            return Vector3d.AngleD((m.GetVertex(o1) - p).Normalized, (m.GetVertex(o2) - p).Normalized);
+        }
+        var bounds = new List<double>();
+        foreach (int t in m.TriangleIndices()) {
+            double b = 180;
+            Index3i tv = m.GetTriangle(t);
+            foreach (int v in new[] { tv.a, tv.b, tv.c }) {
+                int n = 0;
+                foreach (int x in m.VtxVerticesItr(v)) if (pass.IsCrease(v, x)) n++;
+                if (n < 2) continue;
+                var seen = new HashSet<int> { t };
+                var stack = new Stack<int>(); stack.Push(t);
+                double sum = 0;
+                while (stack.Count > 0) {
+                    int u = stack.Pop();
+                    sum += angle_at(u, v);
+                    Index3i uv = m.GetTriangle(u);
+                    foreach (int x in new[] { uv.a, uv.b, uv.c }) {
+                        if (x == v || pass.IsCrease(v, x)) continue;
+                        Index2i et = m.GetEdgeT(m.FindEdge(v, x));
+                        foreach (int w in new[] { et.a, et.b }) if (w >= 0 && seen.Add(w)) stack.Push(w);
+                    }
+                }
+                b = Math.Min(b, sum);
+            }
+            bounds.Add(b);
+        }
+        bounds.Sort();
+        return bounds.Count > 0 ? bounds[bounds.Count / 100] : double.NaN;
     }
 
     static bool fidelity = true, preventOn = false, sweep = false;

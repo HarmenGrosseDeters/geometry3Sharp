@@ -10,6 +10,8 @@
 //   certify thingi contact <meshA> <meshB> variant axis sign p   as thingi-contact (ContactTransforms.cs, exact placements)
 //   optional last arguments: ops=union,intersection,difference  split=N (BooleanCertificate.SplitDepth, default 3)  nocheck
 //   (the boolean only: its time and status, to tell a slow boolean from a slow checker)  clauses (the time of each clause, on stderr)
+//   compare=region  (E' stage 4, #1630) instead of the certificate: each operation with and without ExactMeshBoolean.RegionClipping, the rows of
+//   RegionClippingCompare (status, reason, exact difference of the results, the certificate with the switch on, times); `region-compare thingi ...` is this
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -46,8 +48,8 @@ static class CertifyThingi
         int split = -1;
         var splitArg = args.FirstOrDefault(s => s.StartsWith("split="));
         if (splitArg != null) { split = int.Parse(splitArg.Substring(6), ci); args = args.Where(s => s != splitArg).ToArray(); }
-        bool noCheck = args.Contains("nocheck"), clauses = args.Contains("clauses");
-        args = args.Where(s => s != "nocheck" && s != "clauses").ToArray();
+        bool noCheck = args.Contains("nocheck"), clauses = args.Contains("clauses"), region = args.Contains("compare=region");
+        args = args.Where(s => s != "nocheck" && s != "clauses" && s != "compare=region").ToArray();
         string kind = args[0];
         DMesh3 a = Program.Load(args[1]), b = kind == "self" ? null : Program.Load(args[2]);
         var row = new Dictionary<string, object> { ["kind"] = kind, ["a"] = Path.GetFileNameWithoutExtension(args[1]),
@@ -66,8 +68,9 @@ static class CertifyThingi
                 break;
             }
             case "contact": {
-                ContactResult r = ContactTransforms.Build(a, b, ContactTransforms.ParseVariant(args[3]), int.Parse(args[4], ci), int.Parse(args[5], ci), int.Parse(args[6], ci));
+                ContactResult r = ContactTransforms.Build(a, b, ContactTransforms.ParseVariant(args[3]), int.Parse(args[4], ci), int.Parse(args[5], ci), int.Parse(args[6], ci), region);      // (region: a snap to a grid where no exact placement exists, so that the case is compared)
                 row["variant"] = args[3];
+                if (r.Info.ContainsKey("snapped")) { row["snapped"] = r.Info["snapped"]; row["inexact_before"] = r.Info["inexact_before"]; }
                 if (r.Error != null) { Emit(row, "error", "inexact transform: " + r.Error); return 0; }
                 a = r.A; b = r.B;
                 break;
@@ -77,7 +80,7 @@ static class CertifyThingi
                 return 1;
         }
         foreach (Ops op in ops) {
-            Dictionary<string, object> r = CertifyRow(a, b, op, split, noCheck, clauses);
+            Dictionary<string, object> r = region ? RegionClippingCompare.Row(new List<DMesh3> { a, b }, op) : CertifyRow(a, b, op, split, noCheck, clauses);
             foreach (var kv in row) r[kv.Key] = kv.Value;
             Console.WriteLine(JsonSerializer.Serialize(r));
             Console.Out.Flush();

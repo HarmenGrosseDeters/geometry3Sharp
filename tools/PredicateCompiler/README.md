@@ -11,6 +11,9 @@ and 13.
     dotnet run --project tools/PredicateCompiler -- --code tools/PredicateCompiler/indirect.spec math/Generated/IndirectPredicates.cs
     dotnet run --project tools/PredicateCompiler -- --doc tools/PredicateCompiler/indirect.spec docs/design/INDIRECT_PREDICATES.md
     dotnet run --project tools/PredicateCompiler -- --verify-filters tools/PredicateCompiler/indirect.spec
+    dotnet run --project tools/PredicateCompiler -- --code tools/PredicateCompiler/bisector.spec math/Generated/BisectorPredicates.cs BisectorPredicates
+    dotnet run --project tools/PredicateCompiler -- --doc tools/PredicateCompiler/bisector.spec docs/design/BISECTOR_PREDICATES.md
+    dotnet run --project tools/PredicateCompiler -- --verify-filters tools/PredicateCompiler/bisector.spec
 
 The second command rewrites the generated table block of the design doc. `--verify-filters` runs an offline
 reverse-mode Symbolic Taylor error estimator (`SymbolicTaylorVerify.cs`, Solovyev et al. 2018) with exact
@@ -26,6 +29,10 @@ The value bounds know nothing of a runtime; the limbs taken are a model of `Fixe
 passes over the same expression graph (a floating-point filter and expansion stages as in #221, predicates on
 implicit points whose inputs are expressions of a construction's inputs) can be added beside them.
 
+`bisector.spec` holds the bisector predicates of the restricted Voronoi diagram (docs/design/BISECTOR_PREDICATES.md),
+generated into the class `BisectorPredicates`: the optional last argument of `--code` names the class (default
+`IndirectPredicates`); `GeneratedPredicatesBisectorTests` checks the file, the table and the argument.
+
 `indirect.spec` holds the indirect predicates (docs/design/INDIRECT_PREDICATES.md): `--code` generates their exact
 stage (`FixedArith` within the bound, `BigInteger` beyond); `GeneratedPredicatesIndirectTests` fails when the
 checked-in file or the doc's table differs from the output. For `predicates.spec` the tool stays a review tool: generating the kernels as well (`math/Generated/FixedPredicates.cs`,
@@ -34,7 +41,9 @@ branch `claude/predicate-compiler-fixed-spike`) was measured without a gain (sec
 Spec format: `ipredicate Name(a, b, ...) bound b [inputs xyz]` (the points; every input component has
 `|v| ≤ m = 2^b - 1`, `b = 255` for `FixedPoint3`; `inputs xyz`: the coordinates of integer points instead of the
 projected `x, y, w`), definitions `x = expression` (`+`, `-`, `*` and parentheses
-over the inputs and earlier names), then `sign e1, e2, ...` (the product of their signs). With `inputs xyz`, an optional line `prepare a, b` before the sign line (a proper subset of the points) also generates the prepared form (INDIRECT_PREDICATES.md section 12). The inputs are `p.x`, `p.y`, `p.w` of a point `p` (the
+over the inputs and earlier names), then `sign e1, e2, ...` (the product of their signs). With `inputs xyz`, an optional line `expansion none` skips the expansion stage explicitly (the filter, then the exact
+stage on FixedArith; without it a predicate whose expansion would be short enough is refused, since that stage is not
+generated). With `inputs xyz`, an optional line `prepare a, b` before the sign line (a proper subset of the points) also generates the prepared form (INDIRECT_PREDICATES.md section 12). The inputs are `p.x`, `p.y`, `p.w` of a point `p` (the
 components on the projection axes i and j, and W). Write the operations in the kernel's order: a value written twice
 is computed once, as in the kernel.
 

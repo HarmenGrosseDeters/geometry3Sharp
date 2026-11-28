@@ -22,8 +22,10 @@ namespace geometry3Sharp.Tests
         readonly ITestOutputHelper log;
         public CertificateFileTests(ITestOutputHelper log) { this.log = log; }
 
+        // (RegionClipping = false: the file format has no regions; a certificate of a region-clipped result is checked in process only, so the
+        // stand-alone verdict would differ from the in-process one)
         static BooleanCertificate Run(DMesh3 a, DMesh3 b, Ops op, out ExactMeshBoolean eb) =>
-            BooleanCertificate.Run(a, b, op, out eb, x => { if (op == Ops.Intersection) x.CullOutsideA = false; });
+            BooleanCertificate.Run(a, b, op, out eb, x => { x.RegionClipping = false; if (op == Ops.Intersection) x.CullOutsideA = false; });
 
         // the in-process verdict, as CertificateFile.Check words it
         static string InProcess(BooleanCertificate c)
@@ -51,7 +53,22 @@ namespace geometry3Sharp.Tests
         /// same), reading and writing again gives the same bytes, and the stand-alone checker returns the in-process verdict
         /// word for word (certified, or the same reason, as for the sliver families it documents).
         /// </summary>
-        [Theory, MemberData(nameof(Families))]
+                [Fact]
+        public void ARegionClippedCertificate_HasNoFile()
+        {
+            // two boxes with a flush face: the default clips regions, the file has none, so the writer refuses instead of a stand-alone verdict that rejects a correct result
+            DMesh3 a = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1))) }.Generate().MakeDMesh();
+            DMesh3 b = new TrivialBox3Generator() { Box = new Box3d(new AxisAlignedBox3d(new Vector3d(0.5, 0, 0), new Vector3d(1.5, 1, 1))) }.Generate().MakeDMesh();
+            BooleanCertificate c = BooleanCertificate.Run(a, b, Ops.Union, out ExactMeshBoolean eb, null);
+            Assert.True(eb.RegionClipping && c.RegionClipping);
+            Assert.Throws<NotSupportedException>(() => CertificateFile.Write(c));
+            // the old rule has a file
+            BooleanCertificate old = BooleanCertificate.Run(a, b, Ops.Union, out _, x => x.RegionClipping = false);
+            Assert.False(old.RegionClipping);
+            Assert.NotEmpty(CertificateFile.Write(old));
+        }
+
+[Theory, MemberData(nameof(Families))]
         public void RoundTrip_GivesTheSameBytes_AndTheInProcessVerdict(string family)
         {
             int runs = 0, certified = 0; long certBytes = 0, outBytes = 0;
@@ -90,6 +107,7 @@ namespace geometry3Sharp.Tests
             foreach (Ops op in AllOps) {
                 BooleanCertificate c = BooleanCertificate.Run(a, b, op, out ExactMeshBoolean eb, x => {
                     x.Orientation = ExactMeshBoolean.OrientationModes.AreaMajority;
+                    x.RegionClipping = false;       // (the file format has no regions)
                     if (op == Ops.Intersection) x.CullOutsideA = false;
                 });
                 Assert.True(c.ReorientedTriangles > 0, "nothing reoriented");

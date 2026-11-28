@@ -41,7 +41,7 @@ namespace g3
     /// (or <see cref="ComparePoints"/> for an order) or the canonical mapping <see cref="Canonical(int)"/>, never
     /// through the numeric value of an id.
     /// </summary>
-    internal class ExactMeshArrangement
+    internal partial class ExactMeshArrangement
     {
         public struct Plane
         {
@@ -88,6 +88,8 @@ namespace g3
                 public HashSet<int> Points;
                 public List<int> Coplanar;
                 public List<int> Partners;
+                // (#1630) the edge planes of the segments that were dropped as duplicates of a kept segment (same ends, another line), per edge key
+                public Dictionary<long, List<int>> Aliases;
             }
             static readonly List<Segment> noSegments = new List<Segment>();
             static readonly HashSet<int> noPoints = new HashSet<int>();
@@ -100,6 +102,7 @@ namespace g3
             internal void AddSegment(Segment s) { Touch t = touch(); (t.Segments ?? (t.Segments = new List<Segment>())).Add(s); }
             internal void AddPoint(int p) { Touch t = touch(); (t.Points ?? (t.Points = new HashSet<int>())).Add(p); }
             internal void AddCoplanar(int c) { Touch t = touch(); (t.Coplanar ?? (t.Coplanar = new List<int>())).Add(c); }
+            internal Dictionary<long, List<int>> Aliases { get { return arr.triTouch[Index]?.Aliases; } set { touch().Aliases = value; } }
             /// <summary>
             /// the input triangles that meet this one along a segment (not coplanar), in the order the intersections were
             /// found (it depends on the thread schedule: for uses that do not depend on the order). Not the triangles named by
@@ -268,6 +271,20 @@ namespace g3
         /// the next Compute; its ids are invalid after it.
         /// </summary>
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
+        /// <summary>
+        /// (#1630) keep, for every input triangle with at least EdgeLinesMinCoplanar coplanar triangles, the edge planes of the coplanar triangles that
+        /// each edge of its output triangulation lies on (EdgeLinesOf): the walk of the coplanar stacks reads them. Off by default
+        /// </summary>
+        internal bool RecordEdgeLines;
+        internal int EdgeLinesMinCoplanar = 16;
+        Dictionary<long, int[]>[] edgeLines;
+        /// <summary>
+        /// the coplanar triangles whose boundary an output edge of input triangle ti lies on: per edge key (EdgeKey of its point ids), the indices of
+        /// those triangles in ascending order (null for a triangle that has none recorded, or if RecordEdgeLines was off or the triangle has fewer coplanar triangles)
+        /// </summary>
+        internal Dictionary<long, int[]> EdgeLinesOf(int ti) { return edgeLines != null ? edgeLines[ti] : null; }
+        /// <summary> (#1630) forget the edge planes once the stacks are built (memory on large overlays) </summary>
+        internal void ReleaseEdgeLines() { edgeLines = null; }
         /// <summary>
         /// Per mesh: vertex id to point id. Written only in the serial build_points phase (input vertices at the same
         /// double position share one id), so every id here is an input-point id and deterministic: the same input gives the
@@ -1299,7 +1316,7 @@ namespace g3
             nextPoint = 0;
             canonical = null;
             triangleCount = 0;
-            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null;
+            triMesh = null; triTid = null; triCorners = null; triDegenerate = null; triPlanes = null; triTouch = null; RegionOf = null; flatMask = null; regionClipped = null;
             touchedPoints = null;
             planeRep = null;
             Culled = null;
@@ -1377,6 +1394,7 @@ namespace g3
             }
             var pieces = new List<OutputTriangle>[Triangles.Count];
             var constraints = new List<long>[Triangles.Count];
+            edgeLines = RecordEdgeLines ? new Dictionary<long, int[]>[Triangles.Count] : null;
             // (a culled triangle has no pairs, so it is not split: it stays one piece, which the output leaves out)
             gParallel.ForRange(Triangles.Count, (ti) => {
                 if (Cancellation.IsCancellationRequested == false && triangulated(Triangles[ti]))
@@ -2197,6 +2215,18 @@ namespace g3
                     reps.Add(ti);
             }
             planeRep = rep;
+            if (RegionClipping) {
+                // (the triangles in a candidate pair whose exact plane another such triangle has: the only ones that can have a coplanar partner)
+                var shared = new int[Triangles.Count];
+                for (int ti = 0; ti < shared.Length; ++ti)
+                    if (needed[ti] && finite(bucketKeys[ti]))
+                        shared[rep[ti]]++;
+                var eligible = new bool[Triangles.Count];
+                for (int ti = 0; ti < shared.Length; ++ti)
+                    eligible[ti] = needed[ti] && finite(bucketKeys[ti]) && shared[rep[ti]] >= 2;
+                build_regions(eligible, rep);
+            } else if (BuildRegions)
+                build_regions();
             clock.Lap("intersections.planes");
             // (cancelled: the pairs left are skipped; Compute stops after this phase)
             gParallel.ForRange(pairs.Count, (k) => {
@@ -2670,6 +2700,11 @@ namespace g3
                 // (R and A of a chained boolean share their surface, so this is most of the pairs of the last step: 57 % of its pair stage)
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
                 System.Threading.Interlocked.Increment(ref PreDecidedPairs);
+                // (#1630, RegionClipping: the same triangle twice in one mesh: an overlap, the regions are not embedded)
+                if (regionClipped != null && T.Mesh == U.Mesh && same_corners(T, U)) {
+                    regionClipped[RegionOf[ti]] = false;
+                    regionClipped[RegionOf[ui]] = false;
+                }
                 lock (T.Lock) T.AddCoplanar(ui);
                 lock (U.Lock) U.AddCoplanar(ti);
                 return;
@@ -2679,6 +2714,11 @@ namespace g3
             for (int k = 0; k < 3; ++k) {
                 any |= clip_into(T, U.Corners[k], U.Corners[(k + 1) % 3], 4 * ui + 1 + k);
                 any |= clip_into(U, T.Corners[k], T.Corners[(k + 1) % 3], 4 * ti + 1 + k);
+            }
+            // (#1630, RegionClipping: two triangles of one mesh in one plane that meet and are not neighbours: the regions are not embedded, they keep the old clips and stacks)
+            if (any && regionClipped != null && T.Mesh == U.Mesh) {
+                regionClipped[RegionOf[ti]] = false;
+                regionClipped[RegionOf[ui]] = false;
             }
             if (any) {
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
@@ -2798,6 +2838,24 @@ namespace g3
             foreach (int p in t.Points)
                 points.Add(Canonical(p));
             t.Points = points;
+            // (#1630, RegionClipping: the clips of flat edges of embedded regions become ghosts: no constraint, but their crossings with the constraints stay vertices,
+            // and so do their ends on a constraint or on a side that is not flat; a function of the constraint segments and the sides, the same in every triangle that has them)
+            List<Segment> ghosts = null;
+            if (regionClipped != null) {
+                var reals = new List<Segment>();
+                for (int k = 0; k < t.Segments.Count; ++k) {
+                    Segment s = t.Segments[k];
+                    int kk = (s.Line & 3) - 1, ui = s.Line >> 2;
+                    if (kk >= 0 && (flatMask[ui] & (1 << kk)) != 0 && regionClipped[RegionOf[ui]])
+                        (ghosts ?? (ghosts = new List<Segment>())).Add(new Segment(Canonical(s.P), Canonical(s.Q), s.Line));
+                    else
+                        reals.Add(s);
+                }
+                // (the order of the ghosts, which follows the pair loop, changes nothing: ghost_points only adds points to a set that touched_points sorts; not sorted, sorting
+                // them was 600 ms of the 1.7 s of the ring 481 series)
+                if (ghosts != null)
+                    t.Segments = reals;
+            }
             for (int k = 0; k < t.Segments.Count; ++k) {
                 Segment s = t.Segments[k];
                 t.Segments[k] = new Segment(Canonical(s.P), Canonical(s.Q), s.Line);
@@ -2816,11 +2874,20 @@ namespace g3
             if (t.Coplanar.Count > 1) t.Coplanar.Sort();
             var unique = new List<Segment>();
             var seen = new HashSet<long>(EdgeKeyComparer.Instance);
+            // (#1630: the lines of the segments that are dropped as duplicates, for the edge planes of the output edges)
+            Dictionary<long, List<int>> aliases = (RecordEdgeLines && t.Coplanar.Count >= EdgeLinesMinCoplanar) ? new Dictionary<long, List<int>>(EdgeKeyComparer.Instance) : null;
             foreach (Segment s in t.Segments) {
                 if (s.P == s.Q) { t.Points.Add(s.P); continue; }
-                if (seen.Add(EdgeKey(s.P, s.Q)))
+                long key = EdgeKey(s.P, s.Q);
+                if (seen.Add(key))
                     unique.Add(s);
+                else if (aliases != null) {
+                    List<int> l;
+                    if (aliases.TryGetValue(key, out l) == false) aliases[key] = l = new List<int>();
+                    l.Add(s.Line);
+                }
             }
+            t.Aliases = aliases;
             t.Segments = unique;
             foreach (Segment s in unique) {
                 t.Points.Add(s.P);
@@ -2841,6 +2908,9 @@ namespace g3
                 t.Points.Add(PlanesPointImplicit(4 * ti, a.Line, b.Line));
                 System.Threading.Interlocked.Increment(ref SegmentCrossings);
             });
+            if (ghosts != null)
+                foreach (Segment g in ghosts)
+                    ghost_points(t, ti, g, grid, unique);
             System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
             for (int k = 0; k < 3; ++k)
                 t.Points.Remove(t.Corners[k]);
@@ -2890,6 +2960,10 @@ namespace g3
             foreach (int p in ordered)
                 grid.Add(p, p);
             var candidates = new List<int>();
+            Dictionary<long, List<int>> aliasLines = t.Aliases;
+            t.Aliases = null;       // (read once, here: released with the triangulation)
+            Dictionary<long, List<int>> edgePlanes = (RecordEdgeLines && t.Coplanar.Count >= EdgeLinesMinCoplanar) ? new Dictionary<long, List<int>>(EdgeKeyComparer.Instance) : null;
+            List<long> edgeKeys = edgePlanes != null ? new List<long>() : null;
             foreach (Segment s in t.Segments) {
                 Direction d = line_direction(t, PlaneOf(s.Line));
                 int sp = Canonical(s.P), sq = Canonical(s.Q);
@@ -2909,11 +2983,18 @@ namespace g3
                 // order of the input triangles, and with points on a common circle the triangulation followed it too, #1464)
                 if (ComparePoints(on[0], on[on.Count - 1]) > 0)
                     on.Reverse();
+                List<int> extra = null;
+                if (edgePlanes != null && aliasLines != null)
+                    aliasLines.TryGetValue(EdgeKey(sp, sq), out extra);
                 for (int k = 0; k + 1 < on.Count; ++k) {
                     tri.InsertConstraint(on[k], on[k + 1]);
                     constraints.Add(EdgeKey(on[k], on[k + 1]));
+                    if (edgePlanes != null)
+                        add_edge_planes(edgePlanes, edgeKeys, EdgeKey(on[k], on[k + 1]), s.Line, extra);
                 }
             }
+            if (edgePlanes != null && edgeKeys.Count > 0)
+                edgeLines[ti] = edge_planes_to_triangles(edgePlanes, edgeKeys);
             System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
             tri.MakeDelaunay();
             if (local != null) {
@@ -2925,6 +3006,50 @@ namespace g3
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = f.a, B = f.b, C = f.c });
         }
 
+
+        // (#1630) the per edge lists of edge planes as sorted arrays of the triangles (line - 1) / 4 of the edge planes (not the triangle planes: line & 3 == 0), the
+        // keys in the order they were first seen (the segments are in a sorted order): no enumeration of a dictionary, no sort of the library
+        static Dictionary<long, int[]> edge_planes_to_triangles(Dictionary<long, List<int>> edgePlanes, List<long> keys)
+        {
+            var lines = new Dictionary<long, int[]>(keys.Count, EdgeKeyComparer.Instance);
+            var triangles = new List<int>();
+            foreach (long key in keys) {
+                triangles.Clear();
+                foreach (int line in edgePlanes[key]) {
+                    if ((line & 3) == 0)
+                        continue;
+                    int u = (line - 1) >> 2, at = triangles.Count;
+                    // (an insertion into the ascending list; a duplicate is skipped)
+                    bool present = false;
+                    for (int k = 0; k < triangles.Count; ++k)
+                        if (triangles[k] == u) { present = true; break; }
+                    if (present)
+                        continue;
+                    triangles.Add(u);
+                    while (at > 0 && triangles[at - 1] > u) { triangles[at] = triangles[at - 1]; --at; }
+                    triangles[at] = u;
+                }
+                if (triangles.Count == 0)
+                    continue;
+                var sorted = new int[triangles.Count];
+                for (int k = 0; k < sorted.Length; ++k)
+                    sorted[k] = triangles[k];
+                lines[key] = sorted;
+            }
+            return lines;
+        }
+
+        // (#1630) the edge planes (4 * triangle + 1 + k: the triangle that the edge belongs to is (line - 1) / 4) of a segment and of the duplicates
+        // dropped with it, on one of its sub-edges
+        static void add_edge_planes(Dictionary<long, List<int>> map, List<long> keys, long key, int line, List<int> extra)
+        {
+            List<int> l;
+            if (map.TryGetValue(key, out l) == false) { map[key] = l = new List<int>(); keys.Add(key); }
+            l.Add(line);
+            if (extra != null)
+                foreach (int e in extra)
+                    l.Add(e);
+        }
 
         /// <summary>
         /// Uniform grid over the projection of a triangle, of the boxes of items (segments p-q or points p = q):

@@ -413,6 +413,46 @@ dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- runs=1 base
   warning about an edge length far above the wall thickness names it, and stays when the fraction leaves the edges at
   the thinnest walls above 4 times their thickness.
 
+## RemeshQualityPass after the remesh (`post=<band>`)
+
+`post=<f>` runs `RemeshQualityPass` after the "on" remesh (MinTriangleQuality, default 0.2) with a band of f x the input's diagonal, `post_variant=`
+a comma list of `twosided`, `free` (corners not pinned), `merge` (strips between creases collapsed), `c60` / `c180` (crease angle) and `nocrease`. Per
+case one JSON line (min angle and its 1 % rank before / after, remesh and pass time, Hausdorff distance, self-intersecting pairs, NotCleanReason,
+operation counts, the crease-sector bound), then a summary per group. Design and reading: [REMESH_QUALITY_PASS.md](../../docs/design/REMESH_QUALITY_PASS.md).
+
+```
+python3 benchmarks/RemeshBenchmark/fetch_data.py
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- thingi=benchmarks/RemeshBenchmark/data/meshes 'only=^[0-9]+$' post=0.005 runs=3 fidelity=0
+```
+
+4 cores, net10.0, 2026-11-28 (after the review fixes); raw output [perf/post_pass_2026-11-28.txt](perf/post_pass_2026-11-28.txt):
+
+| variant (Thingi10K, 20) | p01 mean before / after | p01 median before / after | min angle lower | new self-int. pairs | result in band | sector bound < 20: cases; p01 mean of the others before / after | remesh s / pass s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| default (corners pinned), band 0.5 % | 9.67 / 11.72 | 5.66 / 6.87 | 0 | 0 | 3 | 5; 11.99 / 14.55 | 8.8 / 9.4 (1.07x) |
+| band 0.2 % | 9.67 / 11.31 | 5.66 / 5.90 | 0 | 0 | 0 | 4; 11.35 / 13.27 | 9.1 / 10.6 |
+| band 2 % | 9.67 / 12.45 | 5.66 / 7.32 | 0 | 0 | 15 | 8; 14.44 / 18.64 | 9.9 / 7.3 |
+| `TwoSided` | 9.67 / 11.72 | 5.66 / 6.87 | 0 | 0 | 1 | 5; 11.99 / 14.55 | 9.0 / 20.1 (2.2x) |
+| corners free (internal `PinCreaseCorners = false`) | 9.67 / 13.18 | 5.66 / 7.53 | 0 | 0 | 3 | 7; 13.51 / 18.22 | 9.6 / 15.1 |
+| corners free + strips merged (internal `MergeCreases`) | 9.67 / 13.82 | 5.66 / 7.55 | 0 | 0 | 3 | 7; 13.51 / 19.13 | 9.4 / 16.7 |
+| creases only above 60 degrees (`CreaseAngleDegrees = 60`, pass only) | 9.67 / 15.61 | 5.66 / 7.38 | 0 | 0 | 3 | 2; 10.46 / 17.03 | 9.1 / 10.2 |
+| no creases (`CreaseAngleDegrees = 180`, pass only) | 9.67 / 17.60 | 5.66 / 12.72 | 0 | 0 | 3 | 0; 9.67 / 17.60 | 8.7 / 20.2 |
+
+`MaxTriangleGrowth` is the owner-approved 0.05 here; the previous run at 0.1 (before the review fixes) gave 11.76 for the default, so the lower bound
+costs 0.04 degrees.
+
+Procedural groups, default, band 0.5 % (`post=0.005 runs=3 fidelity=0` without `thingi=`):
+
+| group | cases | p01 mean before / after | p01 median before / after | min angle lower | new self-int. pairs | remesh s / pass s |
+|---|---:|---:|---:|---:|---:|---:|
+| primitives | 150 | 27.76 / 31.22 | 29.27 / 32.33 | 0 | 0 | 4.8 / 1.2 |
+| gears | 18 | 4.50 / 11.42 | 2.64 / 8.96 | 0 | 0 | 0.3 / 2.0 (6.7x; 0.03 - 0.4 s per case) |
+| tubes | 24 | 4.37 / 4.43 | 3.45 / 3.45 | 0 | 0 | 0.2 / 0.1 |
+
+On the gears (200 - 1000 triangles) the pass costs 6-7 times the remesh: half of it is `IsWithin` of the new triangles and a quarter the start
+certificates (a profile with stopwatches, not committed; large flat faces triangulated as fans make the cascade subdivide). Accepted by the
+coordinator (2026-11-28, opt-in, at most 0.4 s per case); no speed-up is built. On the Thingi10K set it is 1.07x.
+
 ## Decision
 - `g3cli remesh` turns the option on: `min_quality` defaults to 0.2 (`--min-quality 0` for the old behaviour). On the
   inputs the command sees (Thingi10K, CAD-like gears) every fidelity mean is equal or better with it (F-score,

@@ -14,12 +14,12 @@ from select_shards import ALWAYS, pr_selection, eligible, expand_only, shard_nam
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-RO = sorted("rounding-%d" % i for i in range(1, 14))  # (in the order of the config file names)
+RO = sorted("rounding-%d" % i for i in range(1, 16))  # (in the order of the config file names)
 BO = ["boolean-%d" % i for i in range(1, 10)]
 ALL_MESH = set(RO) | set(BO) | {"arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "imprint", "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff", "geodesic-1", "geodesic-2",
                                                 "uv-atlas", "uv-charts", "uv-pack", "uv-cones", "uv-slim", "uv-foldover", "uv-core", "solid-pipeline", "exact-winding", "cells",
-                                                "predicates-1", "predicates-2", "adaptive", "box3", "ray-triangle", "snaprounding"}
+                                                "predicates-1", "predicates-2", "adaptive", "box3", "ray-triangle", "snaprounding", "separating-axes", "bisector-1", "bisector-2"}
 
 
 def run(*changed):
@@ -53,12 +53,16 @@ class SelectShards(unittest.TestCase):
         self.assertTrue(eligible(configs["mesh-predicates-1"], ["math/ExactPredicates.cs"]))
         self.assertTrue(eligible(configs["mesh-adaptive"], ["math/AdaptivePredicates.cs"]))
         self.assertTrue(eligible(configs["mesh-box3"], ["intersection/IntrExactBox3.cs"]))
+        self.assertTrue(eligible(configs["mesh-separating-axes"], ["intersection/TriangleSeparatingAxes.cs"]))
         self.assertFalse(eligible(configs["mesh-box3"], ["intersection/IntrRay3Box3.cs"]))        # (not an exact-code file: its decision is the shared one)
         self.assertTrue(eligible(configs["mesh-ray-triangle"], ["math/ExactRayTriangle.cs"]))
         self.assertFalse(eligible(configs["mesh-ray-triangle"], ["intersection/IntrRay3Triangle3.cs"]))        # (not an exact-code file: a caller of the exact decision)
         self.assertFalse(eligible(configs["config"], ["math/ExactPredicates.cs"]))        # (moved to the predicates shards)
         self.assertTrue(eligible(configs["mesh-fixed"], ["math/FixedPoint3.cs"]))
         self.assertTrue(eligible(configs["mesh-generated"], ["math/Generated/IndirectPredicates.cs"]))
+        self.assertTrue(eligible(configs["mesh-bisector-1"], ["math/Generated/BisectorPredicates.cs"]))      # (exact: math/Generated/*.cs)
+        self.assertTrue(eligible(configs["mesh-bisector-2"], ["math/ExactBisectorSoS.cs"]))                 # (exact: math/Exact*.cs)
+        self.assertFalse(eligible(configs["mesh-generated"], ["math/Generated/BisectorPredicates.cs"]))   # (not mutated by that shard)
         self.assertFalse(eligible(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
         self.assertTrue(eligible(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))    # (mesh_ops/ExactMesh*: exact code)
         self.assertTrue(eligible(configs["mesh-arrangement-2"], ["mesh_ops/ExactMeshArrangement.cs"]))
@@ -141,7 +145,7 @@ class SelectShards(unittest.TestCase):
     def test_exact_winding_shard(self):
         # the exact winding number cache (#1294): the error bounds of finish_edge_angle and the exact leaf paths
         self.assertEqual(("none", {"exact-winding": "source"}), run("spatial/ExactWindingCache.cs"))
-        for f in ("ExactWindingNumberTests.cs", "ExactWindingCacheInternalTests.cs", "FastWindingExpansionUsedTests.cs",
+        for f in ("ExactWindingNumberTests.cs", "ExactWindingCacheInternalTests.cs", "ExactWindingOnSurfaceTests.cs", "FastWindingExpansionUsedTests.cs",
                   "WindingNumberTests.cs", "WindingEdgeCaseTests.cs"):
             self.assertEqual(("none", {"exact-winding": "tests"}), run(TESTS + f), f)
 
@@ -551,8 +555,8 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(names, nightly | weekly)                  # (every shard runs at least once a week)
         self.assertEqual(set(BO), {n for n in nightly if n.startswith("boolean-")})
         self.assertEqual(4, len({n for n in nightly if n.startswith("arrangement-")}))
-        self.assertEqual(13, len({n for n in nightly if n.startswith("rounding-")}))
-        self.assertEqual(26, len(nightly))
+        self.assertEqual(15, len({n for n in nightly if n.startswith("rounding-")}))
+        self.assertEqual(28, len(nightly))
         self.assertIn("arithmetic", weekly)
         self.assertTrue({"geodesic-1", "geodesic-2", "hausdorff", "planar", "fixed", "generated"} <= weekly)
         self.assertEqual(set(BO), expand_only("boolean-*", names))

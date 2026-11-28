@@ -294,6 +294,30 @@ namespace geometry3Sharp.Tests
         }
 
 #if NET
+        // rounds of the measured calls: the runtime (tier-up, call counting, stubs) may allocate on this thread in a call of
+        // an early round on a loaded runner; the path itself must allocate nothing in a whole round, so an allocation per
+        // call, or one that recurs every round, fails every round
+        const int AllocationRounds = 5;
+
+        static (int round, int calls, long most) clean_round(int calls, Action<int> call)
+        {
+            int allocating = 0;
+            long most = 0;
+            for (int round = 0; round < AllocationRounds; ++round) {
+                allocating = 0;
+                most = 0;
+                for (int i = 0; i < calls; ++i) {
+                    long b0 = GC.GetAllocatedBytesForCurrentThread();
+                    call(i);
+                    long d = GC.GetAllocatedBytesForCurrentThread() - b0;
+                    if (d != 0) { allocating++; most = Math.Max(most, d); }
+                }
+                if (allocating == 0)
+                    return (round, 0, 0);
+            }
+            return (-1, allocating, most);
+        }
+
         [Fact]
         public void TheReplacedPaths_AllocateNothing()
         {
@@ -306,14 +330,8 @@ namespace geometry3Sharp.Tests
             var tree = new TriangleBoxTree(boxes);
             var v = new CountOnly();
             tree.QuerySegment(Vector3d.Zero, Vector3d.One, 0.01, ref v);
-            // (each query on its own: the runtime's tier-up may allocate on this thread between them)
-            long most = 0;
-            for (int q = 0; q < 100; ++q) {
-                long b0 = GC.GetAllocatedBytesForCurrentThread();
-                tree.QuerySegment(new Vector3d(0, 0.01 * q, 0), Vector3d.One, 0.01, ref v);
-                most = Math.Max(most, GC.GetAllocatedBytesForCurrentThread() - b0);
-            }
-            Assert.Equal(0, most);
+            var query = clean_round(100, q => tree.QuerySegment(new Vector3d(0, 0.01 * q, 0), Vector3d.One, 0.01, ref v));
+            Assert.True(query.round >= 0, $"no round of 100 queries without allocation; in the last, {query.calls} allocated, at most {query.most} bytes");
             Assert.True(v.N > 100);
 
             (DMesh3 a, DMesh3 b) = ExactMeshBooleanTestsLocalFilter.NearCopy(16, 1e-12);
@@ -335,13 +353,8 @@ namespace geometry3Sharp.Tests
             Assert.True(ids.Count > 50, $"{ids.Count} ids on the fast path");
             frame.corner_point(ids[0]);
             double sum = 0;
-            most = 0;
-            foreach (int id in ids) {
-                long b0 = GC.GetAllocatedBytesForCurrentThread();
-                sum += frame.corner_point(id).x;
-                most = Math.Max(most, GC.GetAllocatedBytesForCurrentThread() - b0);
-            }
-            Assert.Equal(0, most);
+            var corners = clean_round(ids.Count, i => sum += frame.corner_point(ids[i]).x);
+            Assert.True(corners.round >= 0, $"no round of {ids.Count} corners without allocation; in the last, {corners.calls} allocated, at most {corners.most} bytes");
             Assert.False(double.IsNaN(sum));
         }
 
