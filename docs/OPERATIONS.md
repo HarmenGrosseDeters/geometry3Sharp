@@ -19,7 +19,7 @@ A task-oriented index of geometry3Sharp operations: which guide to read, which c
 | [Repair & Wrapping](guides/repair-and-wrapping.md) | `MeshAutoRepair`, `MeshRobustRepair`, hole fillers, `MeshWindingNumberSolidify`, `MeshAlphaWrap`, `PassageWrap` |
 | [Remeshing & Deformation](guides/remeshing-and-deformation.md) | `Remesher`/`Pro`, `Reducer`, `PartitionedReducer`, `MeshEnvelope`, `QuadRemesher`, smoothing, ARAP, Biharmonic, `MeshPlaneCut` |
 | [2D & Tetrahedral Meshing](guides/meshing-2d-and-tet.md) | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `QualityMesh2`, `Clipper2Polygons`, `PlanarComplex`, `MeshTetrahedralization` |
-| [Contouring & Offsets](guides/contouring-and-offsets.md) | `MarchingCubes`, `DualContouring`, `MeshOffset`, `ContourLoft`, `ContourLoftStack`, `TpmsLattice` |
+| [Contouring & Offsets](guides/contouring-and-offsets.md) | `MarchingCubes`, `DualContouring`, `MeshOffset`, `MeshMiteredOffset`, `ContourLoft`, `ContourLoftStack`, `TpmsLattice` |
 | [Geodesics & UV](guides/geodesics-and-uv.md) | `IntrinsicTriangulation`, heat & exact polyhedral geodesics, `VectorHeatMethod`, `MeshGeodesicPath`, `UVAtlasGenerator`, parameterizers |
 | [Analysis & Queries](guides/analysis-and-queries.md) | `DMeshAABBTree3`, `MeshBatchQueries`, 2D loose quadtrees, Hausdorff, deviation, fidelity, curvature, wall thickness, `PrimitiveFit3`, CCD |
 | [Terrain & Point Clouds](guides/terrain-and-pointclouds.md) | `HeightGrid`, `TerrainGridTin`, `TerrainSlopeDesign`, `TerrainCellVolumes`, `ClothSimulationFilter`, `PointCloudNormals`, `PointCloudSurface` |
@@ -56,6 +56,7 @@ A task-oriented index of geometry3Sharp operations: which guide to read, which c
 | 3D tetrahedral meshing | `gs.MeshTetrahedralization`, `gs.TetMeshMarkers`, `gs.TetMeshWriter` | [2D & Tet Meshing](guides/meshing-2d-and-tet.md) | [TetMeshExample](examples/TetMeshExample.cs) |
 | Iso-surface contouring (MC & Dual Contouring) | `MarchingCubes`, `DualContouring`, `gs.MarchingCubesPro`, `MeshSignedDistanceGrid` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs), [DualContouringAndOffsetExample](examples/DualContouringAndOffsetExample.cs) |
 | Certified mesh offset / inset | `gs.MeshOffset` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [DualContouringAndOffsetExample](examples/DualContouringAndOffsetExample.cs) |
+| Feature-preserving mitered offset & open CAD sheet thickening | `gs.MeshMiteredOffset` | [Contouring & Offsets](guides/contouring-and-offsets.md#feature-preserving-mitered-offset-meshmiteredoffset) | — |
 | Contour lofting (single pair & multi-slice stacks) | `ContourLoft`, `ContourLoftStack` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [ContourLoftExample](examples/ContourLoftExample.cs) |
 | Walls thinner than a grid cell (shells, sheets) | `TwoLevelMarchingTetrahedra` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [TwoLevelMarchingTetrahedraExample](examples/TwoLevelMarchingTetrahedraExample.cs) |
 | TPMS lattices (gyroid, Schwarz, Neovius, I-WP, Lidinoid) | `TpmsLattice` | [Contouring & Offsets](guides/contouring-and-offsets.md) | [TpmsLatticeExample](examples/TpmsLatticeExample.cs) |

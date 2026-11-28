@@ -79,7 +79,7 @@ namespace gs
     {
         /// <summary> index of the input </summary>
         public int Index;
-        /// <summary> "MeshAutoRepair" or "MeshRobustRepair" (the repair that made the input closed) </summary>
+        /// <summary> "MeshAutoRepair", "MeshRobustRepair", or "MeshMiteredOffset" (the repair that made the input closed) </summary>
         public string Method;
         /// <summary> triangles of the input and of its repaired copy </summary>
         public int TrianglesBefore, TrianglesAfter;
@@ -374,7 +374,8 @@ namespace gs
     /// flipped triangles agree is not open: the boolean refuses it with InconsistentOrientation by default (see
     /// Orientation). Only on request is an open input repaired, on a copy: with InputRepair = AutoRepair by MeshAutoRepair,
     /// with AutoRepairThenRobust also by MeshRobustRepair (which can resolve, solidify or wrap, so it changes the geometry
-    /// more) as the fallback. RepairedInputs of the report names each repaired input and the method.</description></item>
+    /// more) as the fallback, or with ThickenOpenSheet by MeshMiteredOffset (DoubleSided thickening into a closed mitered
+    /// shell). RepairedInputs of the report names each repaired input and the method.</description></item>
     /// <item><description>ExactMeshBoolean of all inputs (Union, Intersection or Difference: first minus the others), with AllowOpenMeshes = false and
     /// StrictRounding = true (ConfigureBoolean runs before these two are forced): the result is exact up to the
     /// rounding of the new vertices, within the relative bound of StrictRounding, or the run fails with BooleanFailed. One
@@ -431,6 +432,8 @@ namespace gs
             /// Designed for intentionally open CAD / sheet-metal shells in Union, Intersection, or Difference where planar faces and
             /// sharp creases should stay crisp with low triangle count. Closed inputs and inputs with explicit role
             /// <see cref="ExactMeshBoolean.InputRole.Sheet"/> are left untouched.
+            /// Note: <see cref="MinThickness"/> evaluates unthickened inputs before repair (open sheets have thickness 0), and
+            /// <see cref="VerificationModes.NoInventedSurface"/> compares against the original unthickened inputs (so offset faces count as invented surface).
             /// </summary>
             ThickenOpenSheet = 3
         }
@@ -556,16 +559,16 @@ namespace gs
         public InputRepairModes InputRepair = InputRepairModes.Refuse;
         /// <summary>
         /// Half-thickness (offset distance on each side; total wall thickness 2 * OpenSheetHalfThickness) used when
-        /// <see cref="InputRepair"/> is <see cref="InputRepairModes.ThickenOpenSheet"/>. When &lt;= 0 (default),
-        /// <see cref="RelativeOpenSheetHalfThickness"/> times the open input's bounding-box diagonal is used.
+        /// <see cref="InputRepair"/> is <see cref="InputRepairModes.ThickenOpenSheet"/>. Must be finite and &gt;= 0.
+        /// When 0 (default), <see cref="RelativeOpenSheetHalfThickness"/> times the open input's bounding-box diagonal is used.
         /// </summary>
         public double OpenSheetHalfThickness = 0;
         /// <summary>
         /// Half-thickness as a fraction of the open input's bounding-box diagonal when <see cref="InputRepair"/> is
-        /// <see cref="InputRepairModes.ThickenOpenSheet"/> and <see cref="OpenSheetHalfThickness"/> &lt;= 0 (default 0.01, i.e., 2% wall thickness).
+        /// <see cref="InputRepairModes.ThickenOpenSheet"/> and <see cref="OpenSheetHalfThickness"/> == 0 (default 0.01, i.e., 2% wall thickness; must be finite and &gt; 0).
         /// </summary>
         public double RelativeOpenSheetHalfThickness = 0.01;
-        /// <summary> Miter limit forwarded to <see cref="MeshMiteredOffset.MiterLimit"/> when <see cref="InputRepair"/> is <see cref="InputRepairModes.ThickenOpenSheet"/> (default 4.0). </summary>
+        /// <summary> Miter limit forwarded to <see cref="MeshMiteredOffset.MiterLimit"/> when <see cref="InputRepair"/> is <see cref="InputRepairModes.ThickenOpenSheet"/> (default 4.0; must be finite and &gt;= 1). </summary>
         public double OpenSheetMiterLimit = 4.0;
         /// <summary>
         /// the role of each input (entry i for Inputs[i]; null or a shorter list: the others are Solid). An input with the role Sheet
@@ -1236,6 +1239,16 @@ namespace gs
                 return fail(PipelineStatus.InvalidInput, "more InputRoles than inputs", total);
             if (UncutSide < ExactMeshBoolean.SheetUncutSides.Refuse || UncutSide > ExactMeshBoolean.SheetUncutSides.Inside)
                 return fail(PipelineStatus.InvalidInput, "UncutSide is not a defined value", total);
+            if (InputRepair < InputRepairModes.Refuse || InputRepair > InputRepairModes.ThickenOpenSheet)
+                return fail(PipelineStatus.InvalidInput, "InputRepair is not a defined value", total);
+            if (InputRepair == InputRepairModes.ThickenOpenSheet) {
+                if (!MathUtil.IsFinite(OpenSheetHalfThickness) || OpenSheetHalfThickness < 0)
+                    return fail(PipelineStatus.InvalidInput, "OpenSheetHalfThickness must be finite and >= 0", total);
+                if (OpenSheetHalfThickness == 0 && (!MathUtil.IsFinite(RelativeOpenSheetHalfThickness) || !(RelativeOpenSheetHalfThickness > 0)))
+                    return fail(PipelineStatus.InvalidInput, "RelativeOpenSheetHalfThickness must be finite and > 0", total);
+                if (!MathUtil.IsFinite(OpenSheetMiterLimit) || !(OpenSheetMiterLimit >= 1.0))
+                    return fail(PipelineStatus.InvalidInput, "OpenSheetMiterLimit must be finite and >= 1", total);
+            }
 
             // 1. the snap to InputGrid (on copies), then the cheap check per input
             var clock = Stopwatch.StartNew();
@@ -2979,7 +2992,7 @@ namespace gs
                     SafeRounding = true,
                     Cancellation = Cancellation
                 };
-                if (!miter.Compute() || miter.Result == null || miter.Result.TriangleCount == 0) {
+                if (!miter.Compute() || miter.Result == null || miter.Result.TriangleCount == 0 || !ExactMeshBoolean.IsWindingClosed(miter.Result)) {
                     robustRefusal = "MeshMiteredOffset " + miter.Status + (string.IsNullOrEmpty(miter.Error) ? "" : ": " + miter.Error);
                     return null;
                 }

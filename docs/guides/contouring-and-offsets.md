@@ -1,6 +1,6 @@
 # Contouring, Offset Surfaces, Lofting & TPMS Lattices
 
-This guide covers implicit iso-surface extraction (`MarchingCubes`, `DualContouring`, `MarchingCubesPro`), certified mesh offsetting (`MeshOffset`), contour lofting (`ContourLoft`, `ContourLoftStack`), and triply periodic minimal surface lattices (`TpmsLattice`).
+This guide covers implicit iso-surface extraction (`MarchingCubes`, `DualContouring`, `MarchingCubesPro`), certified Euclidean mesh offsetting (`MeshOffset`), feature-preserving mitered offsetting and open-sheet thickening (`MeshMiteredOffset`), contour lofting (`ContourLoft`, `ContourLoftStack`), and triply periodic minimal surface lattices (`TpmsLattice`).
 
 ---
 
@@ -11,7 +11,8 @@ This guide covers implicit iso-surface extraction (`MarchingCubes`, `DualContour
 | Closed iso-surface with vertices on grid edges, deterministic in parallel | `g3.MarchingCubes` | Ordered slab batching (parallel matches serial bit-for-bit); no dense-array limit |
 | Iso-surface preserving sharp edges and corners (QEF vertices), sparse or adaptive | `g3.DualContouring` | Exact Hermite bisection by default, intersection-free face fans, exact self-intersection resolution |
 | Surface-following iso-surface from seed points only | `gs.MarchingCubesPro` | `GenerateContinuation` visits only cells near the surface (maintained for bug fixes only) |
-| Certified offset or inset of a closed, clean mesh | `gs.MeshOffset` | Dual contouring of exact distance field, proven band (`BandCertified`), sharp creases, exact self-intersection check |
+| Certified Euclidean offset or inset of a closed, clean mesh | `gs.MeshOffset` | Dual contouring of exact distance field, proven band (`BandCertified`), sharp creases, exact self-intersection check |
+| Sharp-feature mitered offset / inset or double-sided open CAD sheet thickening | `gs.MeshMiteredOffset` | Exact arrangement/winding union of per-face prisms, miter/bevel wedges and clipped corner polyhedra; keeps planar faces planar with low triangle count |
 | Simple voxelized SDF offset of a mesh | `g3.MeshSignedDistanceGrid` + `g3.MarchingCubes` | Regular-grid offset ([OffsetSurfaceExample.cs](../examples/OffsetSurfaceExample.cs)); no certified enclosure |
 | Triangulated loft between two or more planar slice contours | `g3.ContourLoft`, `g3.ContourLoftStack` | Optimal triangulated bands, optional slope admissibility, branching/merging stacks, exact self-intersection check |
 | Wall around a level set, thinner than a grid cell (shell, sheet) | `g3.TwoLevelMarchingTetrahedra` | Both sides kept at any thickness, no self-intersections by construction, node values only; about 2.5x the triangles of marching cubes |
@@ -71,6 +72,21 @@ Standard root modes (`SingleLerp`, `LerpSteps`, `Bisection`) snap near-zero valu
   - For open or broken inputs, repair first (`MeshRobustRepair`) or use `MeshAlphaWrap` (outward only).
 - **Example:** [DualContouringAndOffsetExample.cs](../examples/DualContouringAndOffsetExample.cs)
 - **Further reading:** [MESH_OFFSET.md](../design/MESH_OFFSET.md), [MeshOffsetBenchmark README](../../benchmarks/MeshOffsetBenchmark/README.md)
+
+---
+
+## Feature-Preserving Mitered Offset (`MeshMiteredOffset`)
+
+- **Namespace & class:** `gs.MeshMiteredOffset`
+- **Paper:** Cao et al., *"Feature-Preserving Offset Meshing"* (arXiv:2412.15564 / ACM TOG, SIGGRAPH 2026).
+- **Modes (`OffsetModes`):**
+  - `Outward` / `Inward`: mitered offset or inset of a closed, positively oriented solid (including hollow solids with cavities; open, inconsistently oriented, or inside-out inputs fail with `NotClosed` / `InsideOut`). Deep insets that consume the solid cleanly return `OffsetStatus.Empty`.
+  - `DoubleSided`: symmetric thickening of an open CAD sheet, shell, or unwelded triangle soup by `±Distance` (total thickness `2 * Distance`) into a closed solid.
+- **Guarantees & limits:**
+  - Keeps planar faces strictly planar and extends convex creases/corners to the intersection of the shifted planes (clamped by `MiterLimit >= 1`, default `4.0`, via exact bevel half-spaces on acute edges and corners of arbitrary valence).
+  - Welds vertices by exact position (unwelded STL soups work identically), orients open manifold sheet components consistently in `DoubleSided` mode, and runs in a centered power-of-two working frame (`2^k` scalings are bit-for-bit identical).
+  - With `SafeRounding = true` (default), verifies the world-coordinate result is closed, 2-manifold, positively oriented, and free of degenerate triangles and crossing self-intersections (exact touching contacts where offset walls meet are split into manifold pairs and counted in `Contacts`).
+  - Limits: `Distance` must lie within `[1e-12, 1e6 / MiterLimit]` of the mesh extent (extent in `[2^-900, 2^900]`). Not a hole-filler for broken solids with missing faces: use `MeshRobustRepair` or `MeshAlphaWrap` when gaps must be sealed instead of thickened.
 
 ---
 

@@ -15,11 +15,7 @@ namespace geometry3Sharp.Tests
 
         static DMesh3 Box(Vector3d min, Vector3d max) => DegenerateFamilies.Box(min, max);
 
-        static double Volume(DMesh3 m)
-        {
-            Vector2d va = MeshMeasurements.VolumeArea(m, m.TriangleIndices(), m.GetVertex);
-            return va.x;
-        }
+        static double Volume(DMesh3 m) => Invariance.Volume(m);
 
         static double AxisAlignedAreaShare(DMesh3 m)
         {
@@ -476,13 +472,20 @@ namespace geometry3Sharp.Tests
             Assert.True(relPipe.Report.Clean, relPipe.Report.NotCleanReason);
             Assert.Equal("MeshMiteredOffset", relPipe.Report.RepairedInputs[0].Method);
 
-            // 6. Invalid ThickenOpenSheet parameters fail cleanly with OpenInput
+            // 6. Invalid ThickenOpenSheet parameters fail upfront with InvalidInput (also on closed inputs)
             var badThick = new SolidBooleanPipeline(baseBlock, bracket, ExactMeshBoolean.Operations.Union) {
                 InputRepair = SolidBooleanPipeline.InputRepairModes.ThickenOpenSheet,
                 OpenSheetHalfThickness = -0.1
             };
             Assert.False(badThick.Compute());
-            Assert.Equal(SolidBooleanPipeline.PipelineStatus.OpenInput, badThick.Status);
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InvalidInput, badThick.Status);
+
+            var badMiterClosed = new SolidBooleanPipeline(Box(Vector3d.Zero, Vector3d.One), Box(new Vector3d(0.5, 0, 0), new Vector3d(1.5, 1, 1)), ExactMeshBoolean.Operations.Union) {
+                InputRepair = SolidBooleanPipeline.InputRepairModes.ThickenOpenSheet,
+                OpenSheetMiterLimit = 0.5
+            };
+            Assert.False(badMiterClosed.Compute());
+            Assert.Equal(SolidBooleanPipeline.PipelineStatus.InvalidInput, badMiterClosed.Status);
 
             // 7. Closed inputs are never altered by ThickenOpenSheet
             var closedPipe = new SolidBooleanPipeline(Box(Vector3d.Zero, Vector3d.One), Box(new Vector3d(0.5, 0, 0), new Vector3d(1.5, 1, 1)), ExactMeshBoolean.Operations.Union) {
@@ -494,17 +497,254 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.5, Volume(closedPipe.Result), 7);
         }
 
+        static DMesh3 Unweld(DMesh3 src)
+        {
+            var dst = new DMesh3();
+            foreach (int tid in src.TriangleIndices()) {
+                Index3i t = src.GetTriangle(tid);
+                int a = dst.AppendVertex(src.GetVertex(t.a));
+                int b = dst.AppendVertex(src.GetVertex(t.b));
+                int c = dst.AppendVertex(src.GetVertex(t.c));
+                dst.AppendTriangle(a, b, c);
+            }
+            return dst;
+        }
+
+        static DMesh3 AcuteCone(int segments, double halfAngleDeg, double height = 2.0)
+        {
+            double r = height * Math.Tan(halfAngleDeg * Math.PI / 180.0);
+            var m = new DMesh3();
+            int apex = m.AppendVertex(new Vector3d(0, 0, height));
+            int center = m.AppendVertex(new Vector3d(0, 0, 0));
+            var ring = new int[segments];
+            for (int i = 0; i < segments; ++i) {
+                double ang = 2.0 * Math.PI * i / segments;
+                ring[i] = m.AppendVertex(new Vector3d(r * Math.Cos(ang), r * Math.Sin(ang), 0));
+            }
+            for (int i = 0; i < segments; ++i) {
+                int j = (i + 1) % segments;
+                // Side face outward: (ring[i] -> ring[j] -> apex)
+                m.AppendTriangle(ring[i], ring[j], apex);
+                // Bottom face outward (-z): (center -> ring[j] -> ring[i])
+                m.AppendTriangle(center, ring[j], ring[i]);
+            }
+            return m;
+        }
+
+        static DMesh3 HollowBox(double outer = 2.0, double inner = 1.0)
+        {
+            DMesh3 m = Box(new Vector3d(-outer, -outer, -outer), new Vector3d(outer, outer, outer));
+            DMesh3 cav = Box(new Vector3d(-inner, -inner, -inner), new Vector3d(inner, inner, inner));
+            cav.ReverseOrientation();
+            var vmap = new Dictionary<int, int>();
+            foreach (int vid in cav.VertexIndices())
+                vmap[vid] = m.AppendVertex(cav.GetVertex(vid));
+            foreach (int tid in cav.TriangleIndices()) {
+                Index3i t = cav.GetTriangle(tid);
+                m.AppendTriangle(vmap[t.a], vmap[t.b], vmap[t.c]);
+            }
+            return m;
+        }
+
+        [Fact]
+        public void UnweldedSoups_And_InconsistentOpenSheets_MatchWeldedConsistentResults()
+        {
+            // 1. Unwelded STL-like closed cube produces exact outward offset (no missing edge/corner notches)
+            DMesh3 cube = Box(Vector3d.Zero, Vector3d.One);
+            var opWelded = new MeshMiteredOffset { Mesh = cube, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            var opSoup = new MeshMiteredOffset { Mesh = Unweld(cube), Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            Assert.True(opWelded.Compute(), opWelded.Error);
+            Assert.True(opSoup.Compute(), opSoup.Error);
+            AssertClean(opSoup.Result, "unwelded outward cube");
+            Assert.Equal(3.375, Volume(opSoup.Result), 8);
+            Assert.Equal("", Invariance.Difference(opWelded.Result, opSoup.Result));
+
+            // 2. Unwelded open CAD L-bracket produces exact DoubleSided mitered shell
+            DMesh3 bracket = OpenLBracket(2.0, 1.0, 2.0);
+            var bWelded = new MeshMiteredOffset { Mesh = bracket, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1 };
+            var bSoup = new MeshMiteredOffset { Mesh = Unweld(bracket), Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1 };
+            Assert.True(bWelded.Compute(), bWelded.Error);
+            Assert.True(bSoup.Compute(), bSoup.Error);
+            AssertClean(bSoup.Result, "unwelded L-bracket");
+            Assert.Equal(0.80, Volume(bSoup.Result), 7);
+            Assert.Equal("", Invariance.Difference(bWelded.Result, bSoup.Result));
+
+            // 3. Inconsistently oriented open CAD L-bracket (one plate flipped) produces identical DoubleSided result
+            DMesh3 flippedSheet = new DMesh3(bracket);
+            // Reverse the vertical wall triangles (tids 2 and 3)
+            Index3i t2 = flippedSheet.GetTriangle(2);
+            Index3i t3 = flippedSheet.GetTriangle(3);
+            flippedSheet.RemoveTriangle(2, false, false);
+            flippedSheet.RemoveTriangle(3, false, false);
+            flippedSheet.AppendTriangle(t2.a, t2.c, t2.b);
+            flippedSheet.AppendTriangle(t3.a, t3.c, t3.b);
+            var bInconsistent = new MeshMiteredOffset { Mesh = flippedSheet, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1 };
+            Assert.True(bInconsistent.Compute(), bInconsistent.Error);
+            AssertClean(bInconsistent.Result, "inconsistent L-bracket");
+            Assert.Equal(0.80, Volume(bInconsistent.Result), 7);
+            Assert.True(AxisAlignedAreaShare(bInconsistent.Result) > 1.0 - 1e-9);
+        }
+
+        [Fact]
+        public void HighValenceCone_MiterLimit_BevelClampsArbitraryValence()
+        {
+            // 18-sided acute pyramid/cone (valence 18 > old 12/16 cutoffs, circum-half-angle 15 deg):
+            // face apothem half-angle has tan(theta) = tan(15 deg) * cos(pi/18) => exact tip = 2.0 + d / sin(theta)
+            double d = 0.1;
+            const int Segments = 18;
+            DMesh3 cone = AcuteCone(Segments, 15.0, height: 2.0);
+            var coneSharp = new MeshMiteredOffset { Mesh = cone, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = d, MiterLimit = 5.0 };
+            Assert.True(coneSharp.Compute(), coneSharp.Error);
+            AssertClean(coneSharp.Result, "18-sided sharp cone");
+            double tanFace = Math.Tan(15.0 * Math.PI / 180.0) * Math.Cos(Math.PI / Segments);
+            double sinFace = tanFace / Math.Sqrt(1.0 + tanFace * tanFace);
+            double expectedTipZ = 2.0 + d / sinFace;
+            Assert.True(Math.Abs(coneSharp.Result.CachedBounds.Max.z - expectedTipZ) < 1e-6,
+                $"expected 18-sided cone sharp tip {expectedTipZ:F6}, got {coneSharp.Result.CachedBounds.Max.z:F6}");
+
+            var coneBevel = new MeshMiteredOffset { Mesh = cone, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = d, MiterLimit = 2.0 };
+            Assert.True(coneBevel.Compute(), coneBevel.Error);
+            AssertClean(coneBevel.Result, "18-sided bevelled cone");
+            // Bevel cap clamps tip cleanly at 2.0 + MiterLimit * d = 2.2 (must NOT collapse below 2.0 + d = 2.1)
+            Assert.Equal(2.2, coneBevel.Result.CachedBounds.Max.z, 3);
+            Assert.True(Volume(coneBevel.Result) < Volume(coneSharp.Result));
+        }
+
+        [Fact]
+        public void BowtieVertex_RazorFold_And_MiterLimitOne()
+        {
+            // 1. Bowtie vertex: two cubes sharing (0,0,0) with second cube rotated 45 deg around Z
+            DMesh3 bowtie = Box(new Vector3d(-1, -1, -1), Vector3d.Zero);
+            DMesh3 c2 = Box(Vector3d.Zero, Vector3d.One);
+            double ang = Math.PI / 4.0;
+            double ca = Math.Cos(ang), sa = Math.Sin(ang);
+            var vmap = new Dictionary<int, int>();
+            foreach (int vid in c2.VertexIndices()) {
+                Vector3d p = c2.GetVertex(vid);
+                Vector3d rp = new Vector3d(ca * p.x - sa * p.y, sa * p.x + ca * p.y, p.z);
+                vmap[vid] = bowtie.AppendVertex(rp);
+            }
+            foreach (int tid in c2.TriangleIndices()) {
+                Index3i t = c2.GetTriangle(tid);
+                bowtie.AppendTriangle(vmap[t.a], vmap[t.b], vmap[t.c]);
+            }
+            var bowtieOp = new MeshMiteredOffset { Mesh = bowtie, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1 };
+            Assert.True(bowtieOp.Compute(), bowtieOp.Error);
+            AssertClean(bowtieOp.Result, "bowtie cubes");
+            // First cube [-1.1, 0.1]^3 and second rotated cube must both extend cleanly to their full offset bounds
+            Assert.True(bowtieOp.Result.CachedBounds.Min.z <= -1.1 + 1e-6);
+            Assert.True(bowtieOp.Result.CachedBounds.Max.z >= 1.1 - 1e-6);
+
+            // 2. Exact 180-degree razor fold (two folded sheets sharing edge x=0, z=0 with opposite normals)
+            var fold = new DMesh3();
+            int p0 = fold.AppendVertex(new Vector3d(0, 0, 0));
+            int p1 = fold.AppendVertex(new Vector3d(0, 1, 0));
+            int p2 = fold.AppendVertex(new Vector3d(1, 0, 0));
+            int p3 = fold.AppendVertex(new Vector3d(1, 1, 0));
+            int p4 = fold.AppendVertex(new Vector3d(1, 0, 1e-7));
+            int p5 = fold.AppendVertex(new Vector3d(1, 1, 1e-7));
+            // Lower sheet normal (0, 0, -1) and upper sheet normal ~(0, 0, +1) meeting along (p0, p1)
+            fold.AppendTriangle(p0, p1, p3);
+            fold.AppendTriangle(p0, p3, p2);
+            fold.AppendTriangle(p1, p0, p4);
+            fold.AppendTriangle(p1, p4, p5);
+            var foldOp = new MeshMiteredOffset { Mesh = fold, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1 };
+            Assert.True(foldOp.Compute(), foldOp.Error);
+            AssertClean(foldOp.Result, "180-degree razor fold");
+            Assert.True(foldOp.Result.CachedBounds.Min.x <= -0.1 + 1e-5,
+                $"expected bevel cap extending to x = -0.1, got {foldOp.Result.CachedBounds.Min.x}");
+
+            // 3. MiterLimit = 1.0 on unit cube chamfers all edges & corners cleanly
+            var chamfer = new MeshMiteredOffset {
+                Mesh = Box(Vector3d.Zero, Vector3d.One),
+                Mode = MeshMiteredOffset.OffsetModes.Outward,
+                Distance = 0.2,
+                MiterLimit = 1.0
+            };
+            Assert.True(chamfer.Compute(), chamfer.Error);
+            AssertClean(chamfer.Result, "MiterLimit=1 cube");
+            // Volume strictly between un-chamfered sharp offset 1.4^3 = 2.744 and input + 6 face prisms = 1 + 1.2 = 2.2
+            double vChamfer = Volume(chamfer.Result);
+            Assert.True(vChamfer > 2.2 && vChamfer < 2.744, $"unexpected chamfered cube volume {vChamfer}");
+        }
+
+        [Fact]
+        public void HollowSolid_MultiComponentInsideOut_SliverTriangle_And_TinyDistance()
+        {
+            // 1. Hollow cube (outer [-2,2]^3 minus cavity [-1,1]^3, volume 64 - 8 = 56):
+            //    Outward d=0.25 => outer [-2.25,2.25]^3 (4.5^3 = 91.125) minus shrunk cavity [-0.75,0.75]^3 (1.5^3 = 3.375) = 87.75
+            //    Inward  d=0.25 => outer [-1.75,1.75]^3 (3.5^3 = 42.875) minus grown cavity [-1.25,1.25]^3 (2.5^3 = 15.625) = 27.25
+            DMesh3 hollow = HollowBox(2.0, 1.0);
+            var hollowOut = new MeshMiteredOffset { Mesh = hollow, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            Assert.True(hollowOut.Compute(), hollowOut.Error);
+            AssertClean(hollowOut.Result, "hollow outward");
+            Assert.Equal(87.75, Volume(hollowOut.Result), 5);
+
+            var hollowIn = new MeshMiteredOffset { Mesh = hollow, Mode = MeshMiteredOffset.OffsetModes.Inward, Distance = 0.25 };
+            Assert.True(hollowIn.Compute(), hollowIn.Error);
+            AssertClean(hollowIn.Result, "hollow inward");
+            Assert.Equal(27.25, Volume(hollowIn.Result), 5);
+
+            // 2. Multi-component mesh with a large positive cube (+1000) and a separate inside-out cube (-8) => InsideOut
+            DMesh3 multi = Box(Vector3d.Zero, new Vector3d(10, 10, 10));
+            DMesh3 badCube = Box(new Vector3d(20, 0, 0), new Vector3d(22, 2, 2));
+            badCube.ReverseOrientation();
+            var vmap = new Dictionary<int, int>();
+            foreach (int vid in badCube.VertexIndices()) vmap[vid] = multi.AppendVertex(badCube.GetVertex(vid));
+            foreach (int tid in badCube.TriangleIndices()) {
+                Index3i t = badCube.GetTriangle(tid);
+                multi.AppendTriangle(vmap[t.a], vmap[t.b], vmap[t.c]);
+            }
+            var multiOp = new MeshMiteredOffset { Mesh = multi, Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.1 };
+            Assert.False(multiOp.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InsideOut, multiOp.Status);
+
+            // 3. Collinear sliver triangle attached to an open flat plate is ignored cleanly without corrupting the plate
+            DMesh3 plateWithSliver = OpenFlatPlate(0, 1, 0, 1, 0);
+            int mid = plateWithSliver.AppendVertex(new Vector3d(0.5, 0, 0));
+            plateWithSliver.AppendTriangle(0, mid, 1); // exact collinear sliver along edge (0, 1)
+            var sliverOp = new MeshMiteredOffset { Mesh = plateWithSliver, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1 };
+            Assert.True(sliverOp.Compute(), sliverOp.Error);
+            AssertClean(sliverOp.Result, "plate with sliver");
+            Assert.Equal(0.2, Volume(sliverOp.Result), 7);
+
+            // 4. Extremely small Distance (1e-20 * extent) is refused as InvalidParameters (never silently returns un-offset input)
+            var tinyIn = new MeshMiteredOffset { Mesh = Box(Vector3d.Zero, Vector3d.One), Mode = MeshMiteredOffset.OffsetModes.Inward, Distance = 1e-20 };
+            Assert.False(tinyIn.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, tinyIn.Status);
+            Assert.Null(tinyIn.Result);
+
+            var tinyOut = new MeshMiteredOffset { Mesh = Box(Vector3d.Zero, Vector3d.One), Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 1e-20 };
+            Assert.False(tinyOut.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, tinyOut.Status);
+            Assert.Null(tinyOut.Result);
+        }
+
+        static double MaxSurfaceDistance(DMesh3 a, DMesh3 b)
+        {
+            var treeA = new DMeshAABBTree3(a, autoBuild: true);
+            var treeB = new DMeshAABBTree3(b, autoBuild: true);
+            double maxD = 0;
+            foreach (int vid in a.VertexIndices()) {
+                double d2;
+                int tid = treeB.FindNearestTriangle(a.GetVertex(vid), out d2);
+                if (tid >= 0) maxD = Math.Max(maxD, Math.Sqrt(d2));
+            }
+            foreach (int vid in b.VertexIndices()) {
+                double d2;
+                int tid = treeA.FindNearestTriangle(b.GetVertex(vid), out d2);
+                if (tid >= 0) maxD = Math.Max(maxD, Math.Sqrt(d2));
+            }
+            return maxD;
+        }
+
         [Fact]
         public void Invariance_AllSimilarities_And_Reuse_And_Determinism()
         {
+            // 1. DoubleSided open L-bracket across Similarity.All()
             DMesh3 bracket = OpenLBracket(2.0, 1.0, 2.0);
             double d = 0.1;
-
-            var baseline = new MeshMiteredOffset {
-                Mesh = bracket,
-                Mode = MeshMiteredOffset.OffsetModes.DoubleSided,
-                Distance = d
-            };
+            var baseline = new MeshMiteredOffset { Mesh = bracket, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = d };
             Assert.True(baseline.Compute(), baseline.Error);
             AssertClean(baseline.Result, "baseline");
             double v0 = Volume(baseline.Result);
@@ -517,13 +757,42 @@ namespace geometry3Sharp.Tests
                 };
                 Assert.True(op.Compute(), sim.Name + ": " + op.Error);
                 AssertClean(op.Result, sim.Name);
+                DMesh3 back = Invariance.MappedBack(op.Result, sim);
                 double vs = Volume(op.Result) / (sim.Scale * sim.Scale * sim.Scale);
-                Assert.True(Math.Abs(vs - v0) <= 1e-6 * v0, $"{sim.Name}: scaled volume {vs} vs {v0}");
+                Assert.True(Math.Abs(vs - v0) <= 1e-5 * v0, $"{sim.Name}: scaled volume {vs} vs {v0}");
+                double surfDist = MaxSurfaceDistance(baseline.Result, back);
+                Assert.True(surfDist < 1e-5, $"{sim.Name}: surface drift {surfDist}");
                 if (sim.IsExact)
-                    Assert.Equal("", Invariance.Difference(baseline.Result, Invariance.MappedBack(op.Result, sim)));
+                    Assert.Equal("", Invariance.Difference(baseline.Result, back));
             }
 
-            // SolidBooleanPipeline with ThickenOpenSheet across Similarity.All() (explicit thickness is rotation-invariant)
+            // 2. Outward and Inward closed cube across Similarity.All()
+            DMesh3 cube = Box(Vector3d.Zero, Vector3d.One);
+            foreach (var mode in new[] { MeshMiteredOffset.OffsetModes.Outward, MeshMiteredOffset.OffsetModes.Inward }) {
+                double cd = 0.2;
+                var cBase = new MeshMiteredOffset { Mesh = cube, Mode = mode, Distance = cd };
+                Assert.True(cBase.Compute(), mode + " base: " + cBase.Error);
+                AssertClean(cBase.Result, mode + " base");
+                double cv0 = Volume(cBase.Result);
+                foreach (Similarity sim in Similarity.All()) {
+                    var op = new MeshMiteredOffset {
+                        Mesh = Invariance.Transformed(cube, sim),
+                        Mode = mode,
+                        Distance = sim.ApplyLength(cd)
+                    };
+                    Assert.True(op.Compute(), $"{mode} {sim.Name}: {op.Error}");
+                    AssertClean(op.Result, $"{mode} {sim.Name}");
+                    DMesh3 back = Invariance.MappedBack(op.Result, sim);
+                    double cvs = Volume(op.Result) / (sim.Scale * sim.Scale * sim.Scale);
+                    Assert.True(Math.Abs(cvs - cv0) <= 1e-5 * cv0, $"{mode} {sim.Name}: scaled volume {cvs} vs {cv0}");
+                    double surfDist = MaxSurfaceDistance(cBase.Result, back);
+                    Assert.True(surfDist < 1e-5, $"{mode} {sim.Name}: surface drift {surfDist}");
+                    if (sim.IsExact)
+                        Assert.Equal("", Invariance.Difference(cBase.Result, back));
+                }
+            }
+
+            // 3. SolidBooleanPipeline with ThickenOpenSheet across Similarity.All() (explicit thickness is rotation-invariant)
             DMesh3 baseBlock = Box(new Vector3d(0, 0, -0.5), new Vector3d(2, 1, 0));
             double pipeThick = 0.06;
             var pipeBase = new SolidBooleanPipeline(baseBlock, bracket, ExactMeshBoolean.Operations.Union) {
@@ -562,20 +831,35 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", Invariance.Difference(relBase.Result, Invariance.MappedBack(relSim.Result, sim)));
             }
 
-            // Reuse on one instance across different modes and distances
-            var reuse = new MeshMiteredOffset { Mesh = Box(Vector3d.Zero, Vector3d.One), Mode = MeshMiteredOffset.OffsetModes.Outward, Distance = 0.25 };
+            // 4. Reuse across failure -> success, different meshes, and different modes matches fresh instances bit-for-bit
+            var reuse = new MeshMiteredOffset { Mesh = null, Distance = -1.0 };
+            Assert.False(reuse.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidInput, reuse.Status);
+
+            reuse.Mesh = cube;
+            reuse.Mode = MeshMiteredOffset.OffsetModes.Outward;
+            reuse.Distance = 0.25;
             Assert.True(reuse.Compute(), reuse.Error);
             DMesh3 firstOut = new DMesh3(reuse.Result);
+
+            reuse.Mesh = bracket;
+            reuse.Mode = MeshMiteredOffset.OffsetModes.DoubleSided;
+            reuse.Distance = d;
+            Assert.True(reuse.Compute(), reuse.Error);
+            Assert.Equal("", Invariance.Difference(baseline.Result, reuse.Result));
+
+            reuse.Mesh = cube;
             reuse.Mode = MeshMiteredOffset.OffsetModes.Inward;
             reuse.Distance = 0.2;
             Assert.True(reuse.Compute(), reuse.Error);
             Assert.Equal(0.216, Volume(reuse.Result), 8);
+
             reuse.Mode = MeshMiteredOffset.OffsetModes.Outward;
             reuse.Distance = 0.25;
             Assert.True(reuse.Compute(), reuse.Error);
             Assert.Equal("", Invariance.Difference(firstOut, reuse.Result));
 
-            // Determinism across repeated runs on the 5-face open-top box
+            // 5. Determinism across repeated runs on the 5-face open-top box
             DMesh3 openBox = OpenTopBox(2.0);
             var det1 = new MeshMiteredOffset { Mesh = openBox, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1 };
             var det2 = new MeshMiteredOffset { Mesh = openBox, Mode = MeshMiteredOffset.OffsetModes.DoubleSided, Distance = 0.1 };
@@ -596,8 +880,13 @@ namespace geometry3Sharp.Tests
             Assert.False(op.Compute());
             Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidInput, op.Status);
 
-            // Invalid Distance / MiterLimit
+            // Invalid Mode / Distance / MiterLimit
             op.Mesh = Box(Vector3d.Zero, Vector3d.One);
+            op.Mode = (MeshMiteredOffset.OffsetModes)99;
+            Assert.False(op.Compute());
+            Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, op.Status);
+            op.Mode = MeshMiteredOffset.OffsetModes.Outward;
+
             op.Distance = 0;
             Assert.False(op.Compute());
             Assert.Equal(MeshMiteredOffset.OffsetStatus.InvalidParameters, op.Status);
