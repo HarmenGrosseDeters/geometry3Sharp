@@ -45,7 +45,9 @@ namespace Meshing2Acceptance
         public B Square(double s = 10) => Outer(0, 0, s, 0, s, s, 0, s);
         public B Rect(double x0, double y0, double x1, double y1) => Outer(x0, y0, x1, y0, x1, y1, x0, y1);
         public B Outer(params double[] xy) { input.Rings.Add(new RingInput(Ps(xy), false)); text.Add("outer(" + List(xy) + ")"); return this; }
+        public B OuterLocked(params double[] xy) { input.Rings.Add(new RingInput(Ps(xy), false, 0, true)); text.Add("outer_locked(" + List(xy) + ")"); return this; }
         public B Hole(params double[] xy) { input.Rings.Add(new RingInput(Ps(xy), true)); text.Add("hole(" + List(xy) + ")"); return this; }
+        public B HoleLocked(params double[] xy) { input.Rings.Add(new RingInput(Ps(xy), true, 0, true)); text.Add("hole_locked(" + List(xy) + ")"); return this; }
         public B HoleSeed(double x, double y) { input.HoleSeeds.Add(new[] { x, y }); text.Add("hole_seed(" + Num(x) + " " + Num(y) + ")"); return this; }
         public B Seg(double x0, double y0, double x1, double y1, int marker = 0, bool locked = false)
         {

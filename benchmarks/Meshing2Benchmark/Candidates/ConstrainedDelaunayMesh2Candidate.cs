@@ -15,7 +15,7 @@ namespace Meshing2Acceptance
             var result = new ConstrainedMesh2Input();
             for (int i = 0; i < input.Count; ++i) result.Points.Add(new Vector2d(input.X[i], input.Y[i]));
             foreach (var s in input.Segments) result.Segments.Add(new Mesh2Segment(s.A, s.B, s.Marker, s.Locked));
-            foreach (var r in input.Rings) result.Rings.Add(new Mesh2Ring(r.Vertices, r.Hole, r.Marker));
+            foreach (var r in input.Rings) result.Rings.Add(new Mesh2Ring(r.Vertices, r.Hole, r.Marker, r.Locked));
             foreach (var h in input.HoleSeeds) result.HoleSeeds.Add(new Vector2d(h[0], h[1]));
             foreach (var g in input.Regions)
                 result.Regions.Add(g.Ring != null ? Mesh2Region.ByRing(g.Ring, g.Label, g.MaxArea) : Mesh2Region.BySeed(new Vector2d(g.Seed[0], g.Seed[1]), g.Label, g.MaxArea));

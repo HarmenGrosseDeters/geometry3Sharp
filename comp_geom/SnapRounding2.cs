@@ -934,12 +934,12 @@ namespace g3
             for (int r = 0; r < input.Rings.Count; ++r) {
                 var ring = input.Rings[r];
                 var list = Expand(ring.Vertices);
-                if (!Collapsed(list)) { result.Rings.Add(new Mesh2Ring(list.ToArray(), ring.Hole, ring.Marker)); continue; }
+                if (!Collapsed(list)) { result.Rings.Add(new Mesh2Ring(list.ToArray(), ring.Hole, ring.Marker, ring.Locked)); continue; }
                 // a ring that collapsed to a line or a point removes and adds nothing; its pieces stay as segments
                 ++CollapsedRings;
                 Diagnostics.Add("snap: ring " + I(r) + " collapsed below the tolerance" + (list.Distinct().Count() >= 2 ? "; its edges stay as segments" : ""));
                 for (int i = 0; i < list.Count && list.Count >= 2; ++i)
-                    if (list[i] != list[(i + 1) % list.Count]) result.Segments.Add(new Mesh2Segment(list[i], list[(i + 1) % list.Count], ring.Marker, false));
+                    if (list[i] != list[(i + 1) % list.Count]) result.Segments.Add(new Mesh2Segment(list[i], list[(i + 1) % list.Count], ring.Marker, ring.Locked));
             }
             OuterRingsCollapsed = input.Rings.Any(r => !r.Hole) && !result.Rings.Any(r => !r.Hole);
             if (OuterRingsCollapsed) Diagnostics.Add("snap: every outer ring collapsed below the tolerance; the domain is empty (not the convex hull: D13 is for input without outer rings)");

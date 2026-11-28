@@ -406,7 +406,8 @@ M:g3.Mesh2Segment.#ctor(System.Int32,System.Int32,System.Int32,System.Boolean) ;
 F:g3.Mesh2Ring.Vertices ; [body:9e96f720f75f7c1d] a field: storage
 F:g3.Mesh2Ring.Hole ; [body:ebb7dcdc11605df3] a field: storage
 F:g3.Mesh2Ring.Marker ; [body:0a021a69d2a258ce] a field: storage
-M:g3.Mesh2Ring.#ctor(System.Int32[],System.Boolean,System.Int32) ; [body:efa26a40e71aa31e] stores the three values
+F:g3.Mesh2Ring.Locked ; [body:f9499bc5db281f87] a field: storage
+M:g3.Mesh2Ring.#ctor(System.Int32[],System.Boolean,System.Int32,System.Boolean) ; [body:a1c67e784bf3c0b5] stores the four values
 F:g3.Mesh2Region.Ring ; [body:ed5641f3d6023162] a field: storage
 F:g3.Mesh2Region.Seed ; [body:01cf9be0039fbfc7] a field: storage
 F:g3.Mesh2Region.Label ; [body:b8d9786ba248d190] a field: storage
