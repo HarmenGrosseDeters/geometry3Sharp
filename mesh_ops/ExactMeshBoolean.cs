@@ -7,6 +7,50 @@ using System.Runtime.CompilerServices;
 namespace g3
 {
     /// <summary>
+    /// Input-face provenance of one triangle of an <see cref="ExactMeshBoolean"/> result: which input mesh and which
+    /// triangle of that mesh produced it, and whether its orientation is reversed relative to that input triangle
+    /// (for example on the cut cavity of a Difference, or after input reorientation).
+    /// </summary>
+    public struct TriangleProvenance : IEquatable<TriangleProvenance>
+    {
+        /// <summary> index into the input meshes (0 for MeshA, 1 for MeshB, or index into Meshes), or -1 if none </summary>
+        public int MeshIndex;
+        /// <summary> triangle id in the corresponding input mesh, or -1 if none </summary>
+        public int SourceTriangle;
+        /// <summary> true if the output triangle's orientation is opposite to the source input triangle </summary>
+        public bool Reversed;
+
+        /// <summary> sentinel value for an unused triangle id or missing provenance </summary>
+        public static readonly TriangleProvenance None = new TriangleProvenance { MeshIndex = -1, SourceTriangle = -1, Reversed = false };
+
+        /// <summary> true if MeshIndex and SourceTriangle are non-negative </summary>
+        public bool IsValid { get { return MeshIndex >= 0 && SourceTriangle >= 0; } }
+
+        /// <summary> exact component-wise equality </summary>
+        public bool Equals(TriangleProvenance other)
+        {
+            return MeshIndex == other.MeshIndex && SourceTriangle == other.SourceTriangle && Reversed == other.Reversed;
+        }
+
+        /// <summary> exact component-wise equality </summary>
+        public override bool Equals(object obj)
+        {
+            return obj is TriangleProvenance other && Equals(other);
+        }
+
+        /// <summary> deterministic integer hash </summary>
+        public override int GetHashCode()
+        {
+            return ((MeshIndex * 397) ^ (SourceTriangle * 17)) ^ (Reversed ? 1 : 0);
+        }
+
+        /// <summary> exact equality </summary>
+        public static bool operator ==(TriangleProvenance a, TriangleProvenance b) { return a.Equals(b); }
+        /// <summary> exact inequality </summary>
+        public static bool operator !=(TriangleProvenance a, TriangleProvenance b) { return a.Equals(b) == false; }
+    }
+
+    /// <summary>
     /// Boolean operations (union, intersection, difference) of two triangle meshes, with exact arithmetic:
     /// the intersection curves, the retriangulation and the inside/outside decisions are computed exactly
     /// (ExactMeshArrangement), so touching, coplanar and nearly degenerate configurations give a closed
@@ -526,6 +570,34 @@ namespace g3
         /// </summary>
         public ExactPoint3[] ResultExactVertices;
         /// <summary>
+        /// When true (default false), Result enables TriangleGroups and every output triangle carries the group id of
+        /// its supporting input triangle (0 for inputs without TriangleGroups), plus GroupOffsets[meshIndex] if set.
+        /// Both RegionClipping and ExactPlanarSimplify preserve boundaries between different output groups so material
+        /// or CAD face seams are never merged across. Bit-identical to the default path when false.
+        /// </summary>
+        public bool PreserveTriangleGroups = false;
+        /// <summary>
+        /// Optional per-input integer offset added to each input mesh's triangle group id when PreserveTriangleGroups is
+        /// true (indexed by input mesh index; entries past the array length default to 0). Useful when multiple inputs
+        /// share overlapping group id ranges (for example 0..5 on two boxes) and should stay distinct in Result.
+        /// </summary>
+        public int[] GroupOffsets;
+        /// <summary>
+        /// When true (default false), Compute() populates <see cref="ResultProvenance"/> with per-triangle
+        /// (MeshIndex, SourceTriangle, Reversed) provenance. ExactPlanarSimplify keeps each input triangle in its own
+        /// simplification group so every output triangle's vertices lie on its cited source triangle (up to rounding
+        /// drift); triangles locally edited by SafeRounding are re-derived to their nearest pre-rounding source triangle.
+        /// </summary>
+        public bool TrackFaceProvenance = false;
+        /// <summary>
+        /// Per-triangle provenance of Result, indexed by Result triangle id (length Result.MaxTriangleID); unused
+        /// triangle ids hold <see cref="TriangleProvenance.None"/>. Null unless TrackFaceProvenance is true and
+        /// Compute() succeeded.
+        /// </summary>
+        public TriangleProvenance[] ResultProvenance { get; private set; }
+        // (for SolidBooleanPipeline's OnlyThinComponents path: provenance of Rounding.Mesh even when StrictRounding cleared Result/ResultProvenance)
+        internal TriangleProvenance[] RoundingProvenance;
+        /// <summary>
         /// per input mesh: winding numbers exact (closed mesh, after flipped triangles are reoriented) or generalized
         /// (open mesh)
         /// </summary>
@@ -832,7 +904,8 @@ namespace g3
             return new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
                 FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters,
                 HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard, PreDecideCoplanar = ArrangementPreDecideCoplanar,
-                RecordEdgeLines = CoplanarWalk && RegionClipping == false, EdgeLinesMinCoplanar = CoplanarWalkMinCoplanar, RegionClipping = RegionClipping };
+                RecordEdgeLines = CoplanarWalk && RegionClipping == false, EdgeLinesMinCoplanar = CoplanarWalkMinCoplanar, RegionClipping = RegionClipping,
+                PreserveTriangleGroups = PreserveTriangleGroups };
         }
 
         /// <summary>
@@ -851,6 +924,9 @@ namespace g3
             Status = BooleanStatus.NotComputed;
             Rounding = null;
             ResultExactVertices = null;
+            ResultProvenance = null;
+            RoundingProvenance = null;
+            currentPrepared = null;
             // (the meshes or the operation may have changed since the last call)
             IntersectingPairs = SelfIntersectingPairs = NonManifoldEdges = NonManifoldTriangles = DroppedTriangles = SplitNonManifoldEdges = ConflictEdges = Patches = RemovedVertices = 0;
             fullVertexCopies = null;
@@ -1085,6 +1161,7 @@ namespace g3
             // (lever 1: the evaluations decided by the hierarchical sum, and those it handed to the full sum)
             Counts["antipodal_hierarchical"] = hierUsed;
             Counts["antipodal_hierarchical_fallbacks"] = hierFallbacks;
+            currentPrepared = prepared;
             Result = assemble(keep, flip);
             if (RecordCertificate)
                 CertificateAssembled = new DMesh3(Result, false, MeshComponents.None);
@@ -1093,6 +1170,29 @@ namespace g3
                 return cancelled();
             Counts["removed_vertices"] = RemovedVertices;
             if (SafeRounding) {
+                Index3i[] beforeTris = null;
+                TriangleProvenance[] beforeProv = null;
+                int[] beforeGroup = null;
+                Vector3d[] beforeVerts = null;
+                if (TrackFaceProvenance || PreserveTriangleGroups) {
+                    int maxT = Result.MaxTriangleID;
+                    beforeTris = new Index3i[maxT];
+                    for (int tid = 0; tid < maxT; ++tid)
+                        beforeTris[tid] = Result.IsTriangle(tid) ? Result.GetTriangle(tid) : new Index3i(-1, -1, -1);
+                    if (TrackFaceProvenance) {
+                        beforeProv = ResultProvenance;
+                    } else {
+                        beforeGroup = new int[maxT];
+                        for (int tid = 0; tid < maxT; ++tid)
+                            if (Result.IsTriangle(tid))
+                                beforeGroup[tid] = Result.GetTriangleGroup(tid);
+                        int maxV = Result.MaxVertexID;
+                        beforeVerts = new Vector3d[maxV];
+                        for (int vid = 0; vid < maxV; ++vid)
+                            if (Result.IsVertex(vid))
+                                beforeVerts[vid] = Result.GetVertex(vid);
+                    }
+                }
                 bool[] fixedV = resultFixed;
                 int[] pointId = resultPointId;
                 Rounding = new MeshRoundingRepair(Result) {
@@ -1122,11 +1222,18 @@ namespace g3
                 Counts["rounding_scale_disparity"] = Rounding.ScaleDisparity;
                 Counts["rounding_scale_not_finite"] = Rounding.ScaleNotFinite ? 1 : 0;
                 Counts["rounding_outside_range"] = Rounding.OutsideRange ? 1 : 0;
+                if (TrackFaceProvenance) {
+                    rederive_provenance(prepared, beforeTris, beforeProv);
+                    RoundingProvenance = ResultProvenance;
+                } else if (PreserveTriangleGroups) {
+                    rederive_groups(beforeTris, beforeVerts, beforeGroup);
+                }
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {8} components kept that the bound took as thin (scale disparity); {10} components removed that their coordinates resolve (still defective, or changed by the repair){9}",
                         new object[] { Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate, Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift, Rounding.RemainingFalseContacts, Rounding.ScaleDisparity, (Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "") + (Rounding.OutsideRange ? "; the coordinates are outside the supported range (2^-200 .. 2^200), the rounding did not run" : "") + (Rounding.EvaluationLimitReached ? "; the repair stopped at its effort limit: the smallest rejected edit is the smallest of those proposed before it" : ""), Rounding.RemovedResolvable });
                     Result = null;
+                    ResultProvenance = null;
                     Status = BooleanStatus.RoundingNotClean;
                     return false;
                 }
@@ -1779,6 +1886,7 @@ namespace g3
         bool cancelled()
         {
             Result = null;
+            ResultProvenance = null;
             return fail(BooleanStatus.Cancelled, "cancelled");
         }
 
@@ -6369,9 +6477,12 @@ namespace g3
         /// each piece is paired with its neighbour around the edge on its solid side, and the edge vertices are
         /// duplicated per pair, so that the result is closed and manifold. Likewise vertices where solids touch.
         /// </summary>
+        PreparedInput[] currentPrepared;
+
         [MethodImpl(JitHints.Optimize)]
         DMesh3 assemble(bool[] keep, bool[] flip)
         {
+            PreparedInput[] prepared = currentPrepared;
             // (sub-steps in microseconds, "assembly.<step>_us" in PhaseMilliseconds)
             var steps = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var tris = new List<Index3i>(arr.Output.Count);
@@ -6393,15 +6504,41 @@ namespace g3
             steps.LapMicroseconds("assembly.gather");
             order_pieces(tris, source, flipped);
             steps.LapMicroseconds("assembly.order");
+            List<int> triGroups = null;
             if (SimplifyFlatRegions) {
                 // new points inside flat regions and on straight edges between them are not needed
                 var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
-                var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
-                simplify.Run(inputPoints);
-                tris = simplify.Result();
-                RemovedVertices = simplify.Removed;
+                if (TrackFaceProvenance) {
+                    var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
+                    simplify.EnablePreserveSources();
+                    simplify.Run(inputPoints);
+                    tris = simplify.Result(out source, out flipped);
+                    RemovedVertices = simplify.Removed;
+                } else if (PreserveTriangleGroups) {
+                    var triGroupKeys = new int[arr.Triangles.Count];
+                    for (int ti = 0; ti < arr.Triangles.Count; ++ti) {
+                        var it = arr.Triangles[ti];
+                        triGroupKeys[ti] = output_group_of(prepared, it.Mesh, it.Tid);
+                    }
+                    var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
+                    simplify.SetGroupKeys(triGroupKeys);
+                    simplify.Run(inputPoints);
+                    tris = simplify.Result(out triGroups);
+                    RemovedVertices = simplify.Removed;
+                } else {
+                    var simplify = new ExactPlanarSimplify(arr, tris, source, flipped);
+                    simplify.Run(inputPoints);
+                    tris = simplify.Result();
+                    RemovedVertices = simplify.Removed;
+                }
                 clock.Lap("simplify");
                 steps.LapMicroseconds("assembly.simplify");
+            } else if (PreserveTriangleGroups && TrackFaceProvenance == false) {
+                triGroups = new List<int>(tris.Count);
+                for (int t = 0; t < tris.Count; ++t) {
+                    var it = arr.Triangles[source[t]];
+                    triGroups.Add(output_group_of(prepared, it.Mesh, it.Tid));
+                }
             }
 
             // corner slots (3 per triangle) joined across the edges where the triangles are neighbours (a forest whose roots
@@ -6445,6 +6582,8 @@ namespace g3
                 for (int vid = 0; vid < vertexCount; ++vid)
                     result.AppendVertex(coords[usedIndex[vertexPoint[vid]]]);
             }
+            if (PreserveTriangleGroups)
+                result.EnableTriangleGroups(0);
 
             steps.LapMicroseconds("assembly.vertices");
             // where the solid touches itself along an edge and its surface is connected around both ends, the pairs
@@ -6501,27 +6640,72 @@ namespace g3
             }
 
             steps.LapMicroseconds("assembly.split");
-            var poly = new List<int>();
-            for (int t = 0; built == false && t < tris.Count; ++t) {
-                poly.Clear();
-                int first = -1;
-                for (int k = 0; k < 3; ++k) {
-                    poly.Add(vids[3 * t + k]);
-                    int m;
-                    if (splitAt.TryGetValue(3 * t + k, out m)) {
-                        if (first < 0) first = poly.Count;
-                        poly.Add(m);
+            if (built) {
+                if (TrackFaceProvenance) {
+                    var prov = new TriangleProvenance[result.MaxTriangleID];
+                    for (int i = 0; i < prov.Length; ++i)
+                        prov[i] = TriangleProvenance.None;
+                    for (int t = 0; t < tris.Count; ++t) {
+                        TriangleProvenance p = provenance_of(prepared, source[t], flipped[t]);
+                        prov[t] = p;
+                        if (PreserveTriangleGroups)
+                            result.SetTriangleGroup(t, output_group_of(prepared, p.MeshIndex, p.SourceTriangle));
+                    }
+                    ResultProvenance = prov;
+                } else if (PreserveTriangleGroups) {
+                    for (int t = 0; t < tris.Count; ++t)
+                        result.SetTriangleGroup(t, triGroups[t]);
+                }
+            } else {
+                List<TriangleProvenance> provList = TrackFaceProvenance ? new List<TriangleProvenance>(tris.Count) : null;
+                var poly = new List<int>();
+                for (int t = 0; t < tris.Count; ++t) {
+                    TriangleProvenance tp = TrackFaceProvenance ? provenance_of(prepared, source[t], flipped[t]) : TriangleProvenance.None;
+                    int gid = PreserveTriangleGroups
+                        ? (TrackFaceProvenance ? output_group_of(prepared, tp.MeshIndex, tp.SourceTriangle) : triGroups[t])
+                        : 0;
+                    poly.Clear();
+                    int first = -1;
+                    for (int k = 0; k < 3; ++k) {
+                        poly.Add(vids[3 * t + k]);
+                        int m;
+                        if (splitAt.TryGetValue(3 * t + k, out m)) {
+                            if (first < 0) first = poly.Count;
+                            poly.Add(m);
+                        }
+                    }
+                    if (first < 0) {
+                        int tid = simple ? result.AppendTriangle(poly[0], poly[1], poly[2]) : DMesh3.InvalidID;
+                        if (tid < 0)
+                            tid = append_triangle(result, poly[0], poly[1], poly[2], vertexPoint);
+                        if (tid >= 0) {
+                            if (PreserveTriangleGroups) result.SetTriangleGroup(tid, gid);
+                            if (provList != null) {
+                                while (provList.Count <= tid) provList.Add(TriangleProvenance.None);
+                                provList[tid] = tp;
+                            }
+                        }
+                        continue;
+                    }
+                    // fan from a split vertex: it is on one edge, so no fan triangle is degenerate
+                    int n = poly.Count;
+                    for (int j = 1; j + 1 < n; ++j) {
+                        int tid = append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n], vertexPoint);
+                        if (tid >= 0) {
+                            if (PreserveTriangleGroups) result.SetTriangleGroup(tid, gid);
+                            if (provList != null) {
+                                while (provList.Count <= tid) provList.Add(TriangleProvenance.None);
+                                provList[tid] = tp;
+                            }
+                        }
                     }
                 }
-                if (first < 0) {
-                    if (simple == false || result.AppendTriangle(poly[0], poly[1], poly[2]) < 0)
-                        append_triangle(result, poly[0], poly[1], poly[2], vertexPoint);
-                    continue;
+                if (provList != null) {
+                    var prov = new TriangleProvenance[result.MaxTriangleID];
+                    for (int i = 0; i < prov.Length; ++i)
+                        prov[i] = i < provList.Count ? provList[i] : TriangleProvenance.None;
+                    ResultProvenance = prov;
                 }
-                // fan from a split vertex: it is on one edge, so no fan triangle is degenerate
-                int n = poly.Count;
-                for (int j = 1; j + 1 < n; ++j)
-                    append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n], vertexPoint);
             }
 
             steps.LapMicroseconds("assembly.triangles");
@@ -6871,13 +7055,15 @@ namespace g3
         int[] resultPointId;
 
         [MethodImpl(JitHints.Optimize)]
-        internal void append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
+        internal int append_triangle(DMesh3 result, int a, int b, int c, List<int> vertexPoint)
         {
             // (a triangle that would run an edge of the mesh the same way as the triangle there is not added there
             // either: the pieces' corners can be joined around both ends of an edge where they are not neighbours)
-            if (runs_existing(result, a, b) == false && runs_existing(result, b, c) == false && runs_existing(result, c, a) == false
-                && result.AppendTriangle(a, b, c) >= 0)
-                return;
+            if (runs_existing(result, a, b) == false && runs_existing(result, b, c) == false && runs_existing(result, c, a) == false) {
+                int tid0 = result.AppendTriangle(a, b, c);
+                if (tid0 >= 0)
+                    return tid0;
+            }
             // (an edge with more than two triangles that could not be split, or one that the triangle would run the
             // same way as the triangle there: kept, with copies of as few of its vertices as possible, so that it keeps
             // the neighbours it can have and no vertex is left without triangles)
@@ -6921,11 +7107,409 @@ namespace g3
                         }
                     }
                 }
-                if (result.AppendTriangle(g[0], g[1], g[2]) < 0)
+                int tid = result.AppendTriangle(g[0], g[1], g[2]);
+                if (tid < 0)
                     DroppedTriangles++;       // (no known input: the copies are new vertices, so it cannot be refused for a count; counted, not hidden)
-                return;
+                return tid;
             }
             DroppedTriangles++;
+            return DMesh3.InvalidID;
+        }
+
+        // output TriangleGroup id for input triangle (meshIndex, tid), preserving the input mesh's group (0 if ungrouped)
+        // plus GroupOffsets[meshIndex] when configured
+        int output_group_of(PreparedInput[] prepared, int meshIndex, int tid)
+        {
+            int offset = (GroupOffsets != null && meshIndex < GroupOffsets.Length) ? GroupOffsets[meshIndex] : 0;
+            DMesh3 src = prepared[meshIndex].Source;
+            int raw = src.HasTriangleGroups ? src.GetTriangleGroup(tid) : 0;
+            return offset + raw;
+        }
+
+        // exact input provenance of arrangement input triangle arrTriIdx with assembly orientation flip isFlipped
+        TriangleProvenance provenance_of(PreparedInput[] prepared, int arrTriIdx, bool isFlipped)
+        {
+            ExactMeshArrangement.InputTriangle it = arr.Triangles[arrTriIdx];
+            int m = it.Mesh, tid = it.Tid;
+            bool inputFlipped = false;
+            if (prepared[m].Input != prepared[m].Source) {
+                Index3i orig = prepared[m].Source.GetTriangle(tid);
+                Index3i used = prepared[m].Input.GetTriangle(tid);
+                inputFlipped = orig.a != used.a || orig.b != used.b || orig.c != used.c;
+            }
+            return new TriangleProvenance { MeshIndex = m, SourceTriangle = tid, Reversed = isFlipped ^ inputFlipped };
+        }
+
+        // ResultProvenance after SafeRounding: untouched triangles keep their exact pre-rounding provenance directly
+        // (and restore their group if try_zip rolled back without a group id); triangles edited or created by
+        // MeshRoundingRepair pick the candidate pre-rounding provenance at their vertices whose input triangle is
+        // nearest to the edited triangle's centroid (computed per-candidate in a local frame shifted to tv.a and scaled
+        // by an exact power of two, preferring consistently oriented candidates on near-coincident opposite-facing faces).
+        internal void rederive_provenance(PreparedInput[] prepared, Index3i[] beforeTris, TriangleProvenance[] beforeProv)
+        {
+            int maxT = Result.MaxTriangleID;
+            int nBefore = beforeTris.Length < beforeProv.Length ? beforeTris.Length : beforeProv.Length;
+            var prov = new TriangleProvenance[maxT];
+            for (int i = 0; i < maxT; ++i)
+                prov[i] = TriangleProvenance.None;
+            Dictionary<int, List<TriangleProvenance>> atVertex = null;
+            List<TriangleProvenance> allUniqueBefore = null;
+            var cands = new List<TriangleProvenance>();
+            for (int tid = 0; tid < maxT; ++tid) {
+                if (Result.IsTriangle(tid) == false)
+                    continue;
+                Index3i tv = Result.GetTriangle(tid);
+                if (tid < nBefore && beforeProv[tid].IsValid) {
+                    Index3i bt = beforeTris[tid];
+                    if (bt.a == tv.a && bt.b == tv.b && bt.c == tv.c) {
+                        prov[tid] = beforeProv[tid];
+                        if (PreserveTriangleGroups)
+                            Result.SetTriangleGroup(tid, output_group_of(prepared, beforeProv[tid].MeshIndex, beforeProv[tid].SourceTriangle));
+                        continue;
+                    }
+                }
+                if (atVertex == null) {
+                    atVertex = new Dictionary<int, List<TriangleProvenance>>();
+                    for (int b = 0; b < nBefore; ++b) {
+                        TriangleProvenance bp = beforeProv[b];
+                        if (bp.IsValid == false || beforeTris[b].a < 0)
+                            continue;
+                        Index3i bt = beforeTris[b];
+                        for (int k = 0; k < 3; ++k) {
+                            int v = k == 0 ? bt.a : (k == 1 ? bt.b : bt.c);
+                            List<TriangleProvenance> list;
+                            if (atVertex.TryGetValue(v, out list) == false)
+                                atVertex[v] = list = new List<TriangleProvenance>();
+                            add_unique_prov(list, bp);
+                        }
+                    }
+                }
+                cands.Clear();
+                for (int k = 0; k < 3; ++k) {
+                    int v = k == 0 ? tv.a : (k == 1 ? tv.b : tv.c);
+                    List<TriangleProvenance> list;
+                    if (atVertex.TryGetValue(v, out list))
+                        for (int j = 0; j < list.Count; ++j)
+                            add_unique_prov(cands, list[j]);
+                }
+                if (cands.Count == 0) {
+                    if (allUniqueBefore == null) {
+                        allUniqueBefore = new List<TriangleProvenance>();
+                        var seen = new HashSet<TriangleProvenance>();
+                        for (int b = 0; b < beforeProv.Length; ++b)
+                            if (beforeProv[b].IsValid && seen.Add(beforeProv[b]))
+                                allUniqueBefore.Add(beforeProv[b]);
+                    }
+                    for (int i = 0; i < allUniqueBefore.Count; ++i)
+                        cands.Add(allUniqueBefore[i]);
+                }
+                if (cands.Count == 0)
+                    continue;
+
+                Vector3d p0 = Result.GetVertex(tv.a), p1 = Result.GetVertex(tv.b), p2 = Result.GetVertex(tv.c);
+                Vector3d e1 = new Vector3d(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
+                Vector3d e2 = new Vector3d(p2.x - p0.x, p2.y - p0.y, p2.z - p0.z);
+                Vector3d cRel = new Vector3d((e1.x + e2.x) / 3.0, (e1.y + e2.y) / 3.0, (e1.z + e2.z) / 3.0);
+                double triScale = max_abs_vec(e1);
+                double e2Scale = max_abs_vec(e2);
+                if (e2Scale > triScale) triScale = e2Scale;
+                Vector3d rn = scaled_cross(e1, e2);
+
+                double[] dists = new double[cands.Count];
+                bool[] aligned = new bool[cands.Count];
+                double minDist = double.PositiveInfinity;
+                for (int i = 0; i < cands.Count; ++i) {
+                    Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+                    prepared[cands[i].MeshIndex].Source.GetTriVertices(cands[i].SourceTriangle, ref va, ref vb, ref vc);
+                    Vector3d sa = new Vector3d(va.x - p0.x, va.y - p0.y, va.z - p0.z);
+                    Vector3d sb = new Vector3d(vb.x - p0.x, vb.y - p0.y, vb.z - p0.z);
+                    Vector3d sc = new Vector3d(vc.x - p0.x, vc.y - p0.y, vc.z - p0.z);
+                    double d = cand_point_triangle_dist(cRel, sa, sb, sc);
+                    dists[i] = d;
+                    if (d < minDist)
+                        minDist = d;
+                    Vector3d sn = scaled_cross(new Vector3d(vb.x - va.x, vb.y - va.y, vb.z - va.z), new Vector3d(vc.x - va.x, vc.y - va.y, vc.z - va.z));
+                    if (cands[i].Reversed)
+                        sn = new Vector3d(-sn.x, -sn.y, -sn.z);
+                    aligned[i] = (rn.x * sn.x + rn.y * sn.y + rn.z * sn.z) >= 0;
+                }
+
+                // Prefer candidates with matching orientation when near-coincident opposite-facing faces tie within rounding drift.
+                double orientTol = Rounding != null ? Rounding.MaxLength : 0.0;
+                double scaleTol = (triScale > 0 && double.IsInfinity(triScale) == false) ? ldexp_exact(triScale, -40) : 0.0;
+                if (scaleTol > orientTol) orientTol = scaleTol;
+                double alignCeiling = double.IsInfinity(minDist) ? double.PositiveInfinity : minDist + orientTol;
+                bool hasAlignedNear = false;
+                for (int i = 0; i < cands.Count; ++i)
+                    if (aligned[i] && double.IsNaN(dists[i]) == false && dists[i] <= alignCeiling) {
+                        hasAlignedNear = true;
+                        break;
+                    }
+
+                TriangleProvenance best = TriangleProvenance.None;
+                double bestD = double.PositiveInfinity;
+                for (int i = 0; i < cands.Count; ++i) {
+                    if (hasAlignedNear && aligned[i] == false)
+                        continue;
+                    double d = dists[i];
+                    if (double.IsNaN(d))
+                        continue;
+                    if (best.IsValid == false || d < bestD || (d == bestD && compare_prov(cands[i], best) < 0)) {
+                        bestD = d;
+                        best = cands[i];
+                    }
+                }
+                if (best.IsValid == false)
+                    best = cands[0];
+                prov[tid] = best;
+                if (PreserveTriangleGroups)
+                    Result.SetTriangleGroup(tid, output_group_of(prepared, best.MeshIndex, best.SourceTriangle));
+            }
+            ResultProvenance = prov;
+        }
+
+        // TriangleGroups after SafeRounding when PreserveTriangleGroups is true and TrackFaceProvenance is false:
+        // restores exact groups for any triangle edited or zipped by MeshRoundingRepair (for example try_zip appends
+        // without a group id). Untouched triangles keep their pre-rounding group in O(1).
+        internal void rederive_groups(Index3i[] beforeTris, Vector3d[] beforeVerts, int[] beforeGroup)
+        {
+            int maxT = Result.MaxTriangleID;
+            Dictionary<int, List<int>> atVertex = null;
+            var cands = new List<int>();
+            for (int tid = 0; tid < maxT; ++tid) {
+                if (Result.IsTriangle(tid) == false)
+                    continue;
+                Index3i tv = Result.GetTriangle(tid);
+                if (tid < beforeTris.Length) {
+                    Index3i bt = beforeTris[tid];
+                    if (bt.a == tv.a && bt.b == tv.b && bt.c == tv.c) {
+                        Result.SetTriangleGroup(tid, beforeGroup[tid]);
+                        continue;
+                    }
+                }
+                if (atVertex == null) {
+                    atVertex = new Dictionary<int, List<int>>();
+                    for (int b = 0; b < beforeTris.Length; ++b) {
+                        Index3i bt = beforeTris[b];
+                        if (bt.a < 0)
+                            continue;
+                        for (int k = 0; k < 3; ++k) {
+                            int v = k == 0 ? bt.a : (k == 1 ? bt.b : bt.c);
+                            List<int> list;
+                            if (atVertex.TryGetValue(v, out list) == false)
+                                atVertex[v] = list = new List<int>();
+                            list.Add(b);
+                        }
+                    }
+                }
+                cands.Clear();
+                for (int k = 0; k < 3; ++k) {
+                    int v = k == 0 ? tv.a : (k == 1 ? tv.b : tv.c);
+                    List<int> list;
+                    if (atVertex.TryGetValue(v, out list))
+                        for (int j = 0; j < list.Count; ++j)
+                            add_unique_int(cands, list[j]);
+                }
+                if (cands.Count == 0) {
+                    for (int b = 0; b < beforeTris.Length; ++b)
+                        if (beforeTris[b].a >= 0)
+                            cands.Add(b);
+                }
+                if (cands.Count == 0)
+                    continue;
+                Vector3d p0 = Result.GetVertex(tv.a), p1 = Result.GetVertex(tv.b), p2 = Result.GetVertex(tv.c);
+                Vector3d cRel = new Vector3d(((p1.x - p0.x) + (p2.x - p0.x)) / 3.0, ((p1.y - p0.y) + (p2.y - p0.y)) / 3.0, ((p1.z - p0.z) + (p2.z - p0.z)) / 3.0);
+                int bestIdx = -1;
+                double bestD = double.PositiveInfinity;
+                for (int i = 0; i < cands.Count; ++i) {
+                    Index3i bt = beforeTris[cands[i]];
+                    Vector3d va = beforeVerts[bt.a], vb = beforeVerts[bt.b], vc = beforeVerts[bt.c];
+                    Vector3d sa = new Vector3d(va.x - p0.x, va.y - p0.y, va.z - p0.z);
+                    Vector3d sb = new Vector3d(vb.x - p0.x, vb.y - p0.y, vb.z - p0.z);
+                    Vector3d sc = new Vector3d(vc.x - p0.x, vc.y - p0.y, vc.z - p0.z);
+                    double d = cand_point_triangle_dist(cRel, sa, sb, sc);
+                    if (double.IsNaN(d))
+                        continue;
+                    if (bestIdx < 0 || d < bestD || (d == bestD && (beforeGroup[cands[i]] < beforeGroup[bestIdx] || (beforeGroup[cands[i]] == beforeGroup[bestIdx] && cands[i] < bestIdx)))) {
+                        bestD = d;
+                        bestIdx = cands[i];
+                    }
+                }
+                if (bestIdx < 0)
+                    bestIdx = cands[0];
+                Result.SetTriangleGroup(tid, beforeGroup[bestIdx]);
+            }
+        }
+
+        static void add_unique_prov(List<TriangleProvenance> list, TriangleProvenance p)
+        {
+            for (int i = 0; i < list.Count; ++i)
+                if (list[i].Equals(p))
+                    return;
+            list.Add(p);
+        }
+
+        static void add_unique_int(List<int> list, int x)
+        {
+            for (int i = 0; i < list.Count; ++i)
+                if (list[i] == x)
+                    return;
+            list.Add(x);
+        }
+
+        internal static int compare_prov(TriangleProvenance a, TriangleProvenance b)
+        {
+            if (a.MeshIndex != b.MeshIndex) return a.MeshIndex < b.MeshIndex ? -1 : 1;
+            if (a.SourceTriangle != b.SourceTriangle) return a.SourceTriangle < b.SourceTriangle ? -1 : 1;
+            if (a.Reversed != b.Reversed) return a.Reversed ? 1 : -1;
+            return 0;
+        }
+
+        static double max_abs_vec(Vector3d v)
+        {
+            if (double.IsNaN(v.x) || double.IsNaN(v.y) || double.IsNaN(v.z))
+                return double.NaN;
+            double ax = v.x < 0 ? -v.x : v.x;
+            double ay = v.y < 0 ? -v.y : v.y;
+            double az = v.z < 0 ? -v.z : v.z;
+            double m = ax > ay ? ax : ay;
+            return az > m ? az : m;
+        }
+
+        // Exact unbiased binary exponent e so that 2^e <= m < 2^(e+1) for positive finite m (including subnormals).
+        internal static int ilogb_pos(double m)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(m);
+            int exp = (int)((bits >> 52) & 0x7FFL);
+            if (exp == 0) {
+                bits = BitConverter.DoubleToInt64Bits(m * 18014398509481984.0); // 2^54
+                exp = (int)((bits >> 52) & 0x7FFL);
+                return exp - 1023 - 54;
+            }
+            return exp - 1023;
+        }
+
+        // Exact power-of-two scaling across the full double exponent range (including subnormals).
+        internal static double ldexp_exact(double x, int shift)
+        {
+            if (x == 0 || shift == 0)
+                return x;
+            while (shift > 512) {
+                x *= BitConverter.Int64BitsToDouble((long)(1023 + 512) << 52);
+                shift -= 512;
+            }
+            while (shift < -512) {
+                x *= BitConverter.Int64BitsToDouble((long)(1023 - 512) << 52);
+                shift += 512;
+            }
+            return x * BitConverter.Int64BitsToDouble((long)(shift + 1023) << 52);
+        }
+
+        static Vector3d scale_vec_pow2(Vector3d v, int shift)
+        {
+            return new Vector3d(ldexp_exact(v.x, shift), ldexp_exact(v.y, shift), ldexp_exact(v.z, shift));
+        }
+
+        // Power-of-two scaled cross product (immune to overflow/underflow across full double range).
+        internal static Vector3d scaled_cross(Vector3d u, Vector3d v)
+        {
+            double mu = max_abs_vec(u), mv = max_abs_vec(v);
+            if (mu <= 0 || mv <= 0 || double.IsNaN(mu) || double.IsNaN(mv) || double.IsInfinity(mu) || double.IsInfinity(mv))
+                return Vector3d.Zero;
+            Vector3d su = scale_vec_pow2(u, -ilogb_pos(mu));
+            Vector3d sv = scale_vec_pow2(v, -ilogb_pos(mv));
+            return new Vector3d(su.y * sv.z - su.z * sv.y, su.z * sv.x - su.x * sv.z, su.x * sv.y - su.y * sv.x);
+        }
+
+        // Euclidean distance from p to closed triangle (a, b, c) with per-candidate exact power-of-two scaling
+        // (exact under 2^k scaling, immune to subnormal/mixed-scale underflow and overflow).
+        internal static double cand_point_triangle_dist(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            double m = max_abs_vec(p);
+            double ma = max_abs_vec(a); if (ma > m) m = ma;
+            double mb = max_abs_vec(b); if (mb > m) m = mb;
+            double mc = max_abs_vec(c); if (mc > m) m = mc;
+            if (double.IsNaN(m + ma + mb + mc) || double.IsInfinity(m))
+                return double.PositiveInfinity;
+            if (m == 0)
+                return 0.0;
+            int e = ilogb_pos(m);
+            double dsq = point_triangle_dist_sq(scale_vec_pow2(p, -e), scale_vec_pow2(a, -e), scale_vec_pow2(b, -e), scale_vec_pow2(c, -e));
+            if (double.IsNaN(dsq))
+                return double.PositiveInfinity;
+            return dsq <= 0 ? 0.0 : ldexp_exact(Math.Sqrt(dsq), e);
+        }
+
+        internal static double min_vertex_dist_sq(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            double dax = p.x - a.x, day = p.y - a.y, daz = p.z - a.z;
+            double da = dax * dax + day * day + daz * daz;
+            double dbx = p.x - b.x, dby = p.y - b.y, dbz = p.z - b.z;
+            double db = dbx * dbx + dby * dby + dbz * dbz;
+            double dcx = p.x - c.x, dcy = p.y - c.y, dcz = p.z - c.z;
+            double dc = dcx * dcx + dcy * dcy + dcz * dcz;
+            double m = da < db ? da : db;
+            return dc < m ? dc : m;
+        }
+
+        // squared distance from point p to closed triangle (a, b, c) (Ericson, Real-Time Collision Detection §5.1.5)
+        // with every denominator guarded so degenerate/coincident/collinear triangles never divide 0/0.
+        internal static double point_triangle_dist_sq(Vector3d p, Vector3d a, Vector3d b, Vector3d c)
+        {
+            double abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
+            double acx = c.x - a.x, acy = c.y - a.y, acz = c.z - a.z;
+            double apx = p.x - a.x, apy = p.y - a.y, apz = p.z - a.z;
+            double d1 = abx * apx + aby * apy + abz * apz;
+            double d2 = acx * apx + acy * apy + acz * apz;
+            if (d1 <= 0 && d2 <= 0)
+                return apx * apx + apy * apy + apz * apz;
+
+            double bpx = p.x - b.x, bpy = p.y - b.y, bpz = p.z - b.z;
+            double d3 = abx * bpx + aby * bpy + abz * bpz;
+            double d4 = acx * bpx + acy * bpy + acz * bpz;
+            if (d3 >= 0 && d4 <= d3)
+                return bpx * bpx + bpy * bpy + bpz * bpz;
+
+            double vc = d1 * d4 - d3 * d2;
+            double denom1 = d1 - d3;
+            if (vc <= 0 && d1 >= 0 && d3 <= 0 && denom1 > 0) {
+                double v = d1 / denom1;
+                double dx = apx - v * abx, dy = apy - v * aby, dz = apz - v * abz;
+                return dx * dx + dy * dy + dz * dz;
+            }
+
+            double cpx = p.x - c.x, cpy = p.y - c.y, cpz = p.z - c.z;
+            double d5 = abx * cpx + aby * cpy + abz * cpz;
+            double d6 = acx * cpx + acy * cpy + acz * cpz;
+            if (d6 >= 0 && d5 <= d6)
+                return cpx * cpx + cpy * cpy + cpz * cpz;
+
+            double vb = d5 * d2 - d1 * d6;
+            double denom2 = d2 - d6;
+            if (vb <= 0 && d2 >= 0 && d6 <= 0 && denom2 > 0) {
+                double w = d2 / denom2;
+                double dx = apx - w * acx, dy = apy - w * acy, dz = apz - w * acz;
+                return dx * dx + dy * dy + dz * dz;
+            }
+
+            double va = d3 * d6 - d5 * d4;
+            double denom3 = (d4 - d3) + (d5 - d6);
+            if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 && denom3 > 0) {
+                double w = (d4 - d3) / denom3;
+                double dx = bpx - w * (c.x - b.x), dy = bpy - w * (c.y - b.y), dz = bpz - w * (c.z - b.z);
+                return dx * dx + dy * dy + dz * dz;
+            }
+
+            double sum = va + vb + vc;
+            if (sum <= 0)
+                return min_vertex_dist_sq(p, a, b, c);
+            double denom = 1.0 / sum;
+            double fv = vb * denom;
+            double fw = vc * denom;
+            double fx = apx - fv * abx - fw * acx;
+            double fy = apy - fv * aby - fw * acy;
+            double fz = apz - fv * abz - fw * acz;
+            return fx * fx + fy * fy + fz * fz;
         }
 
         // (append_triangle) the copy that takes the triangles of a full vertex of the result being built, per vertex; reset by Compute
