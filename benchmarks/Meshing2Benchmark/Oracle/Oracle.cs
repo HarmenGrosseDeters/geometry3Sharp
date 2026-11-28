@@ -262,7 +262,9 @@ namespace Meshing2Acceptance
                 domain = new Domain(input, !e.Reference);
                 Lap("domain");
                 bool degenerate = domain.Area.Sign == 0;
-                tube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.AutoTolerance(input), Q.FromDouble(input.SnapTolerance)));
+                Q baseTube = Q.Max(Oracle.AutoTolerance(input), Q.FromDouble(input.SnapTolerance));
+                if (input.WedgeTolerance > 0) baseTube = Q.Max(baseTube, Q.FromDouble(input.WedgeTolerance) + Q.FromDouble(input.SnapTolerance));
+                tube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : baseTube);
                 tube2 = tube * tube;
                 // the mesher's tolerance (O11 rule) is half of this one without the subnormal floor: the mesher's own has none
                 Q relativeTube = e.Tube ?? (e.Milestone == Milestone.M1 ? Q.Zero : Q.Max(Oracle.RelativeTolerance(input), Q.FromDouble(input.SnapTolerance)));
@@ -378,11 +380,12 @@ namespace Meshing2Acceptance
                             if (o.InputToVertex[other] != m) r.Add(Violation.MappingWrong, "inputs " + other + " and " + i + " coincide but map differently");
                         } else byCoordinate.Add(inPts[i], i);
                         bool same = v[m].Equals(inPts[i]);
-                        if (m == i && !e.MayMoveVertices && !snapped && !same) r.Add(Violation.InputMoved, "input " + i + " moved to " + v[i]);
+                        bool wedged = input.WedgeTolerance > 0;
+                        if (m == i && !e.MayMoveVertices && !snapped && !wedged && !same) r.Add(Violation.InputMoved, "input " + i + " moved to " + v[i]);
                         Q off = same ? Q.Zero : Exact.Len2(inPts[i], v[m]);
                         if (off.Sign > 0) moved2 = Q.Max(moved2, off);
                         if (off > e_Tube2()) r.Add(Violation.SnapTooFar, "input " + i + " merged too far, into " + m);
-                        else if (snapped && !AtPixelCentre(inPts[i], v[m], pixel))
+                        else if (snapped && !(wedged ? AtPixelCentre(v[m], v[m], pixel) : AtPixelCentre(inPts[i], v[m], pixel)))
                             r.Add(Violation.SnapTooFar, "input " + i + " is at " + v[m] + ", not at the centre of its pixel (D14)");
                     }
                     r.ConstructedVertices = v.Length - input.Count;
@@ -2818,7 +2821,7 @@ namespace Meshing2Acceptance
                         }
                     }
                     r.MaxImageDriftPixels = worstImage;
-                    if (o.IdentityRules && !(worstImage <= 2.5)) r.Add(Violation.BoundaryOutsideTube, "the iterated image of an input edge drifts " + worstImage.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " pixels from it, more than the guard of 2.5");
+                    if (o.IdentityRules && !(input.WedgeTolerance > 0) && !(worstImage <= 2.5)) r.Add(Violation.BoundaryOutsideTube, "the iterated image of an input edge drifts " + worstImage.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " pixels from it, more than the guard of 2.5");
                 }
                 // a boundary point at distance d2 (squared) from the exact input boundary is accepted within the pixel tube, or, farther but
                 // within the drift guard, if it lies within the pixel tube of an image link; false: outside (BoundaryOutsideTube)
@@ -3493,12 +3496,34 @@ namespace Meshing2Acceptance
                 }
                 int coincidences = 0, pinches = 0;
                 foreach (var pair in degree.OrderBy(p => p.Key)) {
-                    if (pair.Value < 3 || snapHot.Contains(PixelOf(v[pair.Key], snapPixel))) continue;
+                    if (pair.Value < 3 || snapHot.Contains(PixelOf(v[pair.Key], snapPixel)) || WedgeJunction(pair.Key)) continue;
                     if (pair.Value == 3) {
                         if (coincidences++ < 8) r.Add(Violation.RefinementCoincidence, "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has 3 subsegments: two chains share a link from there, which the input's own rounding keeps apart");
                     } else if (pinches++ < 8)
                         r.Add(Violation.RefinementPinch, "vertex " + pair.Key + " " + v[pair.Key] + " of refinement has " + pair.Value + " subsegments: two chains meet there, which the input's own rounding keeps apart");
                 }
+            }
+
+            /// <summary>
+            /// With O13 wedge collapse active, a pre-refinement Case II foot vertex lies on the host at distance at most
+            /// WedgeTolerance from its projected input vertex (plus at most one snap pixel after rounding), so two chains
+            /// legitimately branch there without the pixel being a hot pixel of the un-collapsed input. Vertices created
+            /// by refinement (ExistedBeforeRefinement == false) or farther than WedgeTolerance + snapPixel from every
+            /// input point are never excused.
+            /// </summary>
+            bool WedgeJunction(int id)
+            {
+                if (!(input.WedgeTolerance > 0)) return false;
+                if (o.ExistedBeforeRefinement != null && id < o.ExistedBeforeRefinement.Length && !o.ExistedBeforeRefinement[id])
+                    return false;
+                Q tol = Q.FromDouble(input.WedgeTolerance) + snapPixel;
+                Q tol2 = tol * tol;
+                Pt q = v[id];
+                for (int i = 0; i < inPts.Length; ++i) {
+                    if (Q.Abs(q.Qx - inPts[i].Qx) <= tol && Q.Abs(q.Qy - inPts[i].Qy) <= tol && Exact.Len2(q, inPts[i]) <= tol2)
+                        return true;
+                }
+                return false;
             }
 
             Dictionary<(BigInteger x, BigInteger y), List<int>> verticesInPixel;
@@ -3519,7 +3544,7 @@ namespace Meshing2Acceptance
             /// </summary>
             void ChainThroughContactedPixels(Pt a, Pt b)
             {
-                if (!(input.SnapTolerance > 0) || snapHot == null || !o.IdentityRules || subsegmentSet == null) return;
+                if (!(input.SnapTolerance > 0) || input.WedgeTolerance > 0 || snapHot == null || !o.IdentityRules || subsegmentSet == null) return;
                 var u = PixelOf(a, snapPixel); var w = PixelOf(b, snapPixel);
                 if (u.Equals(w)) return;
                 if (verticesInPixel == null) {

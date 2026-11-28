@@ -39,7 +39,7 @@ namespace Meshing2Acceptance
         /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
-        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap };
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap, Feature.Wedge };
 
         /// <summary>
         /// Rows whose results are large (Steiner limits of 10 000 to 100 000, or dense refinement), or whose many crossing constraints
@@ -129,7 +129,7 @@ namespace Meshing2Acceptance
             double ox = 370000, oy = 5710000;
             Mesh("F-18", "a", "Building wall 4 mm along a parcel border, tolerance merges it", Feature.Snap, M3, new B().Rect(ox, oy, ox + 32, oy + 20).Hole(ox + 8, oy + 1.0 / 256, ox + 18, oy + 1.0 / 256, ox + 18, oy + 8, ox + 8, oy + 8).Snap(1.0 / 128).Min(20).Limit(50000), note: "dyadic analog: 2^-8 instead of 5 mm; band case (D14, w = tol): the wall at exactly tol/2, merged or not both pass");
             Mesh("F-18", "b", "Wall 62 mm away is kept", Feature.Snap, M3, new B().Rect(ox, oy, ox + 32, oy + 20).Hole(ox + 8, oy + 1.0 / 16, ox + 18, oy + 1.0 / 16, ox + 18, oy + 8, ox + 8, oy + 8).Snap(1.0 / 128).Min(20).Limit(50000));
-            Mesh("F-19", null, "Thin wedges, wedge tolerance", Feature.Wedge, M3, new B().Rect(-1, -1, 21, 6).Seg(0, 0, 20, 0).Polyline(5, 0, 15, 1.0 / 32, 15, 5).Snap(1.0 / 128).Min(30), note: "O13: beyond this brief; the fixture is the first of the spec's five");
+            Mesh("F-19", null, "Thin wedges, wedge tolerance", Feature.Wedge, M3, new B().Rect(-1, -1, 21, 6).Seg(0, 0, 20, 0).Polyline(5, 0, 15, 1.0 / 32, 15, 5).Snap(1.0 / 128).Wedge(5.0 / 128).Min(30), note: "O13: dyadic analog (o=1/32, snap=1/128, wedge=5/128); the fixture is the first of the spec's five");
             Mesh("F-20", null, "Long edges cross a dense polyline at tiny angles, procedural analog", Feature.Snap, M2, Zigzag(), tweak: e => e.MaxVertices = 20000, note: "the public input CDT issue-211 is not fetched here; this is an analog built from its description");
             Mesh("F-21", null, "Long parallel stripes: scaling check", Feature.Noding, M2, Stripes(64), note: "the time target needs 20 000 stripes, run by the benchmark, not in the oracle's quadratic segment check");
             Mesh("F-22", "a", "Back-and-forth border, no snapping: limit stops it", Feature.Refine, M3, Backforth().Min(20).Limit(20000));

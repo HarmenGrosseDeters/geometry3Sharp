@@ -49,11 +49,48 @@ namespace g3
         /// </summary>
         public double SnapTolerance;
 
-        /// <exception cref="ArgumentException">The input is invalid, or SnapTolerance is negative, not finite, or too small for the coordinates.</exception>
+        /// <summary>
+        /// Thin-wedge collapse tolerance in coordinate units (spec O13, F-19); 0 (default): off.
+        /// When positive, non-locked constraint segments leaving a host constraint segment at an angle below 10 degrees
+        /// whose far endpoint lies within <see cref="WedgeTolerance"/> of the host are collapsed into the host
+        /// (moving free drifting-polyline vertices onto the host or rerouting corners via a perpendicular foot while
+        /// keeping corner vertices present). Short features at &gt;= 10 degrees and segments farther than the tolerance
+        /// are left untouched; host segments never move, and no segment moves more than <see cref="WedgeTolerance"/>
+        /// from its original input position. Typical production value: <c>3 * SnapTolerance</c>.
+        /// </summary>
+        public double WedgeTolerance;
+
+        /// <exception cref="ArgumentException">The input is invalid, or SnapTolerance / WedgeTolerance is negative, not finite, or too small for the coordinates.</exception>
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
-            return Snapped(input, SnapTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false, SnapRounded = snap != null }.Run());
+            return Preprocess(input, SnapTolerance, WedgeTolerance, cancellationToken, (snapped, snap) => new Builder(snapped, ResolveCrossings, cancellationToken) { OuterRingsCollapsed = snap?.OuterRingsCollapsed ?? false, SnapRounded = snap != null }.Run());
+        }
+
+        internal static ConstrainedTriangulation2Result Preprocess(ConstrainedMesh2Input input, double snapTolerance, double wedgeTolerance, CancellationToken cancel,
+            Func<ConstrainedMesh2Input, SnapRounding2, ConstrainedTriangulation2Result> run)
+        {
+            if (wedgeTolerance != 0 && (double.IsNaN(wedgeTolerance) || !(wedgeTolerance > 0) || double.IsInfinity(wedgeTolerance)))
+                throw new ArgumentException("WedgeTolerance must be zero or positive and finite (spec O13)");
+            if (wedgeTolerance == 0) return Snapped(input, snapTolerance, cancel, run);
+
+            new Builder(input, true, cancel).Validate();
+            bool noArea = HullHasNoArea(input);
+            int origCount = input.Points.Count;
+            int mergedV = 0, reroutedE = 0;
+            var wedged = noArea ? input : WedgeCollapse2.Apply(input, wedgeTolerance, cancel, out mergedV, out reroutedE);
+            cancel.ThrowIfCancellationRequested();
+
+            var result = Snapped(wedged, snapTolerance, cancel, run);
+            if (mergedV == 0 && reroutedE == 0) return result;
+
+            var diagnostics = new List<string> {
+                "wedge: tolerance " + wedgeTolerance.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+                + ", merged " + mergedV + " vertices, rerouted " + reroutedE + " edges"
+            };
+            if (result.Diagnostics != null) diagnostics.AddRange(result.Diagnostics);
+            return new ConstrainedTriangulation2Result(result.Status, result.FailureKind, result.Mesh?.WithInputCount(origCount), diagnostics,
+                result.ProblemCoordinate, result.FailureDetail);
         }
 
         /// <summary> runs the mesher on the snap-rounded input (D14) if a snap tolerance is set, and maps the result back to the input points </summary>
@@ -111,7 +148,7 @@ namespace g3
         /// the input has no area, exactly: a hull domain (no outer ring) whose points are all on one line, or whose outer rings each have
         /// all their vertices on one line (or fewer than two distinct points)
         /// </summary>
-        static bool HullHasNoArea(ConstrainedMesh2Input input)
+        internal static bool HullHasNoArea(ConstrainedMesh2Input input)
         {
             var outer = new List<Mesh2Ring>();
             if (input.Rings != null)

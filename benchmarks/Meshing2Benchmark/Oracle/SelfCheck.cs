@@ -1165,6 +1165,7 @@ namespace Meshing2Acceptance
             cross.Segments.Add(new SegmentInput(4, 5, 1));
             cross.Segments.Add(new SegmentInput(6, 7, 2));
             CrossingAcceptance(Must, cross);
+            WedgeAcceptance(Must);
 
             // locked segment, split at a free point, on the Steiner grid baseline
             var (steinerIn, steinerOut) = Grid(true);
@@ -2604,6 +2605,71 @@ namespace Meshing2Acceptance
             var tube = new OracleExpect { Milestone = Milestone.M2, Tube = new Q(1, BigInteger.One << 40) };
             var tubeReport = Oracle.Check(cross, doubles, tube);
             must("accept: the rounded crossing inside a tube", !tubeReport.Has(Violation.SegmentMissing), tubeReport.ToString());
+        }
+
+        static void WedgeAcceptance(Action<string, bool, string> must)
+        {
+            // Square [0,4]x[0,4] with wedge point (2, 1/32) on a 1/64 snap grid and WedgeTolerance = 1/16
+            var input = new B().Square(4).Point(2, 1.0 / 32).Snap(1.0 / 64).Wedge(1.0 / 16).Build();
+            var expect = new OracleExpect { Milestone = Milestone.M2 };
+
+            Mesh2Output MakeAt(double px, double py)
+            {
+                // 4 outer corners + vertex 4 at (px, py), triangulated as fan from (px, py)
+                var vx = new[] { 0.0, 4.0, 4.0, 0.0, px };
+                var vy = new[] { 0.0, 0.0, 4.0, 4.0, py };
+                var tris = new[] { new[] { 0, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 0, 4 } };
+                var subs = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) };
+                return new Mesh2Output {
+                    Status = Mesh2Status.Success, VX = vx, VY = vy,
+                    InputToVertex = new[] { 0, 1, 2, 3, 4 },
+                    Triangles = tris, Neighbours = NeighboursOf(tris), Subsegments = subs
+                };
+            }
+
+            // 1. Accept: vertex 4 moved by 1/32 <= WedgeTolerance (1/16), staying on the 1/64 grid
+            var okReport = Oracle.Check(input, MakeAt(2.0, 0.0), expect);
+            must("accept: wedge vertex moved within WedgeTolerance on grid", !okReport.Has(Violation.SnapTooFar) && !okReport.Has(Violation.InputMoved), okReport.ToString());
+
+            // 2. Reject: vertex 4 moved by 1/4 > WedgeTolerance + SnapTolerance (5/64) must still fail SnapTooFar
+            var tooFarReport = Oracle.Check(input, MakeAt(2.0, 0.25), expect);
+            must("reject: wedge vertex moved beyond WedgeTolerance + SnapTolerance fails SnapTooFar", tooFarReport.Has(Violation.SnapTooFar), tooFarReport.ToString());
+
+            // 3. Reject: vertex 4 moved within WedgeTolerance but off the 1/64 snap grid must still fail SnapTooFar
+            var offGridReport = Oracle.Check(input, MakeAt(2.0, 1.0 / 128), expect);
+            must("reject: wedge vertex off snap grid still fails SnapTooFar", offGridReport.Has(Violation.SnapTooFar), offGridReport.ToString());
+
+            // 4-5. O-H5 Coincidences with WedgeTolerance > 0: a pre-refinement foot vertex within WedgeTolerance + SnapTolerance
+            // of an input point is accepted at degree 3, whereas a refinement vertex (ExistedBeforeRefinement == false)
+            // or a degree-3 vertex far from every input point still fails RefinementCoincidence.
+            var footInput = new B().Square(4).Point(2, 1.0 / 32).Snap(1.0 / 64).Wedge(1.0 / 16).Build();
+            footInput.Segments.Add(new SegmentInput(0, 4));
+            Mesh2Output MakeFoot(double fx, bool existedBefore)
+            {
+                // 0=(0,0), 1=(4,0), 2=(4,4), 3=(0,4), 4=(2,1/32), 5=(fx,0) foot on bottom edge with degree-3 subsegments (0-5, 5-1, 5-4)
+                var vx = new[] { 0.0, 4.0, 4.0, 0.0, 2.0, fx };
+                var vy = new[] { 0.0, 0.0, 4.0, 4.0, 1.0 / 32, 0.0 };
+                var tris = new[] { new[] { 0, 5, 4 }, new[] { 5, 1, 4 }, new[] { 1, 2, 4 }, new[] { 2, 3, 4 }, new[] { 3, 0, 4 } };
+                var subs = new List<SubsegmentOutput> {
+                    new SubsegmentOutput(0, 5), new SubsegmentOutput(5, 1), new SubsegmentOutput(1, 2),
+                    new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0), new SubsegmentOutput(5, 4)
+                };
+                return new Mesh2Output {
+                    Status = Mesh2Status.Success, VX = vx, VY = vy,
+                    InputToVertex = new[] { 0, 1, 2, 3, 4 },
+                    Triangles = tris, Neighbours = NeighboursOf(tris), Subsegments = subs,
+                    ExistedBeforeRefinement = new[] { true, true, true, true, true, existedBefore }
+                };
+            }
+
+            var footOk = Oracle.Check(footInput, MakeFoot(2.0, existedBefore: true), expect);
+            must("accept: pre-refinement degree-3 wedge foot near input vertex has no RefinementCoincidence", !footOk.Has(Violation.RefinementCoincidence), footOk.ToString());
+
+            var refCoinc = Oracle.Check(footInput, MakeFoot(2.0, existedBefore: false), expect);
+            must("reject: degree-3 refinement vertex still fails RefinementCoincidence under WedgeTolerance", refCoinc.Has(Violation.RefinementCoincidence), refCoinc.ToString());
+
+            var farCoinc = Oracle.Check(footInput, MakeFoot(1.0, existedBefore: true), expect);
+            must("reject: degree-3 vertex outside WedgeTolerance + SnapTolerance of input points fails RefinementCoincidence", farCoinc.Has(Violation.RefinementCoincidence), farCoinc.ToString());
         }
     }
 }

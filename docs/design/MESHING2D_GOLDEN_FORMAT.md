@@ -81,6 +81,7 @@ A description is a list of steps, read from the left. A point is numbered at its
 | `min_angle(d)`, `max_area(a)`, `steiner_limit(n)`, `snap(t)` | options: minimum angle in degrees, largest triangle area, cap on inserted points, snap tolerance in coordinate units (default 0, automatic); an explicit tolerance is the pixel width of the snap grid, anchored at the origin with half-open pixels (decision D14) |
 | `no_noding`, `conforming` | options: crossing segments must fail with a status; empty circumcircles also across segments |
 | `mode(constrained)` | M3 constrained-quality mode (`Conforming = false`); canonical input text adds `mode constrained`. These inputs have separate hashes and golden rows. |
+| `wedge(t)` | thin-wedge collapse tolerance in coordinate units (O13); canonical input text adds `wedge_tolerance <value>` only when positive. |
 
 Without an outer ring the domain is the convex hull of the points. A hole does not fill back what another hole removed, and overlapping
 outer rings unite. Decisions on these semantics are open ([MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md)); the
@@ -120,12 +121,14 @@ size_constant <value|->                           # the largest edge; a size tha
 resolve_crossings <0|1>
 conforming <0|1>
 mode constrained                                  # optional: only when set
+wedge_tolerance <value>                           # optional: only when positive (O13)
 end
 ```
 
 The line `mode constrained` marks the constrained quality mode (owner decision 2026-11-02): quality without O2, judged as
 constrained Delaunay. It is written only when set, so every other input keeps its text and its `input_sha256`; it contradicts
-`conforming 1`, which a reader rejects. In a generator the mode is `mode(constrained)`.
+`conforming 1`, which a reader rejects. In a generator the mode is `mode(constrained)`. The optional `wedge_tolerance <value>`
+line follows the same rule (omitted when 0 so existing input hashes are unchanged).
 
 Worked example: the input `literal(0 0, 1 0, 0 1)` has this canonical text, with a final line end,
 

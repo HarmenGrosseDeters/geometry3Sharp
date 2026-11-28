@@ -55,6 +55,11 @@ namespace Meshing2Acceptance
                 if (input.Conforming) throw new InvalidOperationException("the constrained quality mode contradicts conforming");
                 sb.Append("mode constrained\n");
             }
+            if (input.WedgeTolerance != 0) {
+                if (double.IsNaN(input.WedgeTolerance) || !(input.WedgeTolerance > 0) || double.IsInfinity(input.WedgeTolerance))
+                    throw new InvalidOperationException("wedge_tolerance must be non-negative and finite");
+                sb.Append("wedge_tolerance ").Append(Token(input.WedgeTolerance)).Append('\n');
+            }
             sb.Append("end\n");
             return sb.ToString();
         }
@@ -157,6 +162,12 @@ namespace Meshing2Acceptance
                 if (mode.Length != 2 || mode[1] != "constrained") throw new FormatException("mode: expected \"mode constrained\", got: " + string.Join(" ", mode));
                 if (input.Conforming) throw new FormatException("mode constrained contradicts conforming 1");
                 input.ConstrainedQuality = true;
+            }
+            if (r.TryOptional("wedge_tolerance", out var wt)) {
+                if (wt.Length != 2) throw new FormatException("wedge_tolerance: expected 1 value, got: " + string.Join(" ", wt));
+                double w = ParseCoordinate(wt[1]);
+                if (double.IsNaN(w) || w < 0 || double.IsInfinity(w)) throw new FormatException("wedge_tolerance must be non-negative and finite");
+                input.WedgeTolerance = w;
             }
             r.Named("end", 1);
             return input;

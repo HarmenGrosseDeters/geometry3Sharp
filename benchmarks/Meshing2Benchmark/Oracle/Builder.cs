@@ -96,6 +96,7 @@ namespace Meshing2Acceptance
         public B Area(double v) { input.MaxArea = v; text.Add("max_area(" + Num(v) + ")"); return this; }
         public B Limit(int n) { input.SteinerLimit = n; text.Add("steiner_limit(" + n + ")"); return this; }
         public B Snap(double t) { input.SnapTolerance = t; text.Add("snap(" + Num(t) + ")"); return this; }
+        public B Wedge(double t) { input.WedgeTolerance = t; text.Add("wedge(" + Num(t) + ")"); return this; }
         public B NoNoding() { input.ResolveCrossings = false; text.Add("no_noding"); return this; }
         public B Conforming() { input.Conforming = true; text.Add("conforming"); return this; }
         public B ConstrainedQuality() { input.ConstrainedQuality = true; text.Add("mode(constrained)"); return this; }

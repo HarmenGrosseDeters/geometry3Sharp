@@ -104,6 +104,7 @@ Literature (full references in [SOURCES.md](../SOURCES.md), section 2D meshing):
 | `Collect`, `TagFromPiece` (tag propagation) | rewritten triangles take their domain and region tag from unchanged neighbours across unconstrained edges, and from the sides of the pieces of a split segment, which keep the tags its sides had; ghosts count as outside | own, from the domain definition (spec) and decisions D5, D16 |
 | `Builder.SnapshotReference`, `SetHeightOnReference` | heights of Steiner points by linear interpolation on the triangulation before refinement, located by a stochastic walk from the last hit | spec Q9; [DPT] (stochastic walk) |
 | `Builder.NearVertex` | a crossing snaps to a vertex within the tolerance of it and of all sources involved | spec O11 |
+| `WedgeCollapse2.Apply` (`comp_geom/WedgeCollapse2.cs`) | thin-wedge preprocessing (O13, F-19): static median-split BVH over original host segments + deterministic vertex-bounded worklist (`O(E log E)`), collapsing non-locked segments leaving a host at `< 10°` whose far end lies within `WedgeTolerance` (moving free drifting-polyline vertices onto the host or rerouting corners via a perpendicular foot while pinning hosts so no segment drifts beyond `WedgeTolerance`) | own clean-room design from spec O13 and F-19; standard static median-split AABB tree |
 
 ## `m2.snap`: `comp_geom/SnapRounding2.cs` and `SnapTolerance` on both meshers (#277)
 
