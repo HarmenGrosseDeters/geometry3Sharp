@@ -182,7 +182,13 @@ namespace g3
         bool skip(int t, Vector3d pi, Vector3d pj)
         {
             Index3i tv = S.GetTriangle(t);
-            double R2 = D2(S.GetVertex(tv.a), pi), rb = D2(S.GetVertex(tv.b), pi), rc = D2(S.GetVertex(tv.c), pi);
+            return SkipRadius(S.GetVertex(tv.a), S.GetVertex(tv.b), S.GetVertex(tv.c), pi, pj);
+        }
+
+        /// <summary> Lemma R's float test for the triangle t0 t1 t2, the cell's site pi and the neighbour pj </summary>
+        internal static bool SkipRadius(Vector3d t0, Vector3d t1, Vector3d t2, Vector3d pi, Vector3d pj)
+        {
+            double R2 = D2(t0, pi), rb = D2(t1, pi), rc = D2(t2, pi);
             if (rb > R2) R2 = rb;
             if (rc > R2) R2 = rc;
             double d2 = D2(pj, pi);
@@ -441,6 +447,16 @@ namespace g3
                     foreach (Point q in pc.V)
                         if (q.Kind == 3 && q.A > i && x.FacetPointCount(i, q.A, q.B) != y.FacetPointCount(i, q.A, q.B)) diff++;
             return diff;
+        }
+
+        /// <summary> tests: a diagram with the cell of site i only (the same surface and triangulation; no (E') counts) </summary>
+        internal ExactRestrictedVoronoi OnlySite(int i)
+        {
+            var d = new ExactRestrictedVoronoi(S, dt, r.x);
+            List<Piece> c = d.cellOf(i);
+            List<Piece> mine = Cell(i);
+            for (int k = 0; k < mine.Count; ++k) c.Add(mine[k]);
+            return d;
         }
 
         static bool same_cell(List<Piece> a, List<Piece> b)

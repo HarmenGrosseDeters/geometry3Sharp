@@ -218,6 +218,7 @@ namespace geometry3Sharp.Tests
                             keys[key] = keys.GetValueOrDefault(key) + 1;
                         }
                 }
+            for (int i = 0; i < rvd.SiteCount; ++i) Assert.All(rvd.Cell(i), pc => Assert.True(pc.V.Length >= 3));
             foreach (int t in input.TriangleIndices())
                 Assert.True(Math.Abs(area.GetValueOrDefault(t) - input.GetTriArea(t)) <= 1e-9 * input.GetTriArea(t) + 1e-15, $"triangle {t}: {area.GetValueOrDefault(t)} of {input.GetTriArea(t)}");
             Assert.NotEmpty(keys);
@@ -274,6 +275,7 @@ namespace geometry3Sharp.Tests
                 var s = rvd.Summary(i);
                 Assert.True(s.Disk, $"site {i}: chi {s.Chi}, components {s.Components}");
                 Assert.Equal(0, s.BadArcs);
+                for (int j = 8; j < 11; ++j) if (j != i) Assert.True(rvd.IsArc(i, j));
             }
         }
 
@@ -379,6 +381,143 @@ namespace geometry3Sharp.Tests
                 rvd.ComputeAll();
                 Assert.Equal(rmax < 1, rvd.Summary(8).AnyFar);
             }
+        }
+
+        // ---- the parts of the diagram on their own ----
+
+        [Fact]
+        public void SkipRadius_SkipsOnlyWhatTheBoundProves()
+        {
+            Vector3d t0 = new Vector3d(1, 0, 0), t1 = new Vector3d(0, 1, 0), t2 = new Vector3d(0, 0, 0.5), pi = Vector3d.Zero;
+            // R = 1 (the farthest vertex); the bisector cuts nothing only beyond |pj - pi| = 2 R, with the margin 2^-40
+            Assert.True(ExactRestrictedVoronoi.SkipRadius(t0, t1, t2, pi, new Vector3d(2.001, 0, 0)));
+            Assert.True(ExactRestrictedVoronoi.SkipRadius(t0, t1, t2, pi, new Vector3d(0, 0, -3)));
+            Assert.False(ExactRestrictedVoronoi.SkipRadius(t0, t1, t2, pi, new Vector3d(2, 0, 0)));             // exactly 2 R: may touch
+            Assert.False(ExactRestrictedVoronoi.SkipRadius(t0, t1, t2, pi, new Vector3d(2 * (1 + 1e-13), 0, 0)));  // inside the margin
+            Assert.False(ExactRestrictedVoronoi.SkipRadius(t0, t1, t2, pi, new Vector3d(1.5, 0, 0)));
+            // the bound needs the normal range: an underflowing radius or an overflowing distance never skips
+            double tiny = 1e-160;
+            Assert.False(ExactRestrictedVoronoi.SkipRadius(tiny * t0, tiny * t1, tiny * t2, pi, new Vector3d(1, 0, 0)));
+            Assert.False(ExactRestrictedVoronoi.SkipRadius(t0, t1, t2, pi, new Vector3d(1e300, 0, 0)));
+            // the 2^k scales give the same answers
+            foreach (double k in new[] { 1.0 / 1024, 1024.0 })
+                Assert.True(ExactRestrictedVoronoi.SkipRadius(k * t0, k * t1, k * t2, pi, new Vector3d(2.001 * k, 0, 0)));
+        }
+
+        [Fact]
+        public void TripleKey_RoundTrips_AndRejectsTooManySites()
+        {
+            int big = (1 << 21) - 1;
+            long key = ExactRestrictedVoronoi.TripleKey(5, 1000, big);
+            ExactRestrictedVoronoi.TripleOf(key, out int a, out int b, out int c);
+            Assert.Equal((5, 1000, big), (a, b, c));
+            Assert.Throws<InvalidOperationException>(() => ExactRestrictedVoronoi.TripleKey(1, 2, 1 << 21));
+        }
+
+        [Fact]
+        public void Constructor_NeedsBothTriangulationModes()
+        {
+            DMesh3 S = Rotated(Sphere(4, p => p));
+            Assert.Throws<ArgumentException>(() => new ExactRestrictedVoronoi(S, new Delaunay3(S.CachedBounds) { SymbolicPerturbation = true }, 1));
+            Assert.Throws<ArgumentException>(() => new ExactRestrictedVoronoi(S, new Delaunay3(S.CachedBounds) { RefinementSupport = true }, 1));
+        }
+
+        [Fact]
+        public void FarFlag_IsStrictlyAboveRMax()
+        {
+            // an octahedron with its vertices at distance exactly 1 from the one site: not above r_max = 1, above 0.999
+            var m = new DMesh3();
+            var V = new[] { new Vector3d(1, 0, 0), new Vector3d(-1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, -1, 0), new Vector3d(0, 0, 1), new Vector3d(0, 0, -1) };
+            foreach (var v in V) m.AppendVertex(v);
+            int[,] T = { { 0, 2, 4 }, { 2, 1, 4 }, { 1, 3, 4 }, { 3, 0, 4 }, { 2, 0, 5 }, { 1, 2, 5 }, { 3, 1, 5 }, { 0, 3, 5 } };
+            for (int k = 0; k < 8; ++k) m.AppendTriangle(T[k, 0], T[k, 1], T[k, 2]);
+            var box = m.CachedBounds; box.Expand(4);
+            var dt = new Delaunay3(box) { SymbolicPerturbation = true, RefinementSupport = true };
+            dt.Insert(Vector3d.Zero, -1, 0, out _);
+            foreach (double rmax in new[] { 1.0, 0.999 }) {
+                var rvd = new ExactRestrictedVoronoi(m, dt, rmax);
+                rvd.ComputeAll();
+                Assert.Equal(8, rvd.Cell(8).Count);
+                Assert.Equal(rmax < 1, rvd.Summary(8).AnyFar);
+            }
+        }
+
+        [Fact]
+        public void ComputeAll_Twice_AndDifferences()
+        {
+            DMesh3 S = Rotated(Sphere(8, p => p));
+            var sites = new[] { new Vector3d(0, 0, 0.5), new Vector3d(0.45, 0, -0.25), new Vector3d(-0.4, 0.2, -0.25), new Vector3d(0, -0.6, 0.1) };
+            var a = Diagram(S, sites);
+            var b = Diagram(S, sites);
+            Assert.Equal(0, ExactRestrictedVoronoi.Differences(a, b));
+            a.ComputeAll();      // again on the same instance: nothing doubled, the (E') counts recounted
+            Assert.Equal(0, ExactRestrictedVoronoi.Differences(a, b));
+            Assert.Equal(0, ExactRestrictedVoronoi.Differences(b, a));
+            // one site fewer: different cells; another r_max: only the R2 flags differ
+            Assert.True(ExactRestrictedVoronoi.Differences(a, Diagram(S, sites.Take(3).ToArray())) > 0);
+            Assert.True(ExactRestrictedVoronoi.Differences(Diagram(S, sites.Take(3).ToArray()), a) > 0);
+            var far = new ExactRestrictedVoronoi(S, a.Triangulation, 0.3);
+            far.ComputeAll();
+            Assert.True(ExactRestrictedVoronoi.Differences(a, far) > 0);
+            // dirty sites: every site with a cell once, then nothing until a change
+            var dirty = new List<int>();
+            b.TakeDirtySites(dirty);
+            Assert.Equal(Enumerable.Range(8, 4).ToList(), dirty.OrderBy(x => x).ToList());
+            dirty.Clear(); b.TakeDirtySites(dirty);
+            Assert.Empty(dirty);
+        }
+
+        [Fact]
+        public void Update_MarksExactlyTheChangedCells()
+        {
+            DMesh3 S = Rotated(Sphere(8, p => p));
+            var rvd = Diagram(S, new Vector3d(0, 0, 0.5), new Vector3d(0.45, 0, -0.25), new Vector3d(-0.4, 0.2, -0.25), new Vector3d(0, -0.6, 0.1));
+            rvd.TakeDirtySites(new List<int>());
+            var dt = rvd.Triangulation;
+            var added = new List<int>();
+            Assert.Equal(Delaunay3.InsertResult.Inserted, dt.Insert(new Vector3d(0.6, 0.6, 0.3), -1, 0, out int p, new List<int>(), added));
+            var before = Diagram(S, new Vector3d(0, 0, 0.5), new Vector3d(0.45, 0, -0.25), new Vector3d(-0.4, 0.2, -0.25), new Vector3d(0, -0.6, 0.1));
+            rvd.Update(p, added);
+            var full = new ExactRestrictedVoronoi(S, dt, 100);
+            full.ComputeAll();
+            Assert.Equal(0, ExactRestrictedVoronoi.Differences(rvd, full));
+            var dirty = new List<int>();
+            rvd.TakeDirtySites(dirty);
+            Assert.Equal(dirty.OrderBy(x => x), rvd.LastChanged.OrderBy(x => x));
+            Assert.Contains(p, dirty);
+            // a site is listed iff its cell changed
+            for (int i = 8; i < p; ++i) {
+                bool same = ExactRestrictedVoronoi.Differences(Single(before, i), Single(full, i)) == 0;
+                Assert.Equal(!same, dirty.Contains(i));
+            }
+        }
+
+        // a diagram copy of one site's cell only, for comparing cells site by site
+        static ExactRestrictedVoronoi Single(ExactRestrictedVoronoi d, int i) => d.OnlySite(i);
+
+        [Fact]
+        public void ArcClause_TwoArcs_AreRefused()
+        {
+            // the equator of a sphere between two polar sites, broken by two sites on it: the facet of the polar sites meets
+            // the sphere in two arcs (two components)
+            DMesh3 S = Rotated(Sphere(10, p => p));
+            var rvd = Diagram(S, new Vector3d(0, 0, 0.5), new Vector3d(0, 0, -0.5), new Vector3d(0.9, 0, 0), new Vector3d(-0.9, 0.05, 0));
+            Assert.False(rvd.IsArc(8, 9));
+            Assert.False(rvd.IsArc(9, 8));
+            Assert.True(rvd.IsArc(8, 10));
+            Assert.True(rvd.IsArc(10, 8));
+        }
+
+        [Fact]
+        public void CellRules_AreNeeded_OnATorus()
+        {
+            // the torus's first cells are bands without restricted facets: only the cell rules ((C'), (F')) start the refinement
+            DMesh3 input = Make("torus");
+            double rmax = input.CachedBounds.Diagonal.Length / 8;
+            var facetOnly = new RestrictedDelaunayRefinement { RMax = rmax, FacetRulesOnly = true };
+            facetOnly.Compute(input);
+            Assert.NotEqual(RestrictedDelaunayRefinement.ResultStatus.Certified, facetOnly.Status);
+            AssertCertifiedResult(input, Run(input, 1.0 / 8));
         }
 
         // ---- invariance, reuse, determinism ----
