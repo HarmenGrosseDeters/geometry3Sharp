@@ -234,11 +234,17 @@ namespace g3
             u = SafeDiff(b, a, out int pu);
             v = SafeDiff(d, a, out int pv);
             w = SafeDiff(e, a, out int pw);
-            double um = u.MaxAbs, vm = v.MaxAbs, wm = w.MaxAbs;
-            if (um == 0 || vm == 0 || wm == 0) return 0;
-            int eu = Pow2Exp(um), ev = Pow2Exp(vm), ew = Pow2Exp(wm);
-            Vector3d us = ScaleVec(u, -eu), vs = ScaleVec(v, -ev), ws = ScaleVec(w, -ew);
-            return ExactPoint3.ScaleB(us.Cross(vs).Dot(ws) / 6.0, eu + pu + ev + pv + ew + pw);
+            // det(diag(2^-pu,2^-pv,2^-pw) * M * diag(2^-ex,2^-ey,2^-ez)) = 2^-(ex+ey+ez+pu+pv+pw) * det(M):
+            // per-column (axis) scaling keeps all three coordinate axes in [-2, 2] without losing thin axes.
+            double mx = Math.Max(Math.Abs(u.x), Math.Max(Math.Abs(v.x), Math.Abs(w.x)));
+            double my = Math.Max(Math.Abs(u.y), Math.Max(Math.Abs(v.y), Math.Abs(w.y)));
+            double mz = Math.Max(Math.Abs(u.z), Math.Max(Math.Abs(v.z), Math.Abs(w.z)));
+            if (mx == 0 || my == 0 || mz == 0) return 0;
+            int ex = Pow2Exp(mx), ey = Pow2Exp(my), ez = Pow2Exp(mz);
+            Vector3d us = new Vector3d(ExactPoint3.ScaleB(u.x, -ex), ExactPoint3.ScaleB(u.y, -ey), ExactPoint3.ScaleB(u.z, -ez));
+            Vector3d vs = new Vector3d(ExactPoint3.ScaleB(v.x, -ex), ExactPoint3.ScaleB(v.y, -ey), ExactPoint3.ScaleB(v.z, -ez));
+            Vector3d ws = new Vector3d(ExactPoint3.ScaleB(w.x, -ex), ExactPoint3.ScaleB(w.y, -ey), ExactPoint3.ScaleB(w.z, -ez));
+            return ExactPoint3.ScaleB(us.Cross(vs).Dot(ws) / 6.0, ex + ey + ez + pu + pv + pw);
         }
 
         /// <summary> circumcenter of cell c (floating point) </summary>
@@ -251,8 +257,10 @@ namespace g3
         {
             Vector3d u = b - a, v = c - a, w = d - a;
             if (u.IsFinite && v.IsFinite && w.IsFinite) {
-                double m = Math.Max(u.MaxAbs, Math.Max(v.MaxAbs, w.MaxAbs));
-                if (m >= FastScaleMin && m <= FastScaleMax) {
+                double mu = u.MaxAbs, mv = v.MaxAbs, mw = w.MaxAbs;
+                double hi = Math.Max(mu, Math.Max(mv, mw));
+                double lo = Math.Min(mu, Math.Min(mv, mw));
+                if (hi <= FastScaleMax && lo >= FastScaleMin) {
                     Vector3d vw = v.Cross(w), wu = w.Cross(u), uv = u.Cross(v);
                     double den = 2 * u.Dot(vw);
                     return a + (u.LengthSquared * vw + v.LengthSquared * wu + w.LengthSquared * uv) / den;
@@ -260,21 +268,37 @@ namespace g3
             }
             if (!a.IsFinite || !b.IsFinite || !c.IsFinite || !d.IsFinite)
                 return new Vector3d(double.NaN, double.NaN, double.NaN);
-            int pre = 0;
-            if (!u.IsFinite || !v.IsFinite || !w.IsFinite) {
-                pre = 1;
-                Vector3d ha = 0.5 * a;
-                u = 0.5 * b - ha; v = 0.5 * c - ha; w = 0.5 * d - ha;
-            }
-            double maxAbs = Math.Max(u.MaxAbs, Math.Max(v.MaxAbs, w.MaxAbs));
-            if (!(maxAbs > 0))
+            u = SafeDiff(b, a, out int pu);
+            v = SafeDiff(c, a, out int pv);
+            w = SafeDiff(d, a, out int pw);
+            double um = u.MaxAbs, vm = v.MaxAbs, wm = w.MaxAbs;
+            if (um == 0 || vm == 0 || wm == 0)
                 return new Vector3d(double.NaN, double.NaN, double.NaN);
-            int exp = Pow2Exp(maxAbs);
-            Vector3d us = ScaleVec(u, -exp), vs = ScaleVec(v, -exp), ws = ScaleVec(w, -exp);
+            int eu = Pow2Exp(um), ev = Pow2Exp(vm), ew = Pow2Exp(wm);
+            Vector3d us = ScaleVec(u, -eu), vs = ScaleVec(v, -ev), ws = ScaleVec(w, -ew);
             Vector3d vws = vs.Cross(ws), wus = ws.Cross(us), uvs = us.Cross(vs);
             double dens = 2 * us.Dot(vws);
-            Vector3d off = (us.LengthSquared * vws + vs.LengthSquared * wus + ws.LengthSquared * uvs) / dens;
-            return a + ScaleVec(off, exp + pre);
+            // Per-edge scaling cancels 2^(su+sv+sw) in dens, leaving 2^su, 2^sv, 2^sw on the three terms
+            Vector3d raw1 = (us.LengthSquared * vws) / dens;
+            Vector3d raw2 = (vs.LengthSquared * wus) / dens;
+            Vector3d raw3 = (ws.LengthSquared * uvs) / dens;
+            if (!raw1.IsFinite || !raw2.IsFinite || !raw3.IsFinite)
+                return a + (raw1 + raw2 + raw3);
+            int su = eu + pu, sv = ev + pv, sw = ew + pw;
+            Vector3d t1 = ScaleVec(raw1, su), t2 = ScaleVec(raw2, sv), t3 = ScaleVec(raw3, sw);
+            Vector3d res = a + (t1 + t2 + t3);
+            if (res.IsFinite)
+                return res;
+            // Avoid intermediate overflow when |cc - a| > double.MaxValue (or cancelling large terms) while |cc| <= double.MaxValue
+            int maxE = a.MaxAbs > 0 ? Pow2Exp(a.MaxAbs) : -1074;
+            if (raw1.MaxAbs > 0) maxE = Math.Max(maxE, su + Pow2Exp(raw1.MaxAbs));
+            if (raw2.MaxAbs > 0) maxE = Math.Max(maxE, sv + Pow2Exp(raw2.MaxAbs));
+            if (raw3.MaxAbs > 0) maxE = Math.Max(maxE, sw + Pow2Exp(raw3.MaxAbs));
+            int shift = maxE - 1000;
+            if (shift <= 0)
+                return res;
+            Vector3d sum = ScaleVec(a, -shift) + (ScaleVec(raw1, su - shift) + ScaleVec(raw2, sv - shift) + ScaleVec(raw3, sw - shift));
+            return ScaleVec(sum, shift);
         }
 
 
