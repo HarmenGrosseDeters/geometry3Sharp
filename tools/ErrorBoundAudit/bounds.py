@@ -751,10 +751,12 @@ def box_pad(c, r):
 
 # --------------------------------------------------------------------------------------------------- SnapRounding2
 
-@entry('SN-5 SnapGrid.CrossesInteriorFilter', 'comp_geom/SnapRounding2.cs',
+@entry('SN-5 SnapGrid.CrossesInteriorFilter / SnapRounding2.MeetsFilter', 'comp_geom/SnapRounding2.cs',
        ['double ex = cx - a.x, ey = cy - a.y, l = dx * ey, r = dy * ex, o = l - r;',
         'double bound = 1e-14 * (Math.Abs(dx) * (Math.Abs(ey) + Math.Abs(cy)) + Math.Abs(dy) * (Math.Abs(ex) + Math.Abs(cx)));',
-        'bool Ok(double v) => v == 0 || (Math.Abs(v) > 1e-140 && Math.Abs(v) < 1e140);'],
+        'bool Ok(double v) => v == 0 || (Math.Abs(v) > 1e-140 && Math.Abs(v) < 1e140);',
+        'static bool OkFilter(double v) => v == 0 || (Math.Abs(v) > 1e-140 && Math.Abs(v) < 1e140);',
+        'double b0 = 1e-14 * (adx * aey0 + ady * aex0);'],
        'sign of the orientation of a pixel corner (k +- 1/2) w, rounded once, against the segment a-b',
        'every input, side and product 0 or in [1e-140, 1e140] (checked: Ok)', '1e-14 (|dx| (|ey| + |cy|) + |dy| (|ex| + |cx|))',
        emin=-100, emax=100)

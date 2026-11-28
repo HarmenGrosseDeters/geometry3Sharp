@@ -70,6 +70,7 @@ namespace g3
         readonly System.Threading.CancellationToken cancel;
         readonly int emin;                  // the common exponent: coordinates and pixel width are integers times 2^emin
         readonly double w;
+        readonly SnapGrid grid;
         readonly BigInteger W;              // the pixel width in units
         readonly BigInteger[] X, Y;         // twice the input coordinates, in units
         readonly long[] KX, KY;             // the pixel of each input point
@@ -83,6 +84,7 @@ namespace g3
         {
             this.input = input; this.cancel = cancel;
             w = tolerance;
+            grid = new SnapGrid(w);
             int n = input.Points.Count;
             // the common exponent of all coordinates and the pixel width
             var mant = new BigInteger[2 * n + 1];
@@ -168,21 +170,9 @@ namespace g3
         (long x, long y)[] hotPts;
         HotNode[] hotNodes;
         int hotNodeCount;
-        // Shared scratch buffers for QueryHot and Restore/Free; neither method may be called re-entrantly.
+        // Shared scratch buffers for QueryHot and Restore; neither method may be called re-entrantly.
         readonly List<(long, long)> queryHits = new List<(long, long)>();
         readonly int[] queryStack = new int[128];
-
-        struct EdgeBox
-        {
-            public long AX, AY, BX, BY;
-            public long MinX, MaxX, MinY, MaxY;
-        }
-
-        struct EdgeNode
-        {
-            public long MinX, MaxX, MinY, MaxY;
-            public int Start, Count, Left, Right;
-        }
 
         /// <summary> segment pq against the pixel: its open interior (interior), or Hobby's half-open square (contact) </summary>
         bool Meets(BigInteger px, BigInteger py, BigInteger qx, BigInteger qy, (long, long) k, bool interior)
@@ -305,6 +295,123 @@ namespace g3
             return (enter, leave);
         }
 
+        static bool OkFilter(double v) => v == 0 || (Math.Abs(v) > 1e-140 && Math.Abs(v) < 1e140);
+
+        /// <summary>
+        /// Certified floating-point filter for Meets(a, b, k, interior) in both open-interior and half-open-contact modes.
+        /// Uses the exact same monotone box test and SN-5 corner-orientation bound as <see cref="SnapGrid.CrossesInteriorFilter"/>:
+        /// returns +1 only when the segment strictly crosses the open pixel interior (true for both interior=true and interior=false),
+        /// -1 only when the segment is strictly disjoint from the closed pixel [x0, x1] x [y0, y1] (false for both modes),
+        /// and 0 whenever undecided (boundary contact, degenerate point, near-zero orientation, out-of-range coordinates or |k| &gt;= 2^52).
+        /// </summary>
+        internal static int MeetsFilter(Vector2d a, Vector2d b, long kx, long ky, double w)
+        {
+            const long big = 1L << 52;
+            if (!(w > 0) || !(kx > -big && kx < big && ky > -big && ky < big)) return 0;
+            double x0 = (kx - 0.5) * w, x1 = (kx + 0.5) * w, y0 = (ky - 0.5) * w, y1 = (ky + 0.5) * w;
+            if (!(OkFilter(a.x) && OkFilter(a.y) && OkFilter(b.x) && OkFilter(b.y)
+                && OkFilter(x0) && OkFilter(x1) && OkFilter(y0) && OkFilter(y1) && OkFilter(w))) return 0;
+            double ax = a.x > b.x ? a.x : b.x, ix = a.x < b.x ? a.x : b.x;
+            double ay = a.y > b.y ? a.y : b.y, iy = a.y < b.y ? a.y : b.y;
+            if (ax < x0 || ix > x1 || ay < y0 || iy > y1) return -1;
+            if (ax == x0 || ix == x1 || ay == y0 || iy == y1) return 0;
+            double dx = b.x - a.x, dy = b.y - a.y;
+            double adx = Math.Abs(dx), ady = Math.Abs(dy);
+            double ex0 = x0 - a.x, ex1 = x1 - a.x, ey0 = y0 - a.y, ey1 = y1 - a.y;
+            double l0 = dx * ey0, l1 = dx * ey1, r0 = dy * ex0, r1 = dy * ex1;
+            if (!(OkFilter(l0) && OkFilter(l1) && OkFilter(r0) && OkFilter(r1))) return 0;
+            double aex0 = Math.Abs(ex0) + Math.Abs(x0), aex1 = Math.Abs(ex1) + Math.Abs(x1);
+            double aey0 = Math.Abs(ey0) + Math.Abs(y0), aey1 = Math.Abs(ey1) + Math.Abs(y1);
+            double b0 = 1e-14 * (adx * aey0 + ady * aex0);
+            double b1 = 1e-14 * (adx * aey0 + ady * aex1);
+            double b2 = 1e-14 * (adx * aey1 + ady * aex1);
+            double b3 = 1e-14 * (adx * aey1 + ady * aex0);
+            if (!(OkFilter(b0) && OkFilter(b1) && OkFilter(b2) && OkFilter(b3))) return 0;
+            int pos = 0, neg = 0;
+            double o0 = l0 - r0; if (o0 > b0) ++pos; else if (o0 < -b0) ++neg; else return 0;
+            double o1 = l0 - r1; if (o1 > b1) ++pos; else if (o1 < -b1) ++neg; else return 0;
+            double o2 = l1 - r1; if (o2 > b2) ++pos; else if (o2 < -b2) ++neg; else return 0;
+            double o3 = l1 - r0; if (o3 > b3) ++pos; else if (o3 < -b3) ++neg; else return 0;
+            return pos > 0 && neg > 0 ? 1 : -1;
+        }
+
+        internal struct MetLong
+        {
+            public long EnN, EnD, ExN, ExD, X, Y;
+        }
+
+        /// <summary>
+        /// Exact 64-bit equivalent of <see cref="Span"/> for a meeting pixel when the segment satisfies the RouteAll
+        /// useLong guard (|px|, |py|, |qx|, |qy|, |x0|, |x1|, |y0|, |y1| &lt;= 10^18 and |dx| * |dy| &lt; 10^18).
+        /// Because the segment meets the closed pixel, 0 &lt;= EnN &lt;= EnD and 0 &lt;= ExN &lt;= ExD with denominators
+        /// in {1, |dx|, |dy|}, so all cross-products in SpanLong and CompareMetLong stay strictly below 2^61 &lt; long.MaxValue.
+        /// </summary>
+        internal static MetLong SpanLong(long px, long py, long dx, long dy, long absDx, long absDy, long wL, (long, long) k)
+        {
+            long x0 = (2 * k.Item1 - 1) * wL, x1 = (2 * k.Item1 + 1) * wL;
+            long y0 = (2 * k.Item2 - 1) * wL, y1 = (2 * k.Item2 + 1) * wL;
+            long enN = 0, enD = 1, exN = 1, exD = 1;
+            if (dx != 0) {
+                long nIn = dx > 0 ? x0 - px : px - x1;
+                long nOut = dx > 0 ? x1 - px : px - x0;
+                if (nIn > 0) { enN = nIn; enD = absDx; }
+                if (nOut < absDx) { exN = nOut; exD = absDx; }
+            }
+            if (dy != 0) {
+                long nIn = dy > 0 ? y0 - py : py - y1;
+                long nOut = dy > 0 ? y1 - py : py - y0;
+                if (nIn > 0 && nIn * enD > enN * absDy) { enN = nIn; enD = absDy; }
+                if (nOut < absDy && nOut * exD < exN * absDy) { exN = nOut; exD = absDy; }
+            }
+            return new MetLong { EnN = enN, EnD = enD, ExN = exN, ExD = exD, X = k.Item1, Y = k.Item2 };
+        }
+
+        /// <summary> Exact 64-bit equivalent of <see cref="CompareMet"/> for pixels on the same useLong segment. </summary>
+        internal static int CompareMetLong(MetLong u, MetLong v)
+        {
+            int c = u.EnD == v.EnD
+                ? u.EnN.CompareTo(v.EnN)
+                : (u.EnN * v.EnD).CompareTo(v.EnN * u.EnD);
+            if (c != 0) return c;
+            c = u.ExD == v.ExD
+                ? u.ExN.CompareTo(v.ExN)
+                : (u.ExN * v.ExD).CompareTo(v.ExN * u.ExD);
+            if (c != 0) return c;
+            c = u.X.CompareTo(v.X);
+            return c != 0 ? c : u.Y.CompareTo(v.Y);
+        }
+
+        /// <summary>
+        /// Certified interval enclosure [enLo, enHi] of the exact entry parameter computed by <see cref="Span"/> for a
+        /// pixel (kx, ky) that segment pa-pb meets. ExactInterval guarantees enLo &lt;= t_entry &lt;= enHi, so strict
+        /// separation (enHi_u &lt; enLo_v) proves CompareMet(u, v) == -1 without BigInteger arithmetic.
+        /// </summary>
+        internal static void EntryInterval(Vector2d pa, Vector2d pb, ExactInterval axI, ExactInterval ayI,
+            ExactInterval dxI, ExactInterval dyI, ExactInterval wI, long kx, long ky, out double enLo, out double enHi)
+        {
+            const long big = 1L << 52;
+            if (!(wI.Lo > 0) || !(kx > -big && kx < big && ky > -big && ky < big)) {
+                enLo = 0.0; enHi = 1.0;
+                return;
+            }
+            enLo = 0.0; enHi = 0.0;
+            if (pa.x != pb.x) {
+                ExactInterval tx = pb.x > pa.x
+                    ? (ExactInterval.Of(kx - 0.5) * wI - axI) / dxI
+                    : (axI - ExactInterval.Of(kx + 0.5) * wI) / (-dxI);
+                if (tx.Lo > enLo) enLo = tx.Lo;
+                if (tx.Hi > enHi) enHi = tx.Hi;
+            }
+            if (pa.y != pb.y) {
+                ExactInterval ty = pb.y > pa.y
+                    ? (ExactInterval.Of(ky - 0.5) * wI - ayI) / dyI
+                    : (ayI - ExactInterval.Of(ky + 0.5) * wI) / (-dyI);
+                if (ty.Lo > enLo) enLo = ty.Lo;
+                if (ty.Hi > enHi) enHi = ty.Hi;
+            }
+            if (enHi > 1.0) enHi = 1.0;
+        }
+
         long BucketOf(long k) => k >= 0 ? k / bucket : -((-k + bucket - 1) / bucket);
 
         /// <summary> the buckets a segment between two pixels may touch: sampled at a quarter bucket, with all neighbours </summary>
@@ -380,6 +487,43 @@ namespace g3
             for (int i = lo; i < hi; ++i) order[i] = tmp[i];
         }
 
+        /// <summary>
+        /// Certified interval filter for the crossing pixel of properly intersecting segments ab and cd.
+        /// ExactInterval encloses the exact intersection (x*, y*) in [ix.Lo, ix.Hi] x [iy.Lo, iy.Hi].
+        /// Because SnapGrid.Pixel(double) is exact and monotone non-decreasing, Pixel(ix.Lo) == Pixel(ix.Hi)
+        /// (within |k| &lt; 2^40) proves the exact crossing pixel without BigInteger arithmetic.
+        /// </summary>
+        internal static bool TryCrossingPixelFast(Vector2d a, Vector2d b, Vector2d c, Vector2d d, SnapGrid grid, out long kx, out long ky)
+        {
+            kx = 0; ky = 0;
+            double gw = grid.W;
+            if (!(gw > 0) || double.IsInfinity(gw)) return false;
+            ExactInterval ax = ExactInterval.Of(a.x), ay = ExactInterval.Of(a.y);
+            ExactInterval bax = ExactInterval.Of(b.x) - ax, bay = ExactInterval.Of(b.y) - ay;
+            ExactInterval dcx = ExactInterval.Of(d.x) - ExactInterval.Of(c.x), dcy = ExactInterval.Of(d.y) - ExactInterval.Of(c.y);
+            ExactInterval den = bax * dcy - bay * dcx;
+            if (!(den.Lo > 0 || den.Hi < 0)) return false;
+            ExactInterval num = (ExactInterval.Of(c.x) - ax) * dcy - (ExactInterval.Of(c.y) - ay) * dcx;
+            ExactInterval t = num / den;
+            ExactInterval ix = ax + t * bax;
+            ExactInterval iy = ay + t * bay;
+            // Reject NaN, infinity, and coordinates near/beyond 2^40 pixels before calling SnapGrid.Pixel
+            // (so SnapGrid.PixelExact cannot overflow long and PixelOf handles the 2^40 ArgumentException).
+            const double MaxPixelRatio = 1099511627776.0; // 2^40
+            if (!(Math.Abs(ix.Lo / gw) < MaxPixelRatio && Math.Abs(ix.Hi / gw) < MaxPixelRatio
+                && Math.Abs(iy.Lo / gw) < MaxPixelRatio && Math.Abs(iy.Hi / gw) < MaxPixelRatio))
+                return false;
+            long kx0 = grid.Pixel(ix.Lo), kx1 = grid.Pixel(ix.Hi);
+            if (kx0 != kx1) return false;
+            long ky0 = grid.Pixel(iy.Lo), ky1 = grid.Pixel(iy.Hi);
+            if (ky0 != ky1) return false;
+            const long PixelLimit = 1L << 40;
+            if (kx0 <= -PixelLimit || kx0 >= PixelLimit || ky0 <= -PixelLimit || ky0 >= PixelLimit)
+                return false;
+            kx = kx0; ky = ky0;
+            return true;
+        }
+
         void TestCrossingPair(int i, int j)
         {
             var (a, b) = routed[i]; var (c, d) = routed[j];
@@ -390,6 +534,11 @@ namespace g3
             int o3 = OrientFilter(pc, pd, pa); if (o3 == 0) o3 = Orient(X[c], Y[c], X[d], Y[d], X[a], Y[a]);
             int o4 = OrientFilter(pc, pd, pb); if (o4 == 0) o4 = Orient(X[c], Y[c], X[d], Y[d], X[b], Y[b]);
             if (o3 * o4 >= 0) return;
+            if (TryCrossingPixelFast(pa, pb, pc, pd, grid, out long ckx, out long cky)) {
+                hot.Add((ckx, cky));
+                ++Crossings;
+                return;
+            }
             // a + t (b - a), t = cross(c - a, d - c) / cross(b - a, d - c)
             BigInteger den = (X[b] - X[a]) * (Y[d] - Y[c]) - (Y[b] - Y[a]) * (X[d] - X[c]);
             BigInteger num = (X[c] - X[a]) * (Y[d] - Y[c]) - (Y[c] - Y[a]) * (X[d] - X[c]);
@@ -499,29 +648,29 @@ namespace g3
             hotNodes = new HotNode[Math.Max(1, 2 * count)];
             hotNodeCount = 0;
             var tmp = new (long, long)[count];
-            BuildHotNode(tmp, 0, count);
+            BuildPixelNode(hotPts, tmp, hotNodes, ref hotNodeCount, 0, count);
         }
 
-        int BuildHotNode((long, long)[] tmp, int lo, int hi)
+        static int BuildPixelNode((long x, long y)[] pts, (long x, long y)[] tmp, HotNode[] nodes, ref int nodeCount, int lo, int hi)
         {
-            int id = hotNodeCount++;
-            long minX = hotPts[lo].x, maxX = minX, minY = hotPts[lo].y, maxY = minY;
+            int id = nodeCount++;
+            long minX = pts[lo].x, maxX = minX, minY = pts[lo].y, maxY = minY;
             for (int i = lo + 1; i < hi; ++i) {
-                long x = hotPts[i].x, y = hotPts[i].y;
+                long x = pts[i].x, y = pts[i].y;
                 if (x < minX) minX = x; else if (x > maxX) maxX = x;
                 if (y < minY) minY = y; else if (y > maxY) maxY = y;
             }
             int len = hi - lo;
             if (len <= 16) {
-                hotNodes[id] = new HotNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = len, Left = -1, Right = -1 };
+                nodes[id] = new HotNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = len, Left = -1, Right = -1 };
                 return id;
             }
             int axis = (maxX - minX) >= (maxY - minY) ? 0 : 1;
-            MergeSortPixels(hotPts, tmp, lo, hi, axis);
+            MergeSortPixels(pts, tmp, lo, hi, axis);
             int mid = lo + (len >> 1);
-            int left = BuildHotNode(tmp, lo, mid);
-            int right = BuildHotNode(tmp, mid, hi);
-            hotNodes[id] = new HotNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = 0, Left = left, Right = right };
+            int left = BuildPixelNode(pts, tmp, nodes, ref nodeCount, lo, mid);
+            int right = BuildPixelNode(pts, tmp, nodes, ref nodeCount, mid, hi);
+            nodes[id] = new HotNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = 0, Left = left, Right = right };
             return id;
         }
 
@@ -583,14 +732,18 @@ namespace g3
             chains = new List<List<(long, long)>>(routed.Count);
             bool wFits = W <= (BigInteger)(1L << 40);
             long wL = wFits ? (long)W : 0;
+            ExactInterval wI = ExactInterval.Of(w);
+            var metLong = new List<MetLong>();
+            var metPixels = new List<(long, long)>();
+            var order = new List<int>();
+            double[] enLoBuf = new double[64];
+            double[] enHiBuf = new double[64];
             foreach (var (a, b) in routed) {
                 cancel.ThrowIfCancellationRequested();
                 long lx = Math.Min(KX[a], KX[b]) - 1, hx = Math.Max(KX[a], KX[b]) + 1, ly = Math.Min(KY[a], KY[b]) - 1, hy = Math.Max(KY[a], KY[b]) + 1;
                 var pa = input.Points[a]; var pb = input.Points[b];
                 BigInteger pxB = X[a], pyB = Y[a], qxB = X[b], qyB = Y[b];
-                BigInteger dxB = qxB - pxB, dyB = qyB - pyB;
-                BigInteger absDxB = BigInteger.Abs(dxB), absDyB = BigInteger.Abs(dyB);
-                // fast exact 64-bit long contact test when all segment & pixel coordinates and cross products stay strictly below 2^60
+                // fast exact 64-bit long contact + span test when all segment & pixel coordinates and cross products stay strictly below 2^60
                 bool useLong = false;
                 long pxL = 0, pyL = 0, qxL = 0, qyL = 0, dxL = 0, dyL = 0, lxL = 0, hxL = 0, lyL = 0, hyL = 0;
                 if (wFits) {
@@ -608,17 +761,76 @@ namespace g3
                         if (adx * (ady + pad) < 1e18 && ady * (adx + pad) < 1e18) useLong = true;
                     }
                 }
-                var met = new List<(((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit) t, (long, long) p)>();
-                foreach (var p in QueryHot(pa.x / w, pa.y / w, pb.x / w, pb.y / w, lx, hx, ly, hy)) {
-                    bool hit = useLong
-                        ? MeetsContactLong(pxL, pyL, qxL, qyL, dxL, dyL, lxL, hxL, lyL, hyL, wL, p)
-                        : Meets(pxB, pyB, qxB, qyB, p, false);
-                    if (hit) met.Add((Span(pxB, pyB, dxB, dyB, absDxB, absDyB, p), p));
+                if (useLong) {
+                    long absDxL = dxL < 0 ? -dxL : dxL, absDyL = dyL < 0 ? -dyL : dyL;
+                    metLong.Clear();
+                    foreach (var p in QueryHot(pa.x / w, pa.y / w, pb.x / w, pb.y / w, lx, hx, ly, hy)) {
+                        if (MeetsContactLong(pxL, pyL, qxL, qyL, dxL, dyL, lxL, hxL, lyL, hyL, wL, p))
+                            metLong.Add(SpanLong(pxL, pyL, dxL, dyL, absDxL, absDyL, wL, p));
+                    }
+                    if (metLong.Count > 1) metLong.Sort(CompareMetLong);
+                    var chain = new List<(long, long)>(metLong.Count);
+                    for (int mi = 0; mi < metLong.Count; ++mi) {
+                        var mp = (metLong[mi].X, metLong[mi].Y);
+                        if (chain.Count == 0 || !chain[chain.Count - 1].Equals(mp)) chain.Add(mp);
+                    }
+                    chains.Add(chain);
+                    continue;
                 }
-                met.Sort(CompareMet);
-                var chain = new List<(long, long)>();
-                foreach (var m in met) if (chain.Count == 0 || !chain[chain.Count - 1].Equals(m.p)) chain.Add(m.p);
-                chains.Add(chain);
+                metPixels.Clear();
+                foreach (var p in QueryHot(pa.x / w, pa.y / w, pb.x / w, pb.y / w, lx, hx, ly, hy)) {
+                    int mf = MeetsFilter(pa, pb, p.Item1, p.Item2, w);
+                    bool hit = mf != 0 ? mf > 0 : Meets(pxB, pyB, qxB, qyB, p, false);
+                    if (hit) metPixels.Add(p);
+                }
+                int hitCount = metPixels.Count;
+                if (hitCount <= 1) {
+                    var chain = new List<(long, long)>(hitCount);
+                    if (hitCount == 1) chain.Add(metPixels[0]);
+                    chains.Add(chain);
+                    continue;
+                }
+                if (hitCount > enLoBuf.Length) {
+                    int newLen = enLoBuf.Length;
+                    while (newLen < hitCount) newLen *= 2;
+                    enLoBuf = new double[newLen];
+                    enHiBuf = new double[newLen];
+                }
+                ExactInterval axI = ExactInterval.Of(pa.x), ayI = ExactInterval.Of(pa.y);
+                ExactInterval dxI = ExactInterval.Of(pb.x) - axI, dyI = ExactInterval.Of(pb.y) - ayI;
+                order.Clear();
+                for (int i = 0; i < hitCount; ++i) {
+                    EntryInterval(pa, pb, axI, ayI, dxI, dyI, wI, metPixels[i].Item1, metPixels[i].Item2, out enLoBuf[i], out enHiBuf[i]);
+                    order.Add(i);
+                }
+                bool[] hasExact = null;
+                ((BigInteger num, BigInteger den) entry, (BigInteger num, BigInteger den) exit)[] exactSpans = null;
+                bool hasDeltaB = false;
+                BigInteger dxB = BigInteger.Zero, dyB = BigInteger.Zero, absDxB = BigInteger.Zero, absDyB = BigInteger.Zero;
+                double[] enLoLocal = enLoBuf, enHiLocal = enHiBuf;
+                order.Sort((iu, iv) => {
+                    if (iu == iv) return 0;
+                    if (enHiLocal[iu] < enLoLocal[iv]) return -1;
+                    if (enHiLocal[iv] < enLoLocal[iu]) return 1;
+                    if (hasExact == null) {
+                        hasExact = new bool[hitCount];
+                        exactSpans = new ((BigInteger, BigInteger), (BigInteger, BigInteger))[hitCount];
+                    }
+                    if (!hasDeltaB) {
+                        dxB = qxB - pxB; dyB = qyB - pyB;
+                        absDxB = BigInteger.Abs(dxB); absDyB = BigInteger.Abs(dyB);
+                        hasDeltaB = true;
+                    }
+                    if (!hasExact[iu]) { exactSpans[iu] = Span(pxB, pyB, dxB, dyB, absDxB, absDyB, metPixels[iu]); hasExact[iu] = true; }
+                    if (!hasExact[iv]) { exactSpans[iv] = Span(pxB, pyB, dxB, dyB, absDxB, absDyB, metPixels[iv]); hasExact[iv] = true; }
+                    return CompareMet((exactSpans[iu], metPixels[iu]), (exactSpans[iv], metPixels[iv]));
+                });
+                var chainB = new List<(long, long)>(hitCount);
+                for (int i = 0; i < hitCount; ++i) {
+                    var mp = metPixels[order[i]];
+                    if (chainB.Count == 0 || !chainB[chainB.Count - 1].Equals(mp)) chainB.Add(mp);
+                }
+                chains.Add(chainB);
             }
         }
 
@@ -688,66 +900,6 @@ namespace g3
             return list;
         }
 
-        static void MergeSortEdges(EdgeBox[] arr, EdgeBox[] tmp, int lo, int hi, int axis)
-        {
-            int len = hi - lo;
-            if (len <= 16) {
-                for (int i = lo + 1; i < hi; ++i) {
-                    var key = arr[i];
-                    int j = i - 1;
-                    while (j >= lo && EdgeGreater(arr[j], key, axis)) { arr[j + 1] = arr[j]; --j; }
-                    arr[j + 1] = key;
-                }
-                return;
-            }
-            int mid = lo + (len >> 1);
-            MergeSortEdges(arr, tmp, lo, mid, axis);
-            MergeSortEdges(arr, tmp, mid, hi, axis);
-            int p = lo, q = mid, dst = lo;
-            while (p < mid && q < hi) {
-                if (EdgeGreater(arr[p], arr[q], axis)) tmp[dst++] = arr[q++];
-                else tmp[dst++] = arr[p++];
-            }
-            while (p < mid) tmp[dst++] = arr[p++];
-            while (q < hi) tmp[dst++] = arr[q++];
-            for (int i = lo; i < hi; ++i) arr[i] = tmp[i];
-        }
-
-        static bool EdgeGreater(EdgeBox a, EdgeBox b, int axis)
-        {
-            long ka = axis == 0 ? a.MinX + a.MaxX : a.MinY + a.MaxY;
-            long kb = axis == 0 ? b.MinX + b.MaxX : b.MinY + b.MaxY;
-            if (ka != kb) return ka > kb;
-            if (a.AX != b.AX) return a.AX > b.AX;
-            if (a.AY != b.AY) return a.AY > b.AY;
-            if (a.BX != b.BX) return a.BX > b.BX;
-            return a.BY > b.BY;
-        }
-
-        static int BuildEdgeNode(EdgeBox[] edges, EdgeBox[] tmp, EdgeNode[] nodes, ref int nodeCount, int lo, int hi)
-        {
-            int id = nodeCount++;
-            long minX = edges[lo].MinX, maxX = edges[lo].MaxX, minY = edges[lo].MinY, maxY = edges[lo].MaxY;
-            for (int i = lo + 1; i < hi; ++i) {
-                if (edges[i].MinX < minX) minX = edges[i].MinX;
-                if (edges[i].MaxX > maxX) maxX = edges[i].MaxX;
-                if (edges[i].MinY < minY) minY = edges[i].MinY;
-                if (edges[i].MaxY > maxY) maxY = edges[i].MaxY;
-            }
-            int len = hi - lo;
-            if (len <= 16) {
-                nodes[id] = new EdgeNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = len, Left = -1, Right = -1 };
-                return id;
-            }
-            int axis = (maxX - minX) >= (maxY - minY) ? 0 : 1;
-            MergeSortEdges(edges, tmp, lo, hi, axis);
-            int mid = lo + (len >> 1);
-            int left = BuildEdgeNode(edges, tmp, nodes, ref nodeCount, lo, mid);
-            int right = BuildEdgeNode(edges, tmp, nodes, ref nodeCount, mid, hi);
-            nodes[id] = new EdgeNode { MinX = minX, MaxX = maxX, MinY = minY, MaxY = maxY, Start = lo, Count = 0, Left = left, Right = right };
-            return id;
-        }
-
         /// <summary>
         /// SRR's Restore with ChoosePixel (their Table II), for each critical pixel and edge, among pixels not hot yet: a free pixel next to
         /// it in the envelope of the edge's input segment that routes the edge around it, nearest to the segment (R1, spread); else the
@@ -758,70 +910,85 @@ namespace g3
         /// </summary>
         void Restore(List<((long, long) cp, int chain, int edge)> critical)
         {
-            // index unique undirected chain edges in a flat 2D BVH (lookup-only HashSet, never enumerated)
-            var seenEdges = new HashSet<((long, long), (long, long))>();
-            var edgeList = new List<EdgeBox>();
-            for (int c = 0; c < chains.Count; ++c) {
-                var ch = chains[c];
-                for (int e = 0; e + 1 < ch.Count; ++e) {
-                    var key = OrderedPixel(ch[e], ch[e + 1]);
-                    if (!seenEdges.Add(key)) continue;
-                    var a = key.Item1; var b = key.Item2;
-                    edgeList.Add(new EdgeBox {
-                        AX = a.Item1, AY = a.Item2, BX = b.Item1, BY = b.Item2,
-                        MinX = a.Item1 < b.Item1 ? a.Item1 : b.Item1,
-                        MaxX = a.Item1 > b.Item1 ? a.Item1 : b.Item1,
-                        MinY = a.Item2 < b.Item2 ? a.Item2 : b.Item2,
-                        MaxY = a.Item2 > b.Item2 ? a.Item2 : b.Item2
-                    });
-                }
-            }
-            var edgeArr = edgeList.ToArray();
-            var edgeNodes = new EdgeNode[Math.Max(1, 2 * edgeArr.Length)];
-            int edgeNodeCount = 0;
-            if (edgeArr.Length > 0) BuildEdgeNode(edgeArr, new EdgeBox[edgeArr.Length], edgeNodes, ref edgeNodeCount, 0, edgeArr.Length);
-
-            var freeCache = new Dictionary<(long, long), bool>();
-            bool Free((long, long) p)
-            {
-                if (freeCache.TryGetValue(p, out bool cached)) return cached;
-                bool result = true;
-                if (edgeNodeCount > 0) {
-                    long px = p.Item1, py = p.Item2;
-                    int top = 0;
-                    queryStack[top++] = 0;
-                    while (top > 0) {
-                        var node = edgeNodes[queryStack[--top]];
-                        if (px < node.MinX || px > node.MaxX || py < node.MinY || py > node.MaxY) continue;
-                        if (node.Count > 0) {
-                            int end = node.Start + node.Count;
-                            for (int i = node.Start; i < end; ++i) {
-                                var eb = edgeArr[i];
-                                if (px < eb.MinX || px > eb.MaxX || py < eb.MinY || py > eb.MaxY) continue;
-                                if (MeetsPixelCentreInterior((eb.AX, eb.AY), (eb.BX, eb.BY), p)) { result = false; top = 0; break; }
-                            }
-                        } else {
-                            queryStack[top++] = node.Right;
-                            queryStack[top++] = node.Left;
-                        }
-                    }
-                }
-                freeCache.Add(p, result);
-                return result;
-            }
-            var added = new List<(long, long)>();
-            foreach (var (cp, c, e) in critical) {
+            // Pass 1: collect each critical entry's useful neighbours (<= 8 per critical pixel) and the unique pixels needing Free().
+            // Indexing only these candidate pixels (typically a handful to a few hundred) avoids building an O(E log^2 E) BVH over
+            // tens of thousands of chain edges on every round.
+            var usefulAll = new List<(long, long)>[critical.Count];
+            var querySet = new HashSet<(long, long)>();
+            var queryList = new List<(long, long)>();
+            for (int ci = 0; ci < critical.Count; ++ci) {
+                var (cp, c, e) = critical[ci];
                 var (sa, sb) = routed[c];
+                var psa = input.Points[sa]; var psb = input.Points[sb];
                 var a = chains[c][e]; var b = chains[c][e + 1];
                 // the critical pixel itself is never in the envelope here: a segment that crossed it would have been routed through it
                 var useful = new List<(long, long)>();
                 for (long dx = -1; dx <= 1; ++dx) for (long dy = -1; dy <= 1; ++dy) {
                     if (dx == 0 && dy == 0) continue;
                     var p = (cp.Item1 + dx, cp.Item2 + dy);
-                    if (hot.Contains(p) || !Meets(X[sa], Y[sa], X[sb], Y[sb], p, true)) continue;
+                    if (hot.Contains(p)) continue;
+                    int mf = MeetsFilter(psa, psb, p.Item1, p.Item2, w);
+                    if (mf < 0 || (mf == 0 && !Meets(X[sa], Y[sa], X[sb], Y[sb], p, true))) continue;
                     if (MeetsPixelCentreInterior(a, p, cp) || MeetsPixelCentreInterior(p, b, cp)) continue;
                     useful.Add(p);
+                    if (querySet.Add(p)) queryList.Add(p);
                 }
+                usefulAll[ci] = useful;
+            }
+
+            // Pass 2: determine which candidate pixels are crossed by any chain edge (lookup-only HashSet, never enumerated).
+            var notFree = new HashSet<(long, long)>();
+            int qCount = queryList.Count;
+            if (qCount > 0) {
+                var qPts = new (long x, long y)[qCount];
+                for (int i = 0; i < qCount; ++i) qPts[i] = queryList[i];
+                var qNodes = new HotNode[Math.Max(1, 2 * qCount)];
+                int qNodeCount = 0;
+                BuildPixelNode(qPts, new (long, long)[qCount], qNodes, ref qNodeCount, 0, qCount);
+                var blocked = new bool[qCount];
+                int remaining = qCount;
+                long rMinX = qNodes[0].MinX, rMaxX = qNodes[0].MaxX, rMinY = qNodes[0].MinY, rMaxY = qNodes[0].MaxY;
+                for (int c = 0; c < chains.Count && remaining > 0; ++c) {
+                    var ch = chains[c];
+                    for (int e = 0; e + 1 < ch.Count && remaining > 0; ++e) {
+                        var p0 = ch[e]; var p1 = ch[e + 1];
+                        long lx = p0.Item1 < p1.Item1 ? p0.Item1 : p1.Item1, hx = p0.Item1 > p1.Item1 ? p0.Item1 : p1.Item1;
+                        if (hx < rMinX || lx > rMaxX) continue;
+                        long ly = p0.Item2 < p1.Item2 ? p0.Item2 : p1.Item2, hy = p0.Item2 > p1.Item2 ? p0.Item2 : p1.Item2;
+                        if (hy < rMinY || ly > rMaxY) continue;
+                        int top = 0;
+                        queryStack[top++] = 0;
+                        while (top > 0) {
+                            var node = qNodes[queryStack[--top]];
+                            if (hx < node.MinX || lx > node.MaxX || hy < node.MinY || ly > node.MaxY) continue;
+                            if (node.Count > 0) {
+                                int end = node.Start + node.Count;
+                                for (int i = node.Start; i < end; ++i) {
+                                    if (blocked[i]) continue;
+                                    var q = qPts[i];
+                                    if (q.x < lx || q.x > hx || q.y < ly || q.y > hy) continue;
+                                    if (MeetsPixelCentreInterior(p0, p1, q)) {
+                                        blocked[i] = true;
+                                        notFree.Add((q.x, q.y));
+                                        if (--remaining == 0) { top = 0; break; }
+                                    }
+                                }
+                            } else {
+                                queryStack[top++] = node.Right;
+                                queryStack[top++] = node.Left;
+                            }
+                        }
+                    }
+                }
+            }
+
+            bool Free((long, long) p) => !notFree.Contains(p);
+            var added = new List<(long, long)>(critical.Count);
+            for (int ci = 0; ci < critical.Count; ++ci) {
+                var (cp, c, e) = critical[ci];
+                var (sa, sb) = routed[c];
+                var a = chains[c][e]; var b = chains[c][e + 1];
+                var useful = usefulAll[ci];
                 var free = useful.Where(Free).ToList();
                 (long, long) chosen;
                 if (free.Count > 0) { chosen = Nearest(free, sa, sb); ++Spread; }
@@ -855,6 +1022,7 @@ namespace g3
         /// <summary> the pixel whose centre is nearest to segment ab, exactly; ties by pixel coordinates </summary>
         (long, long) Nearest(List<(long, long)> pixels, int a, int b)
         {
+            if (pixels.Count == 1) return pixels[0];
             BigInteger dx = X[b] - X[a], dy = Y[b] - Y[a], len2 = dx * dx + dy * dy;
             (BigInteger num, BigInteger den) Dist2((long, long) p)
             {
@@ -889,35 +1057,102 @@ namespace g3
             }
             // extra hot pixels (crossings and restore) as new points, in a deterministic order
             var source = new Dictionary<(long, long), int>();
-            for (int c = 0; c < chains.Count; ++c) foreach (var p in chains[c]) if (!rep.ContainsKey(p) && !source.ContainsKey(p)) source.Add(p, c);
+            for (int c = 0; c < chains.Count; ++c) {
+                var ch = chains[c];
+                for (int i = 0; i < ch.Count; ++i) {
+                    var p = ch[i];
+                    if (!source.ContainsKey(p) && !rep.ContainsKey(p)) source.Add(p, c);
+                }
+            }
             foreach (var p in source.Keys.OrderBy(p => p.Item2).ThenBy(p => p.Item1)) { rep.Add(p, points.Count); points.Add(new Vector2d(p.Item1 * w, p.Item2 * w)); }
+
+            var chainVerts = new int[chains.Count][];
+            for (int c = 0; c < chains.Count; ++c) {
+                var ch = chains[c];
+                var cv = new int[ch.Count];
+                for (int i = 0; i < ch.Count; ++i) cv[i] = rep[ch[i]];
+                chainVerts[c] = cv;
+            }
 
             List<int> ChainOf(int a, int b)
             {
                 var key = a < b ? (a, b) : (b, a);
-                var chain = chains[routedIndex[key]].Select(p => rep[p]).ToList();
+                var chain = chainVerts[routedIndex[key]].Select(v => v).ToList();
                 if (key.Item1 != a) chain.Reverse();
                 return chain;
             }
-            for (int c = 0; c < chains.Count; ++c) {
+            // When all routed segments have distinct endpoint-coordinate pairs, monotonically increasing chain index c
+            // guarantees o cannot already be in list except at list[list.Count - 1] (O(1) dedup instead of O(k)).
+            // Lookup-only HashSets / Dictionaries below are never enumerated.
+            bool uniqueOriginCoords = true;
+            var seenOrigins = new HashSet<(Vector2d, Vector2d)>();
+            for (int c = 0; c < routed.Count; ++c) {
                 var (oa, ob) = routed[c];
-                for (int e = 0; e + 1 < chains[c].Count; ++e) {
-                    var key = Ordered(points[rep[chains[c][e]]], points[rep[chains[c][e + 1]]]);
-                    if (!Origin.TryGetValue(key, out var list)) Origin.Add(key, list = new List<(Vector2d, Vector2d)>());
-                    var o = (input.Points[oa], input.Points[ob]);
-                    if (!list.Contains(o)) list.Add(o);
+                if (!seenOrigins.Add((input.Points[oa], input.Points[ob]))) { uniqueOriginCoords = false; break; }
+            }
+            var edgeToList = new Dictionary<long, List<(Vector2d, Vector2d)>>(EdgeKeyComparer.Instance);
+            Dictionary<List<(Vector2d, Vector2d)>, HashSet<(Vector2d, Vector2d)>> originSets = null;
+            for (int c = 0; c < chains.Count; ++c) {
+                var cv = chainVerts[c];
+                if (cv.Length < 2) continue;
+                var (oa, ob) = routed[c];
+                var o = (input.Points[oa], input.Points[ob]);
+                int prevId = cv[0];
+                for (int e = 1; e < cv.Length; ++e) {
+                    int nextId = cv[e];
+                    long idKey = prevId < nextId ? (((long)prevId << 32) | (uint)nextId) : (((long)nextId << 32) | (uint)prevId);
+                    if (!edgeToList.TryGetValue(idKey, out var list)) {
+                        var key = Ordered(points[prevId], points[nextId]);
+                        if (!Origin.TryGetValue(key, out list)) {
+                            list = new List<(Vector2d, Vector2d)>();
+                            Origin.Add(key, list);
+                        }
+                        edgeToList.Add(idKey, list);
+                    }
+                    prevId = nextId;
+                    if (list.Count == 0) {
+                        list.Add(o);
+                    } else if (uniqueOriginCoords) {
+                        if (!list[list.Count - 1].Equals(o)) list.Add(o);
+                    } else if (!list[list.Count - 1].Equals(o)) {
+                        if (list.Count < 8) {
+                            if (!list.Contains(o)) list.Add(o);
+                        } else {
+                            if (originSets == null) originSets = new Dictionary<List<(Vector2d, Vector2d)>, HashSet<(Vector2d, Vector2d)>>();
+                            if (!originSets.TryGetValue(list, out var set)) {
+                                set = new HashSet<(Vector2d, Vector2d)>();
+                                for (int k = 0; k < list.Count; ++k) set.Add(list[k]);
+                                originSets.Add(list, set);
+                            }
+                            if (set.Add(o)) list.Add(o);
+                        }
+                    }
                 }
             }
-            Grid = new SnapGrid(w);
+            Grid = grid;
             var result = new ConstrainedMesh2Input { Points = points, HoleSeeds = new List<Vector2d>(), Regions = new List<Mesh2Region>() };
             SegmentChainStart = new int[input.Segments.Count + 1];
+            int estSegs = 0;
+            for (int si = 0; si < input.Segments.Count; ++si) {
+                var s = input.Segments[si];
+                if (s.A == s.B) { ++estSegs; continue; }
+                var key = s.A < s.B ? (s.A, s.B) : (s.B, s.A);
+                int len = chainVerts[routedIndex[key]].Length;
+                if (len >= 2) estSegs += len - 1;
+            }
+            if (result.Segments.Capacity < estSegs) result.Segments.Capacity = estSegs;
             for (int si = 0; si < input.Segments.Count; ++si) {
                 var s = input.Segments[si];
                 SegmentChainStart[si] = result.Segments.Count;
                 if (s.A == s.B) { result.Segments.Add(new Mesh2Segment(rep[(KX[s.A], KY[s.A])], rep[(KX[s.A], KY[s.A])], s.Marker, s.Locked)); continue; }
-                var chain = ChainOf(s.A, s.B);
-                if (chain.Count < 2) { ++CollapsedSegments; continue; }
-                for (int i = 0; i + 1 < chain.Count; ++i) result.Segments.Add(new Mesh2Segment(chain[i], chain[i + 1], s.Marker, s.Locked));
+                var key = s.A < s.B ? (s.A, s.B) : (s.B, s.A);
+                var cv = chainVerts[routedIndex[key]];
+                if (cv.Length < 2) { ++CollapsedSegments; continue; }
+                if (s.A < s.B) {
+                    for (int i = 0; i + 1 < cv.Length; ++i) result.Segments.Add(new Mesh2Segment(cv[i], cv[i + 1], s.Marker, s.Locked));
+                } else {
+                    for (int i = cv.Length - 1; i > 0; --i) result.Segments.Add(new Mesh2Segment(cv[i], cv[i - 1], s.Marker, s.Locked));
+                }
             }
             SegmentChainStart[input.Segments.Count] = result.Segments.Count;
             List<int> Expand(IReadOnlyList<int> ring)
