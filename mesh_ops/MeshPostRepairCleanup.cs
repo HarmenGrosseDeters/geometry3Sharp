@@ -500,6 +500,9 @@ namespace gs
             for (int i = 0; i < closed.Count; ++i) {
                 int depth = 0;
                 List<Vector3d> samples = null;
+                // (a component of zero volume, exactly, has no inside: no depth by votes at samples that would lie on its
+                // surface; as a container its winding number cancels, it holds nothing)
+                if (signs[i] != 0)
                 foreach (int j in containers[i]) {
                     if (trees[j] == null) trees[j] = new DMeshAABBTree3(new DSubmesh3(mesh, closed[j]).SubMesh, true);
                     if (samples == null)

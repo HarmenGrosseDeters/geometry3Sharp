@@ -42,7 +42,10 @@ namespace gs
         /// MeshPostRepairCleanup.FindInvertedComponents reads them), so this is a check, not a certificate; the volume signs are exact
         /// </summary>
         public bool NestingPreserved;
-        /// <summary> both Hausdorff upper bounds within the band (false if no band was given) </summary>
+        /// <summary>
+        /// both Hausdorff upper bounds within the band (false if no band was given). Conservative: the upper bounds are computed to
+        /// 1e-4 of the band, so a result within the band by less than that can read false; never true for a result outside it
+        /// </summary>
         public bool WithinBand;
         /// <summary> MeshRobustRepair.FindDefects of the result (NotClosed masked if the input is open) </summary>
         public MeshRobustRepair.Defects Defects;
@@ -68,7 +71,8 @@ namespace gs
             c.NotCleanReason = MeshRobustRepair.DescribeDefects(c.Defects);
 
             if (input.TriangleCount > 0 && result.TriangleCount > 0) {
-                double tol = 1e-4 * (maxDeviation > 0 ? maxDeviation : input.CachedBounds.DiagonalLength);
+                // (an infinite band: the tolerance of no band; WithinBand then holds for any finite distance)
+                double tol = 1e-4 * (maxDeviation > 0 && MathUtil.IsFinite(maxDeviation) ? maxDeviation : input.CachedBounds.DiagonalLength);
                 var fwd = new MeshHausdorffDistance(result, input) { Symmetric = false, CertifiedUpper = true, Tolerance = tol };
                 var bwd = new MeshHausdorffDistance(input, result) { Symmetric = false, CertifiedUpper = true, Tolerance = tol };
                 bool okF = fwd.Compute(), okB = bwd.Compute();

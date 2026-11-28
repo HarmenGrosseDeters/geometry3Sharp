@@ -301,7 +301,8 @@ namespace g3 {
             return !within_band(bandTris);
         }
 
-        // MaxDeviation: after a split, vNew (created at vMid) may have been projected; back to vMid if its triangles leave the band
+        // MaxDeviation: after a split, vNew (created at vMid) may have been projected; back to vMid if its triangles leave the band.
+        // A vertex with a constraint Target then stays at vMid, off its Target (as check_split_vertex leaves it for a crossing)
         internal void check_split_vertex_band(int vNew, Vector3d vMid)
         {
             if (mesh.GetVertex(vNew) == vMid)

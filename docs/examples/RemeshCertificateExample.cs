@@ -4,8 +4,8 @@ using gs;
 namespace g3.Examples
 {
     /// <summary>
-    /// A remesh kept within a band of its input (Remesher.MaxDeviation: every triangle the remesher makes or moves is certified
-    /// within the band, so the whole result is), then checked both ways by RemeshCertificate: closed, manifold, no
+    /// A remesh kept within a band of its input (Remesher.MaxDeviation: every triangle the remesher makes or moves is checked
+    /// against the band, in floating point; a split's halves are not checked, they lie in the old triangles), then checked both ways by RemeshCertificate: closed, manifold, no
     /// self-intersection (exact), certified two-sided Hausdorff distance, the same components, genus and nesting.
     /// </summary>
     public static class RemeshCertificateExample

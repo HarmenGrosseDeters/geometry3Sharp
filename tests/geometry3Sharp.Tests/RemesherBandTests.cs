@@ -230,6 +230,94 @@ namespace geometry3Sharp.Tests
             Assert.True(OneSided(m, input, 0.01 * delta) <= delta * (1 + 1e-9));
         }
 
+        // applies hand-made buffered moves through ApplyVertexBuffer (the path of the smoothing and projection passes)
+        sealed class MoveProbe : Remesher
+        {
+            public MoveProbe(DMesh3 m) : base(m) { }
+            public void Apply(Dictionary<int, Vector3d> moves)
+            {
+                InitializeVertexBufferForPass();
+                foreach (var kv in moves) { vModifiedV[kv.Key] = true; vBufferV[kv.Key] = kv.Value; }
+                ApplyVertexBuffer(false);
+            }
+        }
+
+        // a hub vertex 0 at the origin and a ring of n vertices at radius 1 in the plane z = 0 (the fan (0, i, i+1), facing +z)
+        static DMesh3 Fan(int n)
+        {
+            var m = new DMesh3();
+            m.AppendVertex(Vector3d.Zero);
+            for (int i = 0; i < n; ++i)
+                m.AppendVertex(new Vector3d(Math.Cos(2 * Math.PI * i / n), Math.Sin(2 * Math.PI * i / n), 0));
+            for (int i = 0; i < n; ++i)
+                m.AppendTriangle(0, 1 + i, 1 + (i + 1) % n);
+            return m;
+        }
+
+        /// <summary>
+        /// the band and the normal-flip check alternate: the hub's move leaves the band and is reverted, and with the hub back
+        /// the kept move of ring vertex 1 (past the hub's old position) flips its triangles; the flip check must then revert it
+        /// too. Moved together nothing flips, so the first flip check keeps both
+        /// </summary>
+        [Fact]
+        public void BufferedMoves_BandRevertThatFlips_IsRevertedToo()
+        {
+            DMesh3 m = Fan(6);
+            Vector3d v1 = m.GetVertex(1), hubTo = new Vector3d(-0.8, 0, 0.3), v1To = new Vector3d(-0.2, 0, 0);
+            // the reference: the flat fan and ring vertex 1's two triangles as moved (so those stay in the band, and the band
+            // reverts the hub through its other triangles only; a band revert takes every moved vertex of a triangle)
+            DMesh3 reference = new DMesh3(m);
+            int H = reference.AppendVertex(hubTo), V = reference.AppendVertex(v1To);
+            int R2 = reference.AppendVertex(m.GetVertex(2)), R6 = reference.AppendVertex(m.GetVertex(6));
+            reference.AppendTriangle(H, V, R2); reference.AppendTriangle(H, R6, V);
+            var r = new MoveProbe(m) { MaxDeviation = 0.05, PreventNormalFlips = true };
+            r.SetDeviationReference(reference);
+            r.Apply(new Dictionary<int, Vector3d> { { 0, hubTo }, { 1, v1To } });
+            Assert.Equal(Vector3d.Zero, m.GetVertex(0));
+            Assert.Equal(v1, m.GetVertex(1));
+            foreach (int t in m.TriangleIndices())
+                Assert.True(m.GetTriNormal(t).z > 0, $"triangle {t} flipped");
+            Assert.True(r.DeviationRejected > 0);
+        }
+
+        /// <summary>
+        /// the band in the later rounds of the self-intersection check: the hub's move to a tent apex pierces an obstacle on the
+        /// far side and is reverted; ring vertex 1's kept move then leaves a mixed triangle (hub back at the origin) out of the band
+        /// of the reference (the moved fan), so it is reverted too. Moved together everything is on the reference
+        /// </summary>
+        [Fact]
+        public void BufferedMoves_SelfIntersectionRevertThatLeavesTheBand_IsRevertedToo()
+        {
+            DMesh3 m = Fan(8);
+            // the obstacle: a small horizontal triangle at z = 0.5 under the tent's far side (x = -0.5)
+            int o0 = m.AppendVertex(new Vector3d(-0.6, -0.1, 0.5)), o1 = m.AppendVertex(new Vector3d(-0.4, -0.1, 0.5)), o2 = m.AppendVertex(new Vector3d(-0.5, 0.1, 0.5));
+            m.AppendTriangle(o0, o1, o2);
+            Vector3d v1 = m.GetVertex(1);
+            var moves = new Dictionary<int, Vector3d> { { 0, new Vector3d(0, 0, 1) }, { 1, new Vector3d(1, 0, 0.5) } };
+            DMesh3 reference = new DMesh3(m);
+            foreach (var kv in moves) reference.SetVertex(kv.Key, kv.Value);
+            var r = new MoveProbe(m) { MaxDeviation = 0.05, PreventSelfIntersections = true };
+            r.SetDeviationReference(reference);
+            r.Apply(moves);
+            Assert.True(r.SelfIntersectionsRejected > 0, "precondition: the hub's move is reverted for the crossing");
+            Assert.Equal(Vector3d.Zero, m.GetVertex(0));
+            Assert.Equal(v1, m.GetVertex(1));
+        }
+
+        /// <summary> with the band and PreventSelfIntersections (its parallel first round), parallel equals serial, and repeated runs </summary>
+        [Fact]
+        public void Determinism_WithSelfIntersectionGuard_ParallelEqualsSerial()
+        {
+            DMesh3 input = Cylinder();
+            double delta = 2e-3 * input.CachedBounds.DiagonalLength;
+            Action<Remesher> safe = r => r.ApplySafePreset();
+            DMesh3 par = Remesh(input, 0.1, delta, 4, true, true, safe);
+            DMesh3 ser = Remesh(input, 0.1, delta, 4, false, true, safe);
+            Assert.Equal("", Invariance.Difference(par, ser));
+            Assert.Equal("", Invariance.Difference(par, Remesh(input, 0.1, delta, 4, true, true, safe)));
+            Assert.True(OneSided(par, input, 0.01 * delta) <= delta * (1 + 1e-9));
+        }
+
         /// <summary> off by default: the remesher's results are the same as before, bit for bit, and nothing is counted </summary>
         [Fact]
         public void Off_ByDefault_NoChange()
@@ -492,6 +580,39 @@ namespace geometry3Sharp.Tests
             cyl.RemoveTriangle(cyl.TriangleIndices().First());
             var ch = RemeshCertificate.Compute(Cylinder(), cyl, 1);
             Assert.True(ch.Defects.HasFlag(MeshRobustRepair.Defects.NotClosed)); Assert.False(ch.Passed);
+        }
+
+        /// <summary> an infinite band: the Hausdorff tolerance of no band (it converges), and within it for any finite distance </summary>
+        [Fact]
+        public void Certificate_InfiniteBand()
+        {
+            DMesh3 a = Box(Vector3d.Zero, 1), moved = new DMesh3(a);
+            MeshTransforms.Translate(moved, new Vector3d(0.1, 0, 0));
+            var c = RemeshCertificate.Compute(a, moved, double.PositiveInfinity);
+            Assert.True(c.HausdorffConverged && c.WithinBand && c.Passed);
+            Assert.True(c.HausdorffResultToInput >= 0.1 && c.HausdorffResultToInput < 0.11, $"{c.HausdorffResultToInput}");
+        }
+
+        /// <summary>
+        /// a closed component of zero volume (two triangles back to back) has no inside: depth 0 and sign 0, inside a box or
+        /// beside it (the votes at samples on its surface would read it inside the box)
+        /// </summary>
+        [Fact]
+        public void NestingDepths_ZeroVolumeComponent_HasNoDepth()
+        {
+            DMesh3 pillow(Vector3d c)
+            {
+                var m = new DMesh3();
+                int a = m.AppendVertex(c + new Vector3d(-0.2, -0.2, 0)), b = m.AppendVertex(c + new Vector3d(0.2, -0.2, 0)), d = m.AppendVertex(c + new Vector3d(0, 0.2, 0));
+                m.AppendTriangle(a, b, d); m.AppendTriangle(a, d, b);
+                return m;
+            }
+            var inside = MeshPostRepairCleanup.NestingDepths(Union(Box(Vector3d.Zero, 1), pillow(Vector3d.Zero)));
+            var beside = MeshPostRepairCleanup.NestingDepths(Union(Box(Vector3d.Zero, 1), pillow(new Vector3d(3, 0, 0))));
+            Assert.Equal(2, inside.Count);
+            Assert.Contains((0, 0, 2), inside);
+            Assert.Contains((0, 1, 12), inside);
+            Assert.Equal(inside.OrderBy(x => x).ToList(), beside.OrderBy(x => x).ToList());
         }
 
         /// <summary> the certificate is the same at the 2^k scales (the band scaled), bit for bit </summary>
