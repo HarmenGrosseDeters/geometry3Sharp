@@ -746,14 +746,17 @@ inserted points and the predicates evaluated are determined by the input and the
 so it evaluates a finite set of polynomials in ε. Each is not identically zero:
 
 - `Side2` and `Side3` are called only where their point exists, d ≠ 0 or det ≠ 0 (the clipping constructs a kind-2 or
-  kind-3 point only between ends of strictly opposite signs; BISECTOR_PREDICATES.md section 3), and there Lemma S1 applies;
+  kind-3 point only between ends of strictly opposite signs; BISECTOR_PREDICATES.md section 3), and there Lemma S1 applies.
+  This precondition is an obligation of PR B: the clipping calls them only after the opposite end signs, and its tests
+  check that `Side2` and `Side3` never return 0 there;
 - `Side1` always ends at ±1;
 - `InSphere` is called only on cells of positive volume (the box's initial cells and the cells `Insert` creates, positive
   by (c)), where the cascade ends at the Orient3d of the cell.
 
 A polynomial that is not identically zero has its leading sign on an interval (0, ε_k). ε0 is the minimum of these ε_k and
 of those of (b) on the final P. By induction along the run, the run at any ε < ε0 makes the same decisions, which is (a)
-(Lemma S2).
+(Lemma S2). (a) and (c) are one induction along the run: the step of (c) for an insertion uses that the decisions made so
+far are those of P_ε, and the cells it creates have positive volume, which the calls of (a) after it need.
 
 (b) Each clause is the non-vanishing of polynomials of the same kinds, over the finitely many site and mesh-element tuples
 of the final P and S:
@@ -798,8 +801,9 @@ cells of T_k are the lower facets of the convex hull of the lifted sites, and a 
 
 The boundary facets of the conflict region then see p strictly: if p lay in the plane of a boundary facet, the power
 functions of the orthospheres of its two cells would differ by an affine function that vanishes on that plane, so both
-cells or neither would be in conflict (BISECTOR_PREDICATES.md section 3). So the star-shape growth adds nothing, and the
-cones from p over the boundary facets have positive volume. This is the beneath-beyond update of the lower hull, so
+cells or neither would be in conflict (BISECTOR_PREDICATES.md section 3). A boundary facet on the box (a facet without a
+neighbour) is seen strictly too, because every inserted point lies strictly inside the box (`Insert` refuses the others as
+`Outside`). So the star-shape growth adds nothing, and the cones from p over the boundary facets have positive volume. This is the beneath-beyond update of the lower hull, so
 T_{k+1} is the regular triangulation of the new prefix.
 
 The regular triangulation of sites in general position for the power test (b) is unique and dual to the power diagram. So

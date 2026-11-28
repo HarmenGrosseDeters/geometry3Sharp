@@ -48,7 +48,8 @@ dotnet_diagnostic.G3E0004.severity = error
 
 # The determinism proof, stages 0 and 1 (docs/design/DETERMINISM_PROOF.md section 6.1): the exact kernel and the exact building blocks
 # (ExactTriangulation2, ExactPlanarSimplify, SnapRounding2, and TriangleBoxTree: ExactMeshArrangement.cs is named here, and the 'type' line of
-# DeterministicApis.txt restricts it to that class), and the TPMS lattice field (mesh_generators/TpmsLatticeField.cs, section 5.6, #1682) are a closed world. Every
+# DeterministicApis.txt restricts it to that class), the TPMS lattice field (mesh_generators/TpmsLatticeField.cs, section 5.6, #1682) and the bisector predicates of certified
+# remeshing with their symbolic perturbation (math/Generated/BisectorPredicates.cs, math/ExactBisectorSoS.cs, #1741) are a closed world. Every
 # member of another assembly that it uses is on the allow list DeterministicApis.txt with the reason why its result is
 # specified on every runtime, and the environment-dependent constructs (#if, double -> integer casts, [SkipLocalsInit],
 # restricted members) are registered there (G3D0001-9, tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs)

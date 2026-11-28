@@ -90,9 +90,12 @@ namespace geometry3Sharp.Tests
         static readonly Member[] Members = {
             Orient, InCircle, ComparePoints, CompareAlong, TrianglePlanes, LPI, TPI, LPIExact, TPIExact,
             DoubleOrient2d, DoubleOrient3d, DoubleInCircle,
-            LimbPreparedPlaneSide, LimbPlaneSide, LimbPlaneSide1, LimbDot, LimbDet4, LimbOrient2, LimbInCircle,
-            // the generated bisector predicates (math/Generated/BisectorPredicates.cs): the FixedPoint3 entries on integer
-            // inputs and the exact stages from doubles, one delegate each (a delegate call is not inlined)
+            LimbPreparedPlaneSide, LimbPlaneSide, LimbPlaneSide1, LimbDot, LimbDet4, LimbOrient2, LimbInCircle };
+
+        // the generated bisector predicates (math/Generated/BisectorPredicates.cs): the FixedPoint3 entries on integer inputs and
+        // the exact stages from doubles, one delegate each (a delegate call is not inlined); their own test, so that the
+        // kernel test above stays well inside the time rule
+        static readonly Member[] BisectorMembers = {
             (x, t) => { var f = x.F; if (Integer(f, 3)) t.Add(BisectorPredicates.BisectorSide1(ref f[0], ref f[1], ref f[2])); },
             (x, t) => { var f = x.F; if (Integer(f, 5)) t.Add(BisectorPredicates.BisectorSide2(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4])); },
             (x, t) => { var f = x.F; if (Integer(f, 7)) t.Add(BisectorPredicates.BisectorSide3(ref f[0], ref f[1], ref f[2], ref f[3], ref f[4], ref f[5], ref f[6])); },
@@ -298,6 +301,30 @@ namespace geometry3Sharp.Tests
                     Assert.True(clean[i] == trace[i], "pattern 0x" + pattern.ToString("x2") + ", value " + i);
             }
             Assert.True(clean.Count > 3000, clean.Count.ToString());
+        }
+
+        /// <summary>
+        /// the [SkipLocalsInit] members of BisectorPredicates on a dirty stack, as SkipLocalsInitMembers_SameResults_OnADirtyStack
+        /// (every pattern gives the results of the zeroed stack), on every second input and four patterns
+        /// </summary>
+        [Fact]
+        public void BisectorPredicates_SameResults_OnADirtyStack()
+        {
+            List<Input> inputs = Inputs();
+            List<long> clean = null;
+            foreach (byte pattern in new byte[] { 0x00, 0xFF, 0xA5, 0x5A }) {
+                var trace = new List<long>();
+                for (int k = 0; k < inputs.Count; k += 2)
+                    foreach (Member m in BisectorMembers) {
+                        Dirty(pattern);
+                        m(inputs[k], trace);
+                    }
+                if (clean == null) { clean = trace; continue; }
+                Assert.Equal(clean.Count, trace.Count);
+                for (int i = 0; i < clean.Count; ++i)
+                    Assert.True(clean[i] == trace[i], "pattern 0x" + pattern.ToString("x2") + ", value " + i);
+            }
+            Assert.True(clean.Count > 1500, clean.Count.ToString());
         }
 
         // the results themselves: the indirect predicates against their BigInteger forms (the FixedArith kernels have
