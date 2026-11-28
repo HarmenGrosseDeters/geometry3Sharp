@@ -1368,6 +1368,20 @@ That is far above the noise, so 1b goes ahead. The other lever is the number of 
 
 The column "LPI µs / segment" of the command still replays the unsplit calls, so after 1b it exceeds the query time.
 
+**Fast exact filters (November 2026):** `ContainsSegment` now runs point-query C1 with single-polyhedron early exit,
+drops disjoint candidates (`sa >= 0 && sb >= 0`), restricts C2 to exit crossings (`sa < 0 < sb`) in the polyhedron's
+closure (`in_closure_lpi`), tests only crossing facets via bitmasks, filters covering polyhedra by `boxes_meet`, and
+reuses a cover set. Paired before (`origin/master` `2959dfaa`, dll `0518d61f5cdc4d15`) vs after (`00aa0e1e0bd4390b`),
+`DOTNET_TieredPGO=0 dotnet run -c Release -f net10.0 --project benchmarks/BooleanComparison -- envelope 5` (best of 5,
+µs per segment, identical `contained` counts):
+
+| mesh | eps | contained | before (µs/seg) | after (µs/seg) | speedup |
+|---|---|---|---|---|---|
+| sphere 10 | 0.5 edge | 855 | 85.3 | 16.8 | 5.08× |
+| sphere 20 | 0.5 edge | 1443 | 136.8 | 22.9 | 5.97× |
+| sphere 20 | 0.2 edge | 561 | 29.0 | 8.4 | 3.45× |
+| sphere 40 | 0.5 edge | 1604 | 151.7 | 26.9 | 5.64× |
+
 ## Tail case knot (the 55928 stand-in)
 
 `BooleanComparison knot` writes an open tube (`--segments` rings of `--ring` vertices) wound `--turns` times inside a unit

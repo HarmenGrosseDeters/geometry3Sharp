@@ -1321,5 +1321,132 @@ namespace geometry3Sharp.Tests
             }
             Assert.True(tested >= 2, $"{tested} boundary points");
         }
+
+        /// <summary>
+        /// Segment boundary cases targeting single-pass facet classification and closure-restricted LPI:
+        /// a coplanar third cube (sa == 0, sb == 0), a boundary-touching outside cube (sa == 0, sb &gt; 0),
+        /// a boundary-touching covering cube (sa == 0, sb &lt; 0), and an uncovered crossing on a two-facet ridge
+        /// of a cube (Orient3dLPI == 0 on the sibling facet in in_closure_lpi).
+        /// </summary>
+        [Fact]
+        public void ContainsSegment_BoundaryTouchingAndCoplanar_MatchesOracle()
+        {
+            double eps = 0.1, delta = eps / Math.Sqrt(3);
+            Vector3d cA = new Vector3d(0, 0, 0);
+            double xA = CubeFace(cA, eps, 0, 1);
+            // 1-ulp gap between cA (+x face at xA) and cB (-x face at Up(xA))
+            Vector3d cB = PlaceCube(new Vector3d(xA + delta, 0, 0), eps, 0, -1, xA, 1);
+            // cC covers the gap in x and y, with its -z face at zC strictly inside cA and cB's z-range
+            Vector3d cC = new Vector3d(xA, 0, 0.5 * delta);
+            double zC = CubeFace(cC, eps, 2, -1);
+            var env = new PolyhedralEnvelope(Soup(new[] { cA, cB, cC }.Select(c => new[] { c, c, c })), eps);
+            Assert.Equal(EnvelopeStatus.Ready, env.Status);
+
+            double ax = xA - 0.3 * delta, bx = xA + 0.3 * delta;
+            // (1) segment lies in cC's -z facet plane (sa == 0, sb == 0): cC must be dropped as disjoint
+            Vector3d a0 = new Vector3d(ax, 0, zC), b0 = new Vector3d(bx, 0, zC);
+            Assert.False(env.ContainsSegment(a0, b0));
+            Assert.False(env.ContainsSegment(b0, a0));
+            Assert.False(OracleSegment(env, a0, b0));
+
+            // (2) one endpoint on cC's -z facet plane and the other strictly outside (sa == 0, sb > 0 and reversed)
+            Vector3d bOut = new Vector3d(bx, 0, zC - 0.1 * delta);
+            Assert.False(env.ContainsSegment(a0, bOut));
+            Assert.False(env.ContainsSegment(bOut, a0));
+            Assert.False(OracleSegment(env, a0, bOut));
+
+            // (3) one endpoint on cC's -z facet plane and the other strictly inside cC (sa == 0, sb < 0):
+            // cC strictly covers the open segment (a, b) with crossMask == 0
+            Vector3d bIn = new Vector3d(bx, 0, zC + 0.1 * delta);
+            Assert.True(env.ContainsSegment(a0, bIn));
+            Assert.True(env.ContainsSegment(bIn, a0));
+            Assert.True(OracleSegment(env, a0, bIn));
+
+            // (4) uncovered crossing directly on a two-facet ridge (x = xA, y = yA) of cA:
+            // Orient3dLPI is 0 on the sibling facet, so in_closure_lpi must keep (not reject) zero values
+            double yA = CubeFace(cA, eps, 1, 1);
+            Vector3d cR = PlaceCube(new Vector3d(xA + delta, yA, 0), eps, 0, -1, xA, 1);
+            var envRidge = new PolyhedralEnvelope(Soup(new[] { cA, cR }.Select(c => new[] { c, c, c })), eps);
+            Assert.Equal(EnvelopeStatus.Ready, envRidge.Status);
+            Vector3d ra = new Vector3d(xA - 0.3 * delta, yA - 0.3 * delta, 0);
+            Vector3d rb = new Vector3d(xA + 0.3 * delta, yA + 0.3 * delta, 0);
+            Assert.True(envRidge.Contains(ra) && envRidge.Contains(rb));
+            Assert.False(envRidge.ContainsSegment(ra, rb));
+            Assert.False(envRidge.ContainsSegment(rb, ra));
+            Assert.False(OracleSegment(envRidge, ra, rb));
+
+            // (5) point segments and non-finite inputs
+            Assert.True(env.ContainsSegment(cA, cA));
+            Assert.False(env.ContainsSegment(new Vector3d(xA, 0, zC), new Vector3d(xA, 0, zC)));
+            Assert.False(env.ContainsSegment(new Vector3d(double.NaN, 0, 0), cA));
+            Assert.False(env.ContainsSegment(cA, new Vector3d(double.PositiveInfinity, 0, 0)));
+        }
+
+        /// <summary>
+        /// Triangle cases targeting exact normal-sign box-extrema pruning across all 8 normal-sign octants,
+        /// exact coplanar/touching plane boundaries, and delayed exact_normal on degenerate triangles.
+        /// </summary>
+        [Fact]
+        public void ContainsTriangle_AllNormalOctantsTouchingAndDegenerate_MatchesOracle()
+        {
+            // (1) tilted 4x4 grid with hole [1, 2]^2 reflected into all 8 normal-sign octants (+/-, +/-, +/-)
+            foreach (double sx in new[] { -1.0, 1.0 })
+                foreach (double sy in new[] { -1.0, 1.0 })
+                    foreach (double sz in new[] { -1.0, 1.0 }) {
+                        Func<double, double, Vector3d> pt = (u, v) => new Vector3d(sx * u, sy * v, sz * (0.3 * u + 0.5 * v));
+                        var tris = new List<Vector3d[]>();
+                        for (int i = 0; i < 4; ++i)
+                            for (int j = 0; j < 4; ++j) {
+                                if (i == 1 && j == 1) continue;
+                                tris.Add(new[] { pt(i, j), pt(i + 1, j), pt(i + 1, j + 1) });
+                                tris.Add(new[] { pt(i, j), pt(i + 1, j + 1), pt(i, j + 1) });
+                            }
+                        var env = new PolyhedralEnvelope(Soup(tris), 0.1);
+                        Assert.Equal(EnvelopeStatus.Ready, env.Status);
+                        // triangle whose vertices and edges lie in the ring around the hole [1, 2]^2
+                        Vector3d ha = pt(0.5, 0.5), hb = pt(3.5, 0.5), hc = pt(0.5, 3.5);
+                        Assert.True(env.ContainsSegment(ha, hb) && env.ContainsSegment(hb, hc) && env.ContainsSegment(hc, ha));
+                        Assert.False(env.ContainsTriangle(ha, hb, hc), $"octant ({sx},{sy},{sz}) hole");
+                        Assert.False(env.ContainsTriangle(ha, hc, hb), $"octant ({sx},{sy},{sz}) hole flipped");
+                        Assert.False(OracleTriangle(env, ha, hb, hc));
+                        // covered multi-triangle region beside the hole
+                        Vector3d ca = pt(2.2, 0.2), cb = pt(3.8, 0.2), cc = pt(2.2, 3.8);
+                        Assert.True(env.ContainsTriangle(ca, cb, cc), $"octant ({sx},{sy},{sz}) covered");
+                        Assert.True(env.ContainsTriangle(ca, cc, cb), $"octant ({sx},{sy},{sz}) covered flipped");
+                        Assert.True(OracleTriangle(env, ca, cb, cc));
+                    }
+
+            // (2) flat z = 0 grid with hole [1, 2]^2 plus a coplanar cube whose -z facet lies exactly on z = 0
+            // (sa == sb == sc == 0 on -z, < 0 on all other facets)
+            {
+                double eps = 0.1, delta = eps / Math.Sqrt(3);
+                var tris = new List<Vector3d[]>();
+                for (int i = 0; i < 4; ++i)
+                    for (int j = 0; j < 4; ++j) {
+                        if (i == 1 && j == 1) continue;
+                        var p = new Vector3d(i, j, 0);
+                        tris.Add(new[] { p, p + Vector3d.AxisX, p + Vector3d.AxisX + Vector3d.AxisY });
+                        tris.Add(new[] { p, p + Vector3d.AxisX + Vector3d.AxisY, p + Vector3d.AxisY });
+                    }
+                Vector3d cCopl = PlaceCube(new Vector3d(1.5, 1.5, delta), eps, 2, -1, 0.0, 0);
+                tris.Add(new[] { cCopl, cCopl, cCopl });
+                var env = new PolyhedralEnvelope(Soup(tris), eps);
+                Assert.Equal(EnvelopeStatus.Ready, env.Status);
+                Vector3d a = new Vector3d(0.5, 0.5, 0), b = new Vector3d(3.5, 0.5, 0), c = new Vector3d(0.5, 3.5, 0);
+                Assert.True(env.ContainsSegment(a, b) && env.ContainsSegment(b, c) && env.ContainsSegment(c, a));
+                Assert.False(env.ContainsTriangle(a, b, c));
+                Assert.False(OracleTriangle(env, a, b, c));
+                // (3) degenerate triangles (delayed exact_normal): collinear covered, collinear C1-pass/C2-fail, point, non-finite
+                Assert.True(env.ContainsTriangle(a, b, 0.5 * (a + b)));
+                Assert.True(OracleTriangle(env, a, b, 0.5 * (a + b)));
+                Vector3d d0 = new Vector3d(0.5, 1.5, 0), d1 = new Vector3d(3.5, 1.5, 0);
+                Assert.True(env.Contains(d0) && env.Contains(d1));
+                Assert.False(env.ContainsTriangle(d0, d1, d0));
+                Assert.False(OracleTriangle(env, d0, d1, d0));
+                Assert.True(env.ContainsTriangle(a, a, a));
+                Assert.False(env.ContainsTriangle(new Vector3d(1.5, 1.5, 0), new Vector3d(1.5, 1.5, 0), new Vector3d(1.5, 1.5, 0)));
+                Assert.False(env.ContainsTriangle(new Vector3d(double.NaN, 0, 0), b, c));
+            }
+        }
     }
 }
