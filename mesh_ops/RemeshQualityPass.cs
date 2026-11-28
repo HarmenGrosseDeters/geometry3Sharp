@@ -61,7 +61,7 @@ namespace gs
     /// A worst-first triangle quality post-pass for a remeshed surface, after Hu, Zint, Pang, Lin, Chen and Wang,
     /// "Error-bounded and feature preserving surface remeshing with minimal angle improvement" (IEEE TVCG 2017), and,
     /// for the crease curves, the vertex insertion / removal / relocation along feature curves of Wang et al. 2019
-    /// (papers only; docs/sources/meshing.md). Opt-in, a separate step after Remesher / RemesherPro (their behaviour is
+    /// (papers only; docs/sources/meshing-and-repair.md). Opt-in, a separate step after Remesher / RemesherPro (their behaviour is
     /// unchanged).
     ///
     /// Operations (each pass in this order, every candidate visited by increasing smallest angle, worst first): needle
@@ -78,8 +78,9 @@ namespace gs
     ///   - with PreventSelfIntersections, no new triangle intersects another one (exact test);
     ///   - a collapse meets the link condition and joins no two crease curves.
     /// Creases: edges of the mesh whose triangles meet at more than CreaseAngleDegrees and that lie within MaxDeviation of
-    /// a reference crease (reference edges above CreaseAngleDegrees, and boundary edges), or the constrained edges of
-    /// Constraints. Crease vertices with other than two crease edges, a turn of more than CornerAngleDegrees, or a Fixed
+    /// a reference crease (reference edges above CreaseAngleDegrees, and boundary edges); with Constraints instead the
+    /// constrained edges and the boundary edges (no dihedral detection then). The constraints are read by the first Compute and
+    /// not updated (the pass changes the mesh's edge ids); later Computes on the same instance keep the pass's own crease set. Crease vertices with other than two crease edges, a turn of more than CornerAngleDegrees, or a Fixed
     /// constraint keep their position.
     /// Serial and in a fixed order: deterministic; angles and relative thresholds only: scale invariant.
     /// </summary>
@@ -157,7 +158,7 @@ namespace gs
         public RemeshQualityResult Compute()
         {
             res = new RemeshQualityResult() { CertifiedBand = MaxDeviation };
-            if (!(MaxDeviation > 0) || double.IsInfinity(MaxDeviation) || Mesh == null || Reference == null || Mesh.TriangleCount == 0 || Reference.TriangleCount == 0
+            if (!(MaxDeviation > 0) || double.IsInfinity(MaxDeviation) || Mesh == null || Reference == null || ReferenceEquals(Mesh, Reference) || Mesh.TriangleCount == 0 || Reference.TriangleCount == 0
                 || !finite(Mesh) || !finite(Reference)) {
                 res.Status = RemeshQualityStatus.InvalidInput;
                 return res;
@@ -285,6 +286,27 @@ namespace gs
             return MathUtil.ToIntSaturating(MathUtil.Clamp(Math.Floor(d / featureCell), -1, lim));
         }
 
+        int[] seenAt = new int[0];
+        int seenStamp;
+
+        IEnumerable<KeyValuePair<Vector3i, List<int>>> in_range(Vector3i lo, Vector3i hi)
+        {
+            foreach (var kv in featureCells) {
+                Vector3i c = kv.Key;
+                if (c.x >= lo.x && c.x <= hi.x && c.y >= lo.y && c.y <= hi.y && c.z >= lo.z && c.z <= hi.z) yield return kv;
+            }
+        }
+
+        IEnumerable<KeyValuePair<Vector3i, List<int>>> range_cells(Vector3i lo, Vector3i hi)
+        {
+            for (int k = lo.z; k <= hi.z; ++k)
+                for (int j = lo.y; j <= hi.y; ++j)
+                    for (int i = lo.x; i <= hi.x; ++i) {
+                        List<int> l;
+                        if (featureCells.TryGetValue(new Vector3i(i, j, k), out l)) yield return new KeyValuePair<Vector3i, List<int>>(new Vector3i(i, j, k), l);
+                    }
+        }
+
         // the nearest point of a reference crease within radius r of p (false if there is none)
         bool nearest_feature(Vector3d p, double r, out Vector3d q, out int seg)
         {
@@ -292,12 +314,17 @@ namespace gs
             if (features.Count == 0 || !(r >= 0)) return false;
             var bx = new AxisAlignedBox3d(p); bx.Expand(r);
             double best = r * r;
-            var seen = new HashSet<int>();
-            foreach (Vector3i c in cells(bx)) {
-                List<int> l;
-                if (!featureCells.TryGetValue(c, out l)) continue;
-                foreach (int i in l) {
-                    if (!seen.Add(i)) continue;
+            if (++seenStamp == int.MaxValue) { Array.Clear(seenAt, 0, seenAt.Length); seenStamp = 1; }
+            if (seenAt.Length < features.Count) seenAt = new int[features.Count];
+            Vector3i lo = new Vector3i(cell(bx.Min.x - featureOrigin.x), cell(bx.Min.y - featureOrigin.y), cell(bx.Min.z - featureOrigin.z));
+            Vector3i hi = new Vector3i(cell(bx.Max.x - featureOrigin.x), cell(bx.Max.y - featureOrigin.y), cell(bx.Max.z - featureOrigin.z));
+            long range = (long)(hi.x - lo.x + 1) * (hi.y - lo.y + 1) * (hi.z - lo.z + 1);
+            // (a range of more cells than are occupied: the occupied cells in it; the answer does not depend on the order)
+            IEnumerable<KeyValuePair<Vector3i, List<int>>> occupied = range > featureCells.Count ? in_range(lo, hi) : range_cells(lo, hi);
+            foreach (var kv in occupied) {
+                foreach (int i in kv.Value) {
+                    if (seenAt[i] == seenStamp) continue;
+                    seenAt[i] = seenStamp;
                     Vector3d cp = features[i].NearestPoint(p);
                     double d2 = cp.DistanceSquared(p);
                     if (d2 < best || (d2 == best && (seg < 0 || i < seg))) { best = d2; q = cp; seg = i; }
@@ -331,9 +358,16 @@ namespace gs
 
         // ---------------- mesh creases ----------------
 
+        MeshConstraints constraintsRead;
+        DMesh3 creasesMesh;
+
         void build_creases()
         {
+            if (Constraints != null && constraintsRead == Constraints && creasesMesh == Mesh)
+                return;     // (a later Compute: the constraints' edge ids no longer match the mesh; the crease set the pass kept does)
             creases.Clear(); fixedVertices.Clear();
+            creasesMesh = Mesh;
+            constraintsRead = Constraints;
             if (Constraints != null) {
                 foreach (int e in Mesh.EdgeIndices())
                     if (Mesh.IsBoundaryEdge(e) || (Constraints.HasEdgeConstraint(e) && !Constraints.GetEdgeConstraint(e).IsUnconstrained)) {
@@ -470,6 +504,8 @@ namespace gs
                         if (hit || removed.Contains(tc) || !Mesh.IsTriangle(tc)) return;
                         Index3i ic = Mesh.GetTriangle(tc);
                         Triangle3d C = new Triangle3d(Mesh.GetVertex(ic.a), Mesh.GetVertex(ic.b), Mesh.GetVertex(ic.c));
+                        // (a zero-area triangle of the mesh is skipped, as in AlphaWrapQualityPass: the exact test is for
+                        // proper triangles; such a triangle is already a defect NotCleanReason reports)
                         if (ExactTriangleIntersection.IsDegenerate(ref C)) return;
                         if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ic, ref C)) hit = true;
                     });
@@ -572,16 +608,16 @@ namespace gs
                 double nw = Math.Min(MinAngle(pc, pa, pd), MinAngle(pd, pb, pc));
                 if (!(nw >= cur + MinGainDegrees)) { res.RejectedByAngle++; continue; }
                 Vector3d n0, n1, m0, m1;
-                if (!AlphaWrapQualityPass.unit_normal(pa, pb, pc, out n0) || !AlphaWrapQualityPass.unit_normal(pb, pa, pd, out n1)) continue;
-                if (!AlphaWrapQualityPass.unit_normal(pc, pa, pd, out m0) || !AlphaWrapQualityPass.unit_normal(pd, pb, pc, out m1)) continue;
-                if (m0.Dot(n0) < cosTurn || m0.Dot(n1) < cosTurn || m1.Dot(n0) < cosTurn || m1.Dot(n1) < cosTurn) continue;
+                if (!AlphaWrapQualityPass.unit_normal(pa, pb, pc, out n0) || !AlphaWrapQualityPass.unit_normal(pb, pa, pd, out n1)
+                    || !AlphaWrapQualityPass.unit_normal(pc, pa, pd, out m0) || !AlphaWrapQualityPass.unit_normal(pd, pb, pc, out m1)
+                    || m0.Dot(n0) < cosTurn || m0.Dot(n1) < cosTurn || m1.Dot(n0) < cosTurn || m1.Dot(n1) < cosTurn) { res.RejectedByAngle++; continue; }
                 ids.Clear(); tris.Clear(); removed.Clear(); chords.Clear();
                 ids.Add(new Index3i(c, a, d)); tris.Add(new Triangle3d(pc, pa, pd));
                 ids.Add(new Index3i(d, b, c)); tris.Add(new Triangle3d(pd, pb, pc));
                 removed.Add(et.a); removed.Add(et.b);
                 if (!accept(ids, tris, removed, chords)) continue;
                 DMesh3.EdgeFlipInfo info;
-                if (Mesh.FlipEdge(eid, out info) != MeshResult.Ok) throw new InvalidOperationException("RemeshQualityPass: flip refused after its check");
+                if (Mesh.FlipEdge(eid, out info) != MeshResult.Ok) continue;      // (DMesh3 refuses before it changes anything)
                 commit(removed, new List<int> { info.t0, info.t1 });
                 res.Flips++;
             }
@@ -687,14 +723,14 @@ namespace gs
             double oldMin = Math.Min(MinAngle(a, b, c), MinAngle(b, a, pd));
             double oldMax = Math.Max(MaxAngle(a, b, c), MaxAngle(b, a, pd));
             Vector3d o0, o1;
-            if (!AlphaWrapQualityPass.unit_normal(a, b, c, out o0) || !AlphaWrapQualityPass.unit_normal(b, a, pd, out o1)) return false;
+            if (!AlphaWrapQualityPass.unit_normal(a, b, c, out o0) || !AlphaWrapQualityPass.unit_normal(b, a, pd, out o1)) { res.RejectedByAngle++; return false; }
             double nwMin = double.MaxValue;
             for (int i = 0; i < 4; ++i) {
                 Triangle3d nt = tris[i];
                 Vector3d n;
-                if (!AlphaWrapQualityPass.unit_normal(nt.V0, nt.V1, nt.V2, out n) || n.Dot(i < 2 ? o0 : o1) < cosTurn) return false;
+                if (!AlphaWrapQualityPass.unit_normal(nt.V0, nt.V1, nt.V2, out n) || n.Dot(i < 2 ? o0 : o1) < cosTurn) { res.RejectedByAngle++; return false; }
                 double mn = MinAngle(nt.V0, nt.V1, nt.V2);
-                if (cap && !(mn >= oldMin && MaxAngle(nt.V0, nt.V1, nt.V2) < oldMax)) return false;
+                if (cap && !(mn >= oldMin && MaxAngle(nt.V0, nt.V1, nt.V2) < oldMax)) { res.RejectedByAngle++; return false; }
                 nwMin = Math.Min(nwMin, mn);
             }
             if (!cap && !(nwMin >= oldMin + MinGainDegrees)) { res.RejectedByAngle++; return false; }
@@ -702,7 +738,7 @@ namespace gs
             if (crease) { chords.Add(new KeyValuePair<Vector3d, Vector3d>(a, m)); chords.Add(new KeyValuePair<Vector3d, Vector3d>(m, b)); }
             if (!accept(ids, tris, removed, chords)) return false;
             DMesh3.EdgeSplitInfo info;
-            if (Mesh.SplitEdge(eid, out info) != MeshResult.Ok) throw new InvalidOperationException("RemeshQualityPass: split refused after its check");
+            if (Mesh.SplitEdge(eid, out info) != MeshResult.Ok) return false;      // (DMesh3 refuses before it changes anything)
             Mesh.SetVertex(info.vNew, m);
             if (crease) {
                 creases.Remove(key(va, vb));
@@ -749,6 +785,8 @@ namespace gs
                     if (x != b && Mesh.FindEdge(x, b) != DMesh3.InvalidID) common++;
                 if (common != 2) continue;
                 Index2i ov = Mesh.GetEdgeOpposingV(eid);
+                // (the two opposite vertices joined already: a tetrahedron or a flat fold would collapse into a doubled triangle)
+                if (Mesh.FindEdge(ov.a, ov.b) != DMesh3.InvalidID) continue;
                 int ca = vertex_class(a), cb = vertex_class(b);
                 bool creaseEdge = is_crease(a, b);
                 Vector3d pa = Mesh.GetVertex(a), pb = Mesh.GetVertex(b);
@@ -815,7 +853,7 @@ namespace gs
                     if (!accept(ids, tris, removed, chords)) continue;
                     crease_list(rem, creaseList);
                     DMesh3.EdgeCollapseInfo info;
-                    if (Mesh.CollapseEdge(keep, rem, out info) != MeshResult.Ok) throw new InvalidOperationException("RemeshQualityPass: collapse refused after its check");
+                    if (Mesh.CollapseEdge(keep, rem, out info) != MeshResult.Ok) break;      // (DMesh3 refuses before it changes anything)
                     Mesh.SetVertex(keep, q);
                     foreach (int x in creaseList) {
                         creases.Remove(key(rem, x));

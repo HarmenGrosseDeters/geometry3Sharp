@@ -26,8 +26,8 @@ Each pass runs, in this order (every list sorted by the smallest angle, ties by 
    - Never: two crease curves joined, a pinned vertex moved, or a collapse against the link condition.
 2. **Splits.**
    - Caps (largest angle above 120) are split at the foot of the altitude. No new triangle may have a smaller smallest or a larger largest angle.
-   - Then needles: a crease edge of theirs (longest first), else the longest edge, is split at its midpoint, if the four new triangles' smallest angle
-     rises. This is graded refinement next to short crease edges.
+   - Then needles: their edges are tried in the order crease edges first, then by decreasing length, each split at its midpoint, the first whose four
+     new triangles' smallest angle rises is made. This is graded refinement next to short crease edges.
    - On a crease edge the new point is put onto the reference's crease (Wang 2019, insertion). At most `MaxTriangleGrowth` (10 %) more triangles.
 3. **Flips** of non-crease edges.
 4. **Relocations.**
@@ -92,7 +92,9 @@ Tests: `Coverage_RefusesCuttingASpike_AcceptsAFlatChange`, `TwoSided_AcceptRefus
 
 ### 3.4 Self-intersections
 With `PreventSelfIntersections` (default), every new triangle is tested exactly against the other new ones and against the mesh triangles in its grid
-cells, except R (`TriangleTriangleFilter.IntersectsBeyondShared`, the exact test behind the filter). This is the same test as in `AlphaWrapQualityPass`.
+cells, except R (`TriangleTriangleFilter.IntersectsBeyondShared`, the exact test behind the filter). This is the same test as in `AlphaWrapQualityPass`,
+with its exception: zero-area triangles of the mesh are not tested against (a defect `NotCleanReason` reports already; the exact test is for proper
+triangles). A collapse whose two opposite vertices are joined already (a tetrahedron, a fold) is refused.
 
 ### 3.5 Certified flags
 At the start every triangle is tested with `IsWithin`; every new triangle is certified by construction. `StartWithinBand` / `ResultWithinBand` say

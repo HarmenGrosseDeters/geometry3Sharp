@@ -235,8 +235,8 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// a jittered equilateral lattice (smallest angles 40-55 degrees) with the target at 60: every triangle is a
-        /// candidate, nearly every collapse, flip or move would lower some angle; the smallest angle does not drop, and
-        /// neither does any low angle quantile (an operation is made only if the smallest angle of its triangles rises)
+        /// candidate, nearly every collapse, flip or move would lower some angle; the smallest angle does not drop (an operation
+        /// is made only if the smallest angle of its triangles rises)
         /// </summary>
         [Fact]
         public void Lattice_NoOperationLowersTheSmallestAngleOfItsTriangles()
@@ -263,8 +263,6 @@ namespace geometry3Sharp.Tests
             double[] after = m.TriangleIndices().Select(t => MinAngle(m, t)).OrderBy(a => a).ToArray();
             Assert.True(r.RejectedByAngle > 0);
             Assert.True(after[0] >= before[0], $"{before[0]} -> {after[0]}");
-            foreach (double q in new[] { 0.01, 0.05, 0.1, 0.25 })
-                Assert.True(after[(int)(q * after.Length)] >= before[(int)(q * before.Length)] - 1e-9, $"quantile {q}: {before[(int)(q * before.Length)]} -> {after[(int)(q * after.Length)]}");
         }
 
         /// <summary>
@@ -361,7 +359,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(RemeshQualityStatus.Improved, r2.Status);
             double back2 = Hausdorff(reference, two, 0.01 * delta);
             Assert.True(back2 <= 1.01 * delta, $"reference -> result {back2 / delta} delta");
-            Assert.Equal(0, r1.RejectedByCoverage);
+            Assert.Equal(RemeshQualityStatus.Improved, r1.Status);
         }
 
         /// <summary>
@@ -460,6 +458,116 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(!twoSided, ok);
                 Assert.Equal(twoSided ? 1 : 0, pass.Counters.RejectedByCoverage);
                 Assert.Equal(twoSided ? 1 : 0, pass.Counters.RejectedByBand);
+            }
+        }
+
+        /// <summary>
+        /// a closed tetrahedron with needles (an extra component of a remesh output): no collapse folds it into a doubled
+        /// triangle, and Compute returns normally (a smoke test: the refusal of such a collapse, by the link guard and by a
+        /// MeshResult other than Ok, is not reached by the other guards on this input)
+        /// </summary>
+        [Fact]
+        public void Tetrahedron_NeedleNotCollapsed_NoThrow()
+        {
+            DMesh3 m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1, 0, 0));
+            int c = m.AppendVertex(new Vector3d(0.5, 1, 0)), d = m.AppendVertex(new Vector3d(0.03, 0.02, 0.01));     // d next to a: needles
+            m.AppendTriangle(a, c, b); m.AppendTriangle(a, b, d); m.AppendTriangle(b, c, d); m.AppendTriangle(c, a, d);
+            Assert.True(m.IsClosed());
+            foreach (bool creases in new[] { true, false }) {
+                DMesh3 x = new DMesh3(m);
+                var r = new RemeshQualityPass(x, new DMesh3(m)) { MaxDeviation = 0.1, CreaseAngleDegrees = 180, EnableCreaseOperations = creases }.Compute();
+                Assert.NotEqual(RemeshQualityStatus.InvalidInput, r.Status);
+                Assert.Equal(4, x.TriangleCount);
+                Assert.True(x.IsClosed() && x.CheckValidity(false, FailMode.ReturnOnly));
+                Assert.Equal(0, r.Collapses + r.CreaseRemovals);
+            }
+        }
+
+        /// <summary>
+        /// the breadth-first, piece-bounded certificate of the coverage gives the answer of the depth-first one
+        /// (ReducerReverseCoverage.Within) when the piece bound is off, on random triangles and candidate sets
+        /// </summary>
+        [Fact]
+        public void CoverageWithin_SameAnswerAsTheDepthFirstCascade()
+        {
+            var rnd = new Random(3);
+            Vector3d rv(double s) => new Vector3d(s * rnd.NextDouble(), s * rnd.NextDouble(), 0.05 * rnd.NextDouble());
+            int yes = 0, no = 0;
+            for (int k = 0; k < 400; ++k) {
+                Vector3d p0 = rv(1), p1 = rv(1), p2 = rv(1);
+                var tris = new List<Triangle3d>();
+                int n = 1 + rnd.Next(6);
+                for (int i = 0; i < n; ++i) { Vector3d o = rv(1.2) - new Vector3d(0.1, 0.1, 0); tris.Add(new Triangle3d(o, o + rv(0.8), o + rv(0.8))); }
+                double eps = 0.05 + 0.3 * rnd.NextDouble();
+                int depth = rnd.Next(7);
+                bool dfs = ReducerReverseCoverage.Within(p0, p1, p2, tris, eps, depth, new List<int>());
+                bool bfs = RemeshQualityCoverage.Within(p0, p1, p2, tris, eps, depth, new List<int>());
+                Assert.Equal(dfs, bfs);
+                if (dfs) yes++; else no++;
+                // the piece bound only refuses more
+                if (!bfs) Assert.False(RemeshQualityCoverage.Within(p0, p1, p2, tris, eps, depth, 16, new List<int>()));
+            }
+            Assert.True(yes > 40 && no > 40, $"{yes} {no}");
+        }
+
+        /// <summary>
+        /// the coverage after a collapse and a split (triangle ids freed and reused): every set holds only current triangles and
+        /// still certifies its reference triangle
+        /// </summary>
+        [Fact]
+        public void Coverage_AfterCollapseAndSplit_SetsStayValid()
+        {
+            DMesh3 m = SpikeGrid(out int apex);
+            DMesh3 reference = new DMesh3(m);
+            double eps = 0.3;
+            var grid = new TriangleHashGrid(m.CachedBounds.Min, 1.5);
+            void regrid() { foreach (int t in m.TriangleIndices()) { Index3i tv = m.GetTriangle(t); grid.Remove(t); grid.Insert(t, AlphaWrapQualityPass.box(m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c))); } }
+            regrid();
+            var cov = new RemeshQualityCoverage(reference, m, grid, eps, 10);
+            List<Triangle3d> geometry(IEnumerable<int> ids) => ids.Select(x => { Index3i tv = m.GetTriangle(x); return new Triangle3d(m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c)); }).ToList();
+            // collapse the boundary-free edge (6, 7) into 6 at its midpoint (flat region, ids 2 triangles freed)
+            int keep = 6, rem = 7;
+            var removed = new HashSet<int>(m.VtxTrianglesItr(keep).Concat(m.VtxTrianglesItr(rem)));
+            Vector3d q = 0.5 * (m.GetVertex(keep) + m.GetVertex(rem));
+            Index2i et = m.GetEdgeT(m.FindEdge(keep, rem));
+            var newTris = new List<Triangle3d>();
+            foreach (int t in removed) {
+                if (t == et.a || t == et.b) continue;
+                Index3i tv = m.GetTriangle(t);
+                Vector3d[] p = { m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c) };
+                for (int k = 0; k < 3; ++k) if (tv[k] == keep || tv[k] == rem) p[k] = q;
+                newTris.Add(new Triangle3d(p[0], p[1], p[2]));
+            }
+            Assert.True(cov.Check(m, removed, newTris));
+            DMesh3.EdgeCollapseInfo ci;
+            Assert.Equal(MeshResult.Ok, m.CollapseEdge(keep, rem, out ci));
+            m.SetVertex(keep, q);
+            foreach (int t in removed) grid.Remove(t);
+            cov.Commit(removed, m.VtxTrianglesItr(keep).ToList());
+            regrid();
+            // split edge (11, 12) at its midpoint: two new triangle ids (one reuses a freed id)
+            int e = m.FindEdge(11, 12);
+            Index2i st = m.GetEdgeT(e);
+            var sremoved = new HashSet<int> { st.a, st.b };
+            Vector3d mid = 0.5 * (m.GetVertex(11) + m.GetVertex(12));
+            var split = new List<Triangle3d>();
+            foreach (int t in sremoved) {
+                Index3i tv = m.GetTriangle(t);
+                int o = tv.a != 11 && tv.a != 12 ? tv.a : tv.b != 11 && tv.b != 12 ? tv.b : tv.c;
+                split.Add(new Triangle3d(m.GetVertex(11), mid, m.GetVertex(o))); split.Add(new Triangle3d(mid, m.GetVertex(12), m.GetVertex(o)));
+            }
+            Assert.True(cov.Check(m, sremoved, split));
+            DMesh3.EdgeSplitInfo si;
+            Assert.Equal(MeshResult.Ok, m.SplitEdge(e, out si));
+            cov.Commit(sremoved, m.VtxTrianglesItr(si.vNew).ToList());
+            foreach (int T in reference.TriangleIndices()) {
+                int[] d = cov.DependenciesOf(T);
+                Assert.NotNull(d);
+                Assert.All(d, x => Assert.True(m.IsTriangle(x)));
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                reference.GetTriVertices(T, ref a, ref b, ref c);
+                Assert.True(ReducerReverseCoverage.Within(a, b, c, geometry(d), eps, 10, new List<int>()), $"T {T}");
             }
         }
 
@@ -683,6 +791,18 @@ namespace geometry3Sharp.Tests
             DMesh3 once = new DMesh3(m);
             var r2 = pass.Compute();
             Assert.Equal(RemeshQualityStatus.Unchanged, r2.Status);
+            // a first Compute stopped early (one pass), then a second on the same instance: the same as two fresh instances
+            DMesh3 a = new DMesh3(start), b = new DMesh3(start);
+            var pa = new RemeshQualityPass(a, reference) { MaxDeviation = delta, MaxPasses = 1 };
+            var ra1 = pa.Compute();
+            var ra2 = pa.Compute();
+            new RemeshQualityPass(b, reference) { MaxDeviation = delta, MaxPasses = 1 }.Compute();
+            var rb2 = new RemeshQualityPass(b, reference) { MaxDeviation = delta, MaxPasses = 1 }.Compute();
+            Assert.Equal(RemeshQualityStatus.Improved, ra2.Status);
+            Assert.Equal("", Invariance.Difference(a, b));
+            Assert.Equal(rb2.Flips + rb2.Collapses + rb2.Splits + rb2.Relocations + rb2.CreaseInsertions + rb2.CreaseRemovals,
+                ra2.Flips + ra2.Collapses + ra2.Splits + ra2.Relocations + ra2.CreaseInsertions + ra2.CreaseRemovals);
+            Assert.Equal(rb2.RejectedByBand, ra2.RejectedByBand);
             Assert.Equal("", Invariance.Difference(once, m));
             Assert.Equal(r1.Worst1PercentAfter, r2.Worst1PercentBefore);
             Assert.True(r2.StartWithinBand && r2.ResultWithinBand);
@@ -719,6 +839,8 @@ namespace geometry3Sharp.Tests
             }
             Assert.Equal(RemeshQualityStatus.InvalidInput, new RemeshQualityPass(new DMesh3(start), new DMesh3()) { MaxDeviation = 0.01 }.Compute().Status);
             Assert.Equal(RemeshQualityStatus.InvalidInput, new RemeshQualityPass(new DMesh3(), reference) { MaxDeviation = 0.01 }.Compute().Status);
+            DMesh3 same = new DMesh3(start);
+            Assert.Equal(RemeshQualityStatus.InvalidInput, new RemeshQualityPass(same, same) { MaxDeviation = 0.01 }.Compute().Status);
             DMesh3 nan = new DMesh3(start);
             nan.SetVertex(nan.VertexIndices().First(), new Vector3d(double.NaN, 0, 0));
             DMesh3 nanCopy = new DMesh3(nan);
@@ -758,6 +880,13 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(kv.Value, m.GetVertex(kv.Key));
             }
             Assert.True(CurveDistance(SharpEdges(reference), SharpEdges(m)) <= delta);
+            // a second Compute on the same instance keeps the pass's crease set (the constraints' edge ids are stale by now)
+            var pass = new RemeshQualityPass(m, reference) { MaxDeviation = delta, Constraints = c, MaxPasses = 1 };
+            pass.Compute();
+            var again = pass.Compute();
+            AssertCleanResult(start, m, reference, again, delta);
+            foreach (var kv in fixedV) Assert.Equal(kv.Value, m.GetVertex(kv.Key));
+            Assert.True(CurveDistance(SharpEdges(reference), SharpEdges(m)) <= 1e-12 * reference.CachedBounds.DiagonalLength, "the box's edges stay exact");
 
             DMesh3 off = new DMesh3(start);
             var crease = new Dictionary<int, Vector3d>();

@@ -441,8 +441,8 @@ namespace geometry3Sharp.Tests
             DMesh3 box = new TrivialBox3Generator() { Box = new Box3d(Vector3d.Zero, new Vector3d(1, 0.6, 0.3)), NoSharedVertices = false }.Generate().MakeDMesh();
             DMesh3 m = new DMesh3(box);
             RemeshQualityResult r = RemeshQualityExample.Run(m, 0.15);
-            Assert.True(r.Status == RemeshQualityStatus.Improved || r.Status == RemeshQualityStatus.Unchanged);
-            Assert.True(r.MinAngleAfter >= r.MinAngleBefore);
+            Assert.Equal(RemeshQualityStatus.Improved, r.Status);
+            Assert.True(r.MinAngleAfter >= r.MinAngleBefore && r.Worst1PercentAfter > r.Worst1PercentBefore, $"{r.Worst1PercentBefore} -> {r.Worst1PercentAfter}");
             Assert.True(r.StartWithinBand && r.ResultWithinBand);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
             var hd = new MeshHausdorffDistance(m, box) { Symmetric = false, Tolerance = 0.01 * r.CertifiedBand };
