@@ -566,3 +566,24 @@ exit code 1 if a result is `Failed` or judged invalid. The vertex counts are the
 `NodingLimit` on heavy collinear overlap, superlinear edge recovery on near-parallel bundles, the cost of snap rounding on long
 segments with many hot pixels, a marker disagreement of mesher and oracle under snap rounding):
 [ROBUST_PLANAR_MAPS_2026-11.md](../../docs/research/ROBUST_PLANAR_MAPS_2026-11.md).
+
+### SnapRounding2 certified filters, 64-bit span sort, query-point restore, and O(1) Origin dedup (2026-11-28)
+
+```sh
+DOTNET_TieredPGO=0 dotnet run -c Release -f net10.0 --no-build --project benchmarks/Meshing2Benchmark -- \
+  planarmap --kinds soup,bundle,overlap-near,tchain --sizes small --tolerances 9.5367431640625e-07,0.0009765625 --repeats 3
+```
+
+Paired before (`origin/master` `2959dfaa`, `geometry3Sharp.dll` SHA-256 prefix `0518d61f5cdc4d15`) vs after (`2b708ba0fbac868a`; final binary `935de858d1d6214a` after removing two unreachable checks in `EntryInterval` and adding a `+Infinity` guard in `TryCrossingPixelFast`) on the same idle Linux VM (.NET 10.0.15, 2 cores, x64; `total_ms` is median of 3 runs of `ConstrainedDelaunayMesh2`, `alloc_mb` is current-thread allocations of one full mesher run, `snap_ms` is `SnapRounding2.Apply` alone). All output counts (`status`, `vertices`, `used_vertices`, `triangles`, `subsegments`, `snap_rounds`, `snapped_points`) and the bit-identical golden corpus hash (`SnapRounding2_ProceduralCorpus_MatchesGoldenBitIdenticalHash`) are unchanged.
+
+| Case | Tol | Before `snap_ms` | After `snap_ms` | Snap speedup | Before `total_ms` | After `total_ms` | Before MB | After MB |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `soup` (500) | 2^-20 | 808.0 | 285.4 | 2.83x | 1313.9 | 700.2 | 422.6 | 169.4 |
+| `soup` (500) | 2^-10 | 1320.3 | 389.9 | 3.39x | 2039.0 | 1102.9 | 597.0 | 166.5 |
+| `bundle` (250) | 2^-20 | 4832.9 | 1040.1 | 4.65x | 5171.2 | 1446.6 | 1766.0 | 677.9 |
+| `bundle` (250) | 2^-10 | 396.7 | 96.2 | 4.12x | 490.3 | 172.0 | 173.7 | 79.9 |
+| `overlap-near` (1984) | 2^-20 | 1992.9 | 449.0 | 4.44x | 3137.5 | 1507.0 | 1389.6 | 465.2 |
+| `overlap-near` (1984) | 2^-10 | 1425.1 | 328.3 | 4.34x | 2393.1 | 1263.1 | 1002.0 | 337.4 |
+| `tchain` (10001) | 2^-20 | 250.0 | 138.9 | 1.80x | 455.4 | 328.4 | 154.4 | 95.3 |
+| `tchain` (10001) | 2^-10 | 248.0 | 123.2 | 2.01x | 353.4 | 228.9 | 138.4 | 66.1 |
+

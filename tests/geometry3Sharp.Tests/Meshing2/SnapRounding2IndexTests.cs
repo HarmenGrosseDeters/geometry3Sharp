@@ -375,5 +375,80 @@ namespace geometry3Sharp.Tests
             // Pinned bit-for-bit golden hash (verified identical to pre-#1402 SnapRounding2 on master).
             Assert.Equal(4633619528224767930UL, h);
         }
+
+        [Fact]
+        public void Build_OriginDeduplication_UniqueAndDuplicateCoords_PreserveOrderAndSet()
+        {
+            // Case A: uniqueOriginCoords == true (20 distinct near-parallel segments sharing snapped chain edges).
+            var uniq = new ConstrainedMesh2Input();
+            for (int i = 0; i < 20; ++i) {
+                int a = uniq.Points.Count;
+                uniq.Points.Add(new Vector2d(0.0, 0.5 + i * 1e-6));
+                uniq.Points.Add(new Vector2d(1.0, 0.5 + (19 - i) * 1e-6));
+                uniq.Segments.Add(new Mesh2Segment(a, a + 1, i + 1));
+            }
+            var srUniq = SnapRounding2.Apply(uniq, 1.0 / 32.0);
+            Assert.True(srUniq.Result.Segments.Count > 0);
+            // Every output edge shared by all 20 chains must list all 20 unique origins in chain order, without duplicates.
+            var midEdge = srUniq.Result.Segments[0];
+            var pMid = srUniq.Result.Points[midEdge.A];
+            var qMid = srUniq.Result.Points[midEdge.B];
+            var uniqOrigins = srUniq.Origins(pMid, qMid);
+            Assert.Equal(20, uniqOrigins.Count);
+            for (int i = 0; i < 20; ++i)
+                Assert.Equal((uniq.Points[2 * i], uniq.Points[2 * i + 1]), uniqOrigins[i]);
+
+            // Case B: uniqueOriginCoords == false with BOTH < 8 and >= 8 origins per edge, including non-consecutive
+            // duplicate coordinate pairs across distinct vertex indices (exercises list.Contains and originSets HashSet).
+            var dup = new ConstrainedMesh2Input();
+            var expectedOrder = new List<(Vector2d, Vector2d)>();
+            // 12 distinct coordinate pairs, then repeat index 0, 5, 11 at non-consecutive later chain positions,
+            // plus an immediate consecutive duplicate of index 3.
+            var pairs = new List<(Vector2d a, Vector2d b)>();
+            for (int i = 0; i < 12; ++i)
+                pairs.Add((new Vector2d(0.0, 0.5 + i * 1e-6), new Vector2d(1.0, 0.5 + i * 1e-6)));
+            // Build sequence with duplicates at < 8 and >= 8 positions:
+            int[] seq = { 0, 1, 2, 3, 3, 0, 4, 5, 6, 7, 8, 9, 10, 11, 0, 5, 11, 2 };
+            foreach (int idx in seq) {
+                int a = dup.Points.Count;
+                dup.Points.Add(pairs[idx].a);
+                dup.Points.Add(pairs[idx].b);
+                dup.Segments.Add(new Mesh2Segment(a, a + 1, idx + 1));
+                if (!expectedOrder.Contains(pairs[idx])) expectedOrder.Add(pairs[idx]);
+            }
+            // Add a vertical crosser so the horizontal chain splits into multiple snapped edges.
+            int ca = dup.Points.Count;
+            dup.Points.Add(new Vector2d(0.5, 0.0));
+            dup.Points.Add(new Vector2d(0.5, 1.0));
+            dup.Segments.Add(new Mesh2Segment(ca, ca + 1, 99));
+
+            var srDup = SnapRounding2.Apply(dup, 1.0 / 32.0);
+            Assert.True(srDup.Crossings >= 1);
+            var firstSeg = srDup.Result.Segments[0];
+            var dupOrigins = srDup.Origins(srDup.Result.Points[firstSeg.A], srDup.Result.Points[firstSeg.B]);
+            Assert.Equal(expectedOrder.Count, dupOrigins.Count);
+            for (int i = 0; i < expectedOrder.Count; ++i)
+                Assert.Equal(expectedOrder[i], dupOrigins[i]);
+            // Also verify TryOrigin returns the first origin in chain order.
+            Assert.True(srDup.TryOrigin(srDup.Result.Points[firstSeg.A], srDup.Result.Points[firstSeg.B], out var firstOrigin));
+            Assert.Equal(expectedOrder[0], firstOrigin);
+        }
+
+        [Fact]
+        public void Restore_MultiRound_SingleAndManyCriticalPixels_PassesOracleAndMatchesSeparation()
+        {
+            // Dense soup at coarse tolerance produces multi-round Restore with Spread >= 10 (> 16 unique Restore query points,
+            // exercising multi-level k-d tree traversal in Restore).
+            var soup = RandomSoup(70, seed: 31415);
+            double tol = 1.0 / 64.0;
+            var sr = SnapRounding2.Apply(soup, tol);
+            Assert.True(sr.Rounds >= 2 && sr.Spread >= 10, $"Expected multi-round Restore with Spread >= 10 (got rounds={sr.Rounds}, spread={sr.Spread})");
+            var mi = ToOracleInput(soup, tol);
+            var output = new ConstrainedDelaunayMesh2Candidate().Run(mi);
+            Assert.Equal(Mesh2Status.Success, output.Status);
+            Assert.True(output.Triangles.Length > 0);
+            var report = Oracle.Check(mi, output, new OracleExpect { Milestone = Milestone.M2 });
+            Assert.True(report.Ok, report.ToString());
+        }
     }
 }
