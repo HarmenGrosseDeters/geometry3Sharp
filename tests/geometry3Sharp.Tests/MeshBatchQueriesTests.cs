@@ -143,6 +143,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void PackedPointOrder_ReusesBufferAndOrdersOnlyTheRequestedSlice()
+        {
+            var points = new[] {
+                new Vector3d(-100, -100, -100), new Vector3d(4, 2, 3), Vector3d.Zero, Vector3d.One,
+                Vector3d.Zero, new Vector3d(double.NaN, 0, 0), new Vector3d(100, 100, 100),
+            };
+            ulong[] keys = null;
+            MeshBatchQueries.SortPackedPointOrder(points, 0, points.Length, ref keys);
+            ulong[] buffer = keys;
+            MeshBatchQueries.SortPackedPointOrder(points, 1, 5, ref keys);
+
+            Assert.Same(buffer, keys);
+            Assert.Equal(new uint[] { 1, 3, 4, 2, 0 }, keys.Take(5).Select(key => (uint)key).ToArray());
+        }
+
+        [Fact]
         public void IntersectBatch_ReportsParameterOfTheHit()
         {
             var mesh = Sphere(); var tree = new DMeshAABBTree3(mesh, true);

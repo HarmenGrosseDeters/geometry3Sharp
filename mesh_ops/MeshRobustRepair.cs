@@ -1498,6 +1498,7 @@ namespace gs
         /// MeshRepairMetrics.sample_region always
         /// </summary>
         internal bool SampleCellsInVolumeCheck = true;
+        internal bool BenchmarkSortVolumeSamplesByMorton;
         /// <summary> for the benchmark: the child budget of those cells (VolumeSampleCells) </summary>
         internal int SampleCellsChildBudget = gs.VolumeSampleCells.DefaultChildBudget;
         /// <summary> for tests and the benchmark: what each volume IoU check of the last Apply() did </summary>
@@ -1528,7 +1529,7 @@ namespace gs
                 inputSolidOf = input;
             }
             var resultSolid = MeshRepairMetrics.SolidReference.Unoriented(res);
-            var stats = new MeshRepairMetrics.VolumeCheckStats();
+            var stats = new MeshRepairMetrics.VolumeCheckStats { SortSamplesByMorton = BenchmarkSortVolumeSamplesByMorton };
             VolumeCheckStats.Add(stats);
             if (MinVolumeIoU > 0 && MeshRepairMetrics.VolumeIoUAtLeast(inputSolid, resultSolid, MinVolumeIoU, out iou, stats: stats, useCells: SampleCellsInVolumeCheck, childBudget: SampleCellsChildBudget) == false)
                 return VolumeDiffers;

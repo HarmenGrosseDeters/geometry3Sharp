@@ -46,7 +46,11 @@ class Program
                 MeshTransforms.Translate(mesh, new Vector3d(500000, 5000000, 0));
             r["load_ms"] = sw.ElapsedMilliseconds;
             var swStats = Stopwatch.StartNew();
-            Stats(mesh, r, "before");
+            bool volumeProbeOnly = Environment.GetEnvironmentVariable("BENCH_VOLUME_PROBE_ONLY") == "1";
+            if (volumeProbeOnly)
+                r["before_tris"] = mesh.TriangleCount;
+            else
+                Stats(mesh, r, "before");
             r["stats_before_ms"] = swStats.ElapsedMilliseconds;
             if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "analysis") {
                 // analysis building blocks on the input instead of a repair (AnalysisBench.cs)
@@ -248,7 +252,17 @@ class Program
                 robust.SampleCellsInVolumeCheck = Environment.GetEnvironmentVariable("BENCH_IOU_CELLS") != "0";
                 string cellBudget = Environment.GetEnvironmentVariable("BENCH_IOU_CELL_BUDGET");
                 if (cellBudget != null) robust.SampleCellsChildBudget = int.Parse(cellBudget);
+                robust.BenchmarkSortVolumeSamplesByMorton = Environment.GetEnvironmentVariable("BENCH_IOU_PACKED_MORTON") == "1";
+                r["packed_morton"] = robust.BenchmarkSortVolumeSamplesByMorton;
+                long allocatedBefore = volumeProbeOnly ? GC.GetTotalAllocatedBytes(true) : 0;
+                long applyStart = volumeProbeOnly ? Stopwatch.GetTimestamp() : 0;
                 ok = robust.Apply();
+                if (volumeProbeOnly) {
+                    long applyTicks = Stopwatch.GetTimestamp() - applyStart;
+                    long applyAllocated = GC.GetTotalAllocatedBytes(true) - allocatedBefore;
+                    r["robust_apply_ms"] = applyTicks * 1000.0 / Stopwatch.Frequency;
+                    r["robust_apply_allocated_bytes"] = applyAllocated;
+                }
                 result = robust.Mesh;
                 r["hybrid_fallback"] = robust.FallbackReason != "";
                 r["hybrid_reason"] = robust.FallbackReason;
@@ -282,7 +296,7 @@ class Program
                 // per volume check: cells used, samples, samples in the union, the IoU's interval at the stop, the
                 // sampled and the known volume (relative to the estimated union), the cells, and the times
                 r["robust_volume_checks"] = robust.VolumeCheckStats.ConvertAll(v => new System.Collections.Generic.Dictionary<string, object>() {
-                    ["cells"] = v.Cells, ["samples"] = v.Samples, ["union"] = v.UnionSamples, ["iou_lo"] = v.IoULow, ["iou_hi"] = v.IoUHigh,
+                    ["cells"] = v.Cells, ["samples"] = v.Samples, ["morton_sorted_samples"] = v.MortonSortedSamples, ["union"] = v.UnionSamples, ["iou_lo"] = v.IoULow, ["iou_hi"] = v.IoUHigh,
                     ["sampled_cells"] = v.SampledCells, ["child_tests"] = v.ChildTests, ["depth"] = v.Depth, ["unclassified"] = v.Unclassified, ["windings"] = v.WindingEvaluations,
                     ["sampled_volume"] = v.SampledVolume, ["known_union"] = v.KnownUnion, ["known_both"] = v.KnownBoth,
                     ["build_ms"] = v.BuildTicks * 1000.0 / Stopwatch.Frequency, ["sample_ms"] = v.SampleTicks * 1000.0 / Stopwatch.Frequency });
@@ -379,9 +393,11 @@ class Program
             r["stats_after_ms"] = swStats.ElapsedMilliseconds;
             // (for before/after comparisons of optimizations: the same hash, the same result bit for bit)
             r["after_hash"] = Hash(result);
-            Deviation(original, result, r);
-            if (repairMode != "boolean" && repairMode != "exact")
-                Fidelity(original, result, r);
+            if (!volumeProbeOnly) {
+                Deviation(original, result, r);
+                if (repairMode != "boolean" && repairMode != "exact")
+                    Fidelity(original, result, r);
+            }
             bool valid = true;
             try { valid = result.CheckValidity(false, FailMode.ReturnOnly); } catch { valid = false; }
             r["after_valid"] = valid;
