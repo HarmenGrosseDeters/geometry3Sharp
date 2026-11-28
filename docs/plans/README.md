@@ -11,8 +11,13 @@ to [archive](../archive/README.md) when the item is done or dropped.
 | [alphawrap-remove-cgal-wrap-and-second-ref.md](alphawrap-remove-cgal-wrap-and-second-ref.md) | remove `external/cgal_wrap.cpp` and evaluate a second alpha-wrap reference | #1260 |
 | [boolean-40-stages-1b-1c.md](boolean-40-stages-1b-1c.md) | Exact Boolean 4.0 stages 1b and 1c | #1254 |
 | [boolean-certifying-checker-stage-3.md](boolean-certifying-checker-stage-3.md) | certifying boolean checker stage 3, certified user mode, exact coplanar clip coordinates | #1256 |
+| [boolean-differentiable-volumetric-csg.md](boolean-differentiable-volumetric-csg.md) | exact differentiable volumetric CSG (Phase 2 — Spike 3-0 passed: moments, SE(3) pullbacks, untouched-tri fast path) | — |
 | [boolean-ember-lever-2.md](boolean-ember-lever-2.md) | EMBER lever 2 — skip self-pairs of certified operands in chained booleans | #1255 |
+| [boolean-multimaterial-partition-spike-2b0.md](boolean-multimaterial-partition-spike-2b0.md) | multi-material cellular complexes (2B) & patch cell-graph DFS (4A-1) — Spike 2B-0 passed (Phase 3, FULL GO) | — |
+| [boolean-provenance-and-attributes.md](boolean-provenance-and-attributes.md) | opt-in attribute & provenance propagation for `ExactMeshBoolean` (Phase 1 — 2A) | — |
+| [boolean-scaling-hygiene-and-batch-union.md](boolean-scaling-hygiene-and-batch-union.md) | boolean scaling hygiene (4B-0) & density-gated `UnionMany` (4A-2, `Sphere ∧ PCA-OBB >= 11.0`); `4C-1` dropped after Spike `4C-0` | — |
 | [boolean-speed-work-parked.md](boolean-speed-work-parked.md) | boolean speed work (#1064 levers, normal-cone certificate, ABC chain step 3 lead) | #1253 |
+| [boolean-verification-v2.md](boolean-verification-v2.md) | `SolidBooleanPipeline.Verification` v2 & internal certificate hygiene (Phase 1 — 1A + 1B) | — |
 | [dc-coarse-first-construction.md](dc-coarse-first-construction.md) | dual contouring coarse-first construction (opt-in sparse grid with implicit bounds) | #1276 |
 | [geodesics-certified-biharmonic-mode.md](geodesics-certified-biharmonic-mode.md) | certified biharmonic deformation mode (#976, #980) | #1265 |
 | [geodesics-oracle-follow-ups.md](geodesics-oracle-follow-ups.md) | geodesic oracle follow-ups (heat-method tests against the oracle, fragmentation lever) | #1238 |
@@ -31,6 +36,7 @@ to [archive](../archive/README.md) when the item is done or dropped.
 | [research-hp8-open-operand-speed-levy.md](research-hp8-open-operand-speed-levy.md) | open-operand boolean speed & Lévy-style propagation (HP 8 — research study) | #1279 |
 | [research-open-questions-metamorphic-agents-showcases.md](research-open-questions-metamorphic-agents-showcases.md) | open research questions (metamorphic testing, agent APIs, showcases, sparse SDFs, Monte Carlo PDEs) | #1290 |
 | [research-param-p1-collapse-virtual-fans.md](research-param-p1-collapse-virtual-fans.md) | parameterization P1 collapse & virtual fan vertices (research study) | #1285 |
+| [solid-boolean-remediation-and-mcp.md](solid-boolean-remediation-and-mcp.md) | agent-native remediation contracts in `SolidBooleanPipeline` + `g3cli` / MCP (Phase 1 — 5A–5C) | — |
 | [sources-unread-survey-items.md](sources-unread-survey-items.md) | unread sources survey (permissive libraries, PaMO, RWTH, Minkowski, Sci. Rep.) | #1277 |
 | [terrain-perf-roundtogrid-quadtree-uses.md](terrain-perf-roundtogrid-quadtree-uses.md) | terrain §11 performance follow-ups, `RoundToGrid`, and internal quadtree uses | #1269 |
 | [terrain-sector-polygons.md](terrain-sector-polygons.md) | terrain sector polygons (E1 exterior distance, S1 sectors, R2 attribution) | #1268 |
