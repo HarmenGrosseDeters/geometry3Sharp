@@ -227,9 +227,7 @@ Proofs (P1 to P5 of section 6; "region" is as in section 4):
   contains the piece's centroid (one per mesh and orientation at a point not on an edge); the new rule outputs the same sets (P3) and the same crossings (P1, P2).
   Both therefore classify every point of the plane alike; only the cut of the pieces differs. The test is exact: the difference of the two results is empty both
   ways (`ExactMeshBooleanRegionClippingTests`).
-- **P5, no new predicate or bound.** The flat test (`flat_edge`) is exact `Orient` of input points (as `meets_only_at_shared`), plus the exact plane test
-  `same_plane`; `on_boundary` is `Orient` of an arrangement point against input corners (the existing predicate, the same call as `clip_into` makes). No filter and no
-  error bound is added.
+- **P5, no new predicate or bound.** The flat test (`flat_edge`) uses exact `ExactPredicates.Orient3d` (two non-degenerate triangles sharing edge `a-b` lie in one exact plane iff `Orient3d(a, b, c, d) == 0`) plus exact `Orient` of input points (as `meets_only_at_shared`); `on_boundary` is `Orient` of an arrangement point against input corners (the existing predicate, the same call as `clip_into` makes). No filter and no error bound is added.
 
 Mutant of the one-crossing rule in `label_sheets` (the second dedupe site): equivalent because the site cannot be reached with two triangles of one region in a stack: a representative's source is the lowest stack entry and the stack holds no other triangle of its region (same-mesh coplanar entries exist only for regions that are not embedded, which are keyed per triangle). The first site is killed by a test with a predicate that reads the exact winding. The ghosts are not sorted (stage 3): `ghost_points` only adds points to a set that `touched_points` sorts, so the order of the ghosts (the pair loop's) changes nothing.
 
@@ -267,11 +265,10 @@ hashes move with a reason each, and a release note says "the triangulation of co
 
 `ExactMeshBoolean.RegionClipping` is on by default (`internal`, the opt-out stays: `RegionClipping = false`). What moved with it:
 
-- **Regions are built lean**: only for triangles that share a plane with another needed triangle (`rep` equality instead of the exact `same_plane`), so an input with no
-  coplanar cluster pays for no BigInteger plane and no edge dictionary. This is the suspected source of the slower medians on small and mid-size corpus inputs
-  (0-5k triangles 41 against 55 ms, 20k-100k 72 against 182 ms in the corpus run before the change); on the procedural inputs below it is gone (two crossing spheres without a
-  coplanar face: x0.95-0.99). The corpus meshes are not available in the session, so the median of the corpus is to be read from the next corpus run (workflow
-  `region-clipping-corpus.yml`), not from this note.
+- **Regions are built lean**: only for triangles in a candidate pair (`needed`), and `flat_edge` checks coplanarity via filtered `ExactPredicates.Orient3d(a, b, c, d) == 0`
+  (no `BigInteger` work in `flat_edge` on non-coplanar edges and no work outside `needed`). `#1744` originally gated eligibility on `shared[rep[ti]] >= 2` (`rep` equality) to
+  avoid `BigInteger` `same_plane` on non-coplanar inputs; the `4B-0` follow-up below replaced that with `build_regions(needed)` + `ExactPredicates.Orient3d`
+  (`dotnet run --project benchmarks/CoplanarRegionClipping -c Release -- --rings 61,121 --reps 3`, 2 cores: crossing spheres 30/60/120 `91/305/1354 ms` before vs `89/292/1158 ms` after; `planes` `1/6/14 ms` vs `1/6/12 ms`).
 - **Two consumers of the stacks became region-aware** (found by the suite with the default on): the contact regions of `BooleanVolumeGradient` (a piece with its centroid on a
   flat edge listed two triangles of one region: one contact region of area 0.25 came out as two of 0.125) and the fast generalized winding number in front of a piece
   (`front_generalized_winding` counted the +-1/2 of a region twice: the intersection of two coplanar boxes through `ForceGeneralizedWinding` was open with 15 boundary edges).
@@ -283,14 +280,10 @@ hashes move with a reason each, and a release note says "the triangulation of co
   winding bug above; with the fix it is 12 closed, equal to the old rule. Measured counts with regions are equal or lower (fine boxes 5 per edge, offset (0.3, 0.2): union 312
   against 324, intersection 160 against 172; 7 per edge, offset (0.3, 0.1): 596 against 676); `TheDefaultIsOn_AndShowsInTheTriangulationOfOffsetFineBoxes` pins the default with the
   first case. The walk is off with regions, so a larger count in another case is not excluded.
-- **Lean regions are incomplete, never unsound** (review of #1744): the plane test is `rep` equality, exact `same_plane` against a common representative, with the bucket of the
-  rounded plane picking the candidates. Equal planes split by `round_key` at a rounding boundary, or beyond `MaxPlaneCandidates = 8` planes in a bucket (which planes overflow
-  depends on the triangle order), get no join: a triangle outside a candidate pair is a one-triangle region, exactly the old clip. A missed join costs speed (and can make the
-  triangulation depend on the operand order), never exactness. A `same_plane` fallback where the reps differ would close the gap; it is a follow-up, not in this PR (the corpus run
-  of this head stays valid).
+- **Exact lean regions (follow-up to #1744, `4B-0`)**: `#1744`'s initial `rep`-equality test skipped joins on equal planes split by `round_key`, overflowing `MaxPlaneCandidates = 8` in one bucket (making `RegionOf` order-dependent), or having non-finite `PlaneApprox` under mixed exponents. `build_regions(needed)` now tests coplanarity directly in `flat_edge` via `ExactPredicates.Orient3d(a, b, c, d) == 0` (two non-degenerate triangles sharing edge `a-b` lie in one exact plane iff `Orient3d == 0`): filtered double on non-coplanar edges with exact adaptive fallback, no `BigInteger` work in `flat_edge` on non-coplanar edges, and independent of `plane_bucket`, `round_key`, `MaxPlaneCandidates`, and triangle order for edges shared by at most two triangles of one mesh (manifold inputs; `ExactMeshArrangementRegionTests`).
 - **Known limit**: a certificate file (`CertificateFile`) of a region-clipped result cannot be checked stand-alone; the in-process certificate checks it.
 
-Cost of the switch on procedural inputs of the corpus's sizes (`dotnet run --project benchmarks/CoplanarRegionClipping -c Release`, 4 cores, median of 3, ms; phases of the last run):
+Cost of the `#1744` switch on procedural inputs of the corpus's sizes (`dotnet run --project benchmarks/CoplanarRegionClipping -c Release`, 4 cores, median of 3, ms; phases of the last run):
 
 | case | triangles | ms off | ms on | on / off | planes off / on | intersect off / on | merge off / on | classification off / on | assembly off / on |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |

@@ -2215,17 +2215,9 @@ namespace g3
                     reps.Add(ti);
             }
             planeRep = rep;
-            if (RegionClipping) {
-                // (the triangles in a candidate pair whose exact plane another such triangle has: the only ones that can have a coplanar partner)
-                var shared = new int[Triangles.Count];
-                for (int ti = 0; ti < shared.Length; ++ti)
-                    if (needed[ti] && finite(bucketKeys[ti]))
-                        shared[rep[ti]]++;
-                var eligible = new bool[Triangles.Count];
-                for (int ti = 0; ti < shared.Length; ++ti)
-                    eligible[ti] = needed[ti] && finite(bucketKeys[ti]) && shared[rep[ti]] >= 2;
-                build_regions(eligible, rep);
-            } else if (BuildRegions)
+            if (RegionClipping)
+                build_regions(needed);
+            else if (BuildRegions)
                 build_regions();
             clock.Lap("intersections.planes");
             // (cancelled: the pairs left are skipped; Compute stops after this phase)
