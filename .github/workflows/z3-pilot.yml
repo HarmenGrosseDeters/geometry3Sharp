@@ -55,6 +55,8 @@ on:
       - 'mesh_generators/TwoLevelMarchingTetrahedra.cs'
       - 'math/ExactRayTriangle.cs'
       - 'math/ExactPoint3.cs'
+      - 'mesh_ops/AlphaWrapEstimate.cs'
+      - 'mesh_ops/MeshAlphaWrap.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
     inputs:
@@ -132,6 +134,7 @@ jobs:
           Z3_TETRAHEDRA_SHARED_FACES_REPORT: z3-tetrahedra-shared-faces-report.json
           Z3_RAY_SECOND_POINT_REPORT: z3-ray-second-point-report.json
           Z3_ANTIPODAL_SEGMENT_REPORT: z3-antipodal-segment-report.json
+          Z3_ALPHA_WRAP_ESTIMATE_REPORT: z3-alpha-wrap-estimate-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -163,3 +166,4 @@ jobs:
             z3-tetrahedra-shared-faces-report.json
             z3-ray-second-point-report.json
             z3-antipodal-segment-report.json
+            z3-alpha-wrap-estimate-report.json

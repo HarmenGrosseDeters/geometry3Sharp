@@ -284,5 +284,206 @@ namespace geometry3Sharp.Tests
             foreach (int t in m.TriangleIndices()) { Index3i tr = m.GetTriangle(t); l.Add(m.GetVertex(tr.a)); l.Add(m.GetVertex(tr.b)); l.Add(m.GetVertex(tr.c)); }
             return l;
         }
+
+        static List<Vector3d> ScaleAndShift(List<Vector3d> corners, int pow2Exp, Vector3d shift)
+        {
+            var res = new List<Vector3d>(corners.Count);
+            foreach (Vector3d p in corners)
+                res.Add(new Vector3d(
+                    ExactPoint3.ScaleB(p.x, pow2Exp) + shift.x,
+                    ExactPoint3.ScaleB(p.y, pow2Exp) + shift.y,
+                    ExactPoint3.ScaleB(p.z, pow2Exp) + shift.z));
+            return res;
+        }
+
+        [Fact]
+        public void Terms_ExtremeScales_2p350_And_2m350_PreservesClassificationAndLengths()
+        {
+            List<Vector3d> cube = Corners(Box(Vector3d.Zero, new Vector3d(0.5, 0.5, 0.5), 4));
+            List<Vector3d> plate = Corners(Plate(1e-4));
+            List<Vector3d> sphere = Corners(Sphere(8));
+            List<Vector3d> openSquare = new List<Vector3d> {
+                new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0),
+                new Vector3d(0, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0)
+            };
+            double alpha0 = 0.05;
+
+            AlphaWrapEstimate.EstimateTerms refCube = AlphaWrapEstimate.Terms(cube, alpha0);
+            AlphaWrapEstimate.EstimateTerms refPlate = AlphaWrapEstimate.Terms(plate, alpha0);
+            Assert.Equal(0.0, refCube.ThinArea);
+            Assert.Equal(12.0, refCube.ThickSharp, 9);
+            Assert.True(refPlate.ThinArea > 1.9 && refPlate.ThinRim >= 2 * Math.Sqrt(Math.PI) - 1e-6);
+
+            foreach (int exp in new[] { 350, -350 }) {
+                double a = ExactPoint3.ScaleB(alpha0, exp);
+
+                // Closed cube: s^3 = 2^(+-1050) overflows/underflows on master, causing NaN volume, Inf cross.Length -> normal=0, or ThinArea false positive
+                List<Vector3d> scaledCube = ScaleAndShift(cube, exp, Vector3d.Zero);
+                AlphaWrapEstimate.EstimateTerms tc = AlphaWrapEstimate.Terms(scaledCube, a);
+                AlphaWrapEstimate.EstimateTerms tc2 = AlphaWrapEstimate.Terms(scaledCube, a);
+                Assert.Equal(tc, tc2); // determinism on normalized path
+                Assert.Equal(0.0, tc.OpenArea);
+                Assert.Equal(0.0, tc.ThinArea);
+                Assert.Equal(0.0, tc.ThinRim);
+                Assert.True(Math.Abs(tc.ThickSharp - ExactPoint3.ScaleB(refCube.ThickSharp, exp)) <= ExactPoint3.ScaleB(1e-9, exp),
+                    $"exp {exp}: cube ThickSharp {tc.ThickSharp}");
+
+                // Thin plate: must remain thin with scaled ThinArea and ThinRim
+                AlphaWrapEstimate.EstimateTerms tp = AlphaWrapEstimate.Terms(ScaleAndShift(plate, exp, Vector3d.Zero), a);
+                Assert.Equal(0.0, tp.OpenArea);
+                Assert.True(Math.Abs(tp.ThinArea - ExactPoint3.ScaleB(refPlate.ThinArea, 2 * exp)) <= ExactPoint3.ScaleB(1e-6, 2 * exp),
+                    $"exp {exp}: plate ThinArea {tp.ThinArea}");
+                Assert.True(Math.Abs(tp.ThinRim - ExactPoint3.ScaleB(refPlate.ThinRim, exp)) <= ExactPoint3.ScaleB(1e-6, exp),
+                    $"exp {exp}: plate ThinRim {tp.ThinRim}");
+
+                // Smooth closed sphere: must stay smooth and thick (not sharp at 2^350, not thin at 2^-350)
+                AlphaWrapEstimate.EstimateTerms ts = AlphaWrapEstimate.Terms(ScaleAndShift(sphere, exp, Vector3d.Zero), a);
+                Assert.Equal(0.0, ts.OpenArea);
+                Assert.Equal(0.0, ts.ThinArea);
+                Assert.Equal(0.0, ts.ThickSharp);
+
+                // Direct OpenArea call at 2^+-350: verifies ScaleB(area, 2 * scaleExp)
+                double oa = AlphaWrapEstimate.OpenArea(ScaleAndShift(openSquare, exp, Vector3d.Zero), a);
+                Assert.True(Math.Abs(oa - ExactPoint3.ScaleB(1.0, 2 * exp)) <= ExactPoint3.ScaleB(1e-12, 2 * exp),
+                    $"exp {exp}: OpenArea {oa}");
+            }
+
+            // pre == 1 branch: hi - lo overflows double ([-1e308, +1e308]), half-scaled span stays finite
+            double big = 1e308;
+            var hugeSpan = new List<Vector3d> {
+                new Vector3d(-big, -big, 0), new Vector3d(big, -big, 0), new Vector3d(big, big, 0),
+                new Vector3d(-big, -big, 0), new Vector3d(big, big, 0), new Vector3d(-big, big, 0)
+            };
+            double hugeOpening = AlphaWrapEstimate.LargestOpening(hugeSpan, 1e305);
+            Assert.True(double.IsPositiveInfinity(hugeOpening));
+            // Narrower axis-aligned open square spanning [-1e308, +1e308] on x and [-1e307, +1e307] on y:
+            // hi.x - lo.x = 2e308 overflows double -> pre == 1, while perimeter and opening along x stay finite? No, 2e308 overflows;
+            // use [-9e307, +9e307] so hi - lo = 1.8e308 overflows (pre == 1), while a 0.25x sub-square stays finite on outputs.
+            double b9 = 9e307;
+            var pre1Tris = new List<Vector3d> {
+                new Vector3d(-b9, 0, 0), new Vector3d(-b9 + 2e307, 0, 0), new Vector3d(-b9 + 2e307, 2e307, 0),
+                new Vector3d(-b9, 0, 0), new Vector3d(-b9 + 2e307, 2e307, 0), new Vector3d(-b9, 2e307, 0),
+                // far point forcing hi.x - lo.x = 1.8e308 > double.MaxValue -> pre = 1
+                new Vector3d(b9, 0, 0), new Vector3d(b9, 0, 0), new Vector3d(b9, 0, 0)
+            };
+            double pre1Opening = AlphaWrapEstimate.LargestOpening(pre1Tris, 1e305);
+            Assert.True(MathUtil.IsFinite(pre1Opening) && Math.Abs(pre1Opening - Math.Sqrt(2.0) * 2e307) <= 1e295,
+                $"pre==1 LargestOpening {pre1Opening}");
+            AlphaWrapEstimate.EstimateTerms pre1Terms = AlphaWrapEstimate.Terms(pre1Tris, 1e305);
+            Assert.True(MathUtil.IsFinite(pre1Terms.OpenBoundary) && Math.Abs(pre1Terms.OpenBoundary - 8e307) <= 1e295,
+                $"pre==1 OpenBoundary {pre1Terms.OpenBoundary}");
+
+            // Non-finite and zero-span inputs return zero cleanly
+            var nanTris = new List<Vector3d> { new Vector3d(double.NaN, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) };
+            var infTris = new List<Vector3d> { new Vector3d(double.PositiveInfinity, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, 1, 0) };
+            var zeroSpan = new List<Vector3d> { new Vector3d(5, 5, 5), new Vector3d(5, 5, 5), new Vector3d(5, 5, 5) };
+            foreach (var bad in new[] { nanTris, infTris, zeroSpan }) {
+                Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(bad, 0.05));
+                Assert.Equal(0.0, AlphaWrapEstimate.LargestOpening(bad, 0.05));
+                Assert.Equal(default(AlphaWrapEstimate.EstimateTerms), AlphaWrapEstimate.Terms(bad, 0.05));
+            }
+            Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(openSquare, double.PositiveInfinity));
+            Assert.Equal(0.0, AlphaWrapEstimate.OpenArea(openSquare, double.NaN));
+        }
+
+        [Fact]
+        public void Analyze_UtmWithTinyAlpha_AndExtremeOpening_DoesNotCollapseVertices()
+        {
+            DMesh3 flat = new DMesh3();
+            for (int i = 0; i <= 4; ++i)
+                for (int j = 0; j <= 4; ++j)
+                    flat.AppendVertex(new Vector3d(i / 4.0, j / 4.0, 0));
+            for (int i = 0; i < 4; ++i)
+                for (int j = 0; j < 4; ++j) {
+                    int a = i * 5 + j, b = a + 5;
+                    flat.AppendTriangle(a, b, b + 1);
+                    flat.AppendTriangle(a, b + 1, a + 1);
+                }
+            List<Vector3d> unitSheet = Corners(flat);
+
+            // 1. UTM offset (5e6) with tiny alpha (1e-12): raw v/cell = 4e19 > 9e18 collapses all vertices on master
+            List<Vector3d> utmSheet = ScaleAndShift(unitSheet, 0, new Vector3d(5e6, 5e6, 0));
+            AlphaWrapEstimate.EstimateTerms tUtm = AlphaWrapEstimate.Terms(utmSheet, 1e-12);
+            Assert.Equal(1.0, tUtm.OpenArea, 9);
+            Assert.Equal(1.0, AlphaWrapEstimate.OpenArea(utmSheet, 1e-12), 9);
+            Assert.Equal(4.0, tUtm.OpenBoundary, 9);
+            Assert.Equal(Math.Sqrt(2.0), AlphaWrapEstimate.LargestOpening(utmSheet, 1e-12), 9);
+
+            // 1b. SafeGridLimit = 2^52 fast-path boundary: v/cell = 6e17 (in [2^53, 1e18]) loses unit integer spacing in binary64
+            double side30 = ExactPoint3.ScaleB(1.0, -30);
+            var utmSmall = new List<Vector3d> {
+                new Vector3d(7_500_000.0, 7_500_000.0, 0),
+                new Vector3d(7_500_000.0 + side30, 7_500_000.0, 0),
+                new Vector3d(7_500_000.0 + side30, 7_500_000.0 + side30, 0),
+                new Vector3d(7_500_000.0, 7_500_000.0, 0),
+                new Vector3d(7_500_000.0 + side30, 7_500_000.0 + side30, 0),
+                new Vector3d(7_500_000.0, 7_500_000.0 + side30, 0)
+            };
+            double utmSmallOpening = AlphaWrapEstimate.LargestOpening(utmSmall, 1e-10);
+            Assert.True(Math.Abs(utmSmallOpening - Math.Sqrt(2.0) * side30) <= 1e-16, $"utmSmall opening {utmSmallOpening}");
+            Assert.True(Math.Abs(AlphaWrapEstimate.OpenArea(utmSmall, 1e-10) - side30 * side30) <= 1e-26);
+
+            // 1c. SafeGridLimit = 2^52 normalized-path boundary: 2 / workCell = 1e18 (> 2^52) triggers exactKeys instead of ulp>1 collapse
+            double eps52 = ExactPoint3.ScaleB(1.0, -52);
+            var normEdge = new List<Vector3d> {
+                // Anchor lo at (0,0,0) so (1.5, 1.5, 0) lands at 1.5 in normalized [0, 2)
+                new Vector3d(0, 0, 0), new Vector3d(0, 0, 0), new Vector3d(0, 0, 0),
+                new Vector3d(1.5, 1.5, 0), new Vector3d(1.5 + eps52, 1.5, 0), new Vector3d(1.5 + eps52, 1.5 + eps52, 0),
+                new Vector3d(1.5, 1.5, 0), new Vector3d(1.5 + eps52, 1.5 + eps52, 0), new Vector3d(1.5, 1.5 + eps52, 0)
+            };
+            List<Vector3d> normEdge350 = ScaleAndShift(normEdge, 350, Vector3d.Zero);
+            double normOpening = AlphaWrapEstimate.LargestOpening(normEdge350, ExactPoint3.ScaleB(1.6e-17, 350));
+            Assert.True(Math.Abs(normOpening - ExactPoint3.ScaleB(Math.Sqrt(2.0) * eps52, 350)) <= ExactPoint3.ScaleB(1e-20, 350),
+                $"normEdge350 opening {normOpening}");
+
+            // 2. Tiny alpha relative to unit span (span/cell = 8e22 > 2^52): exercises exact-bit welding fallback & determinism
+            AlphaWrapEstimate.EstimateTerms tExact = AlphaWrapEstimate.Terms(unitSheet, 1e-22);
+            AlphaWrapEstimate.EstimateTerms tExact2 = AlphaWrapEstimate.Terms(unitSheet, 1e-22);
+            Assert.Equal(tExact, tExact2);
+            Assert.Equal(1.0, tExact.OpenArea, 9);
+            Assert.Equal(1.0, AlphaWrapEstimate.OpenArea(unitSheet, 1e-22), 9);
+            Assert.Equal(4.0, tExact.OpenBoundary, 9);
+            Assert.Equal(Math.Sqrt(2.0), AlphaWrapEstimate.LargestOpening(unitSheet, 1e-22), 9);
+
+            // 2b. -0.0 vs +0.0 welding via NormBits under exactKeys: shared diagonal edge must weld cleanly
+            double negZero = BitConverter.Int64BitsToDouble(unchecked((long)0x8000000000000000UL));
+            var negZeroSquare = new List<Vector3d> {
+                new Vector3d(0.0, 0.0, 0.0), new Vector3d(1.0, 0.0, 0.0), new Vector3d(1.0, 1.0, 0.0),
+                new Vector3d(negZero, negZero, negZero), new Vector3d(1.0, 1.0, 0.0), new Vector3d(negZero, 1.0, 0.0)
+            };
+            AlphaWrapEstimate.EstimateTerms tNegZero = AlphaWrapEstimate.Terms(negZeroSquare, 1e-22);
+            Assert.Equal(1.0, tNegZero.OpenArea, 9);
+            Assert.Equal(4.0, tNegZero.OpenBoundary, 9);
+
+            // 3. Extreme length scales (2^600 and 2^-600): LargestOpening and OpenBoundary stay finite and scaled
+            foreach (int exp in new[] { 600, -600 }) {
+                List<Vector3d> scaled = ScaleAndShift(unitSheet, exp, Vector3d.Zero);
+                double a = ExactPoint3.ScaleB(0.05, exp);
+                double opening = AlphaWrapEstimate.LargestOpening(scaled, a);
+                double expectedOpening = ExactPoint3.ScaleB(Math.Sqrt(2.0), exp);
+                Assert.True(Math.Abs(opening - expectedOpening) <= ExactPoint3.ScaleB(1e-12, exp), $"exp {exp}: opening {opening}");
+                AlphaWrapEstimate.EstimateTerms t = AlphaWrapEstimate.Terms(scaled, a);
+                Assert.True(Math.Abs(t.OpenBoundary - ExactPoint3.ScaleB(4.0, exp)) <= ExactPoint3.ScaleB(1e-12, exp), $"exp {exp}: OpenBoundary {t.OpenBoundary}");
+            }
+
+            // 4. Extreme span / alpha (> 2^1072) and subnormal alpha (double.Epsilon at scaleExp == 0): zero-volume closed plate stays thin
+            var zeroVolPlate = new List<Vector3d> {
+                // top face (+z normal) and coincident bottom face (-z normal) forming a closed zero-volume 2-sided square
+                new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0),
+                new Vector3d(0, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0),
+                new Vector3d(0, 0, 0), new Vector3d(1, 1, 0), new Vector3d(1, 0, 0),
+                new Vector3d(0, 0, 0), new Vector3d(0, 1, 0), new Vector3d(1, 1, 0)
+            };
+            AlphaWrapEstimate.EstimateTerms tUnderflow = AlphaWrapEstimate.Terms(ScaleAndShift(zeroVolPlate, 600, Vector3d.Zero), ExactPoint3.ScaleB(1.0, -475));
+            Assert.Equal(0.0, tUnderflow.OpenArea);
+            Assert.Equal(0.0, tUnderflow.ThickSharp);
+            Assert.True(tUnderflow.ThinRim > 0, $"workAlpha underflow ThinRim {tUnderflow.ThinRim}");
+
+            AlphaWrapEstimate.EstimateTerms tSub0 = AlphaWrapEstimate.Terms(zeroVolPlate, ExactPoint3.ScaleB(1.0, -1074));
+            AlphaWrapEstimate.EstimateTerms tSub1 = AlphaWrapEstimate.Terms(ScaleAndShift(zeroVolPlate, 1, Vector3d.Zero), ExactPoint3.ScaleB(1.0, -1073));
+            Assert.Equal(2.0, tSub0.ThinArea, 9);
+            Assert.Equal(8.0, tSub1.ThinArea, 9);
+            Assert.Equal(2.0 * tSub0.ThinRim, tSub1.ThinRim, 9);
+        }
     }
 }

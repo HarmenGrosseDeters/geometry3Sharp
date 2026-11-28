@@ -34,22 +34,161 @@ namespace g3
         /// (the same hole turned by 45 degrees changes it by up to 1.4), and a long thin slit counts as wide: near the threshold the
         /// estimate steps by a factor of 2.
         /// </summary>
+        const double MinNormal = 2.2250738585072014e-308; // 2^-1022
+        const double FastScaleMin = 7.888609052210118e-31; // 2^-100
+        const double FastScaleMax = 1.2676506002282294e30; // 2^100
+        const double SafeGridLimit = 4503599627370496.0;   // 2^52: exact binary64 integer range (ulp(v / cell) <= 1)
+
+        static int Pow2Exp(double v)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(v);
+            int biased = (int)((bits >> 52) & 0x7FFL);
+            if (biased != 0)
+                return biased - 1023;
+            long sbits = BitConverter.DoubleToInt64Bits(v * 18014398509481984.0); // 2^54
+            return (int)((sbits >> 52) & 0x7FFL) - 1023 - 54;
+        }
+
+        static Vector3d ScaleVec(Vector3d v, int n)
+        {
+            return new Vector3d(ExactPoint3.ScaleB(v.x, n), ExactPoint3.ScaleB(v.y, n), ExactPoint3.ScaleB(v.z, n));
+        }
+
+        static double SafeLength(Vector3d d)
+        {
+            double d2 = d.LengthSquared;
+            if (d2 >= 4 * MinNormal && !double.IsInfinity(d2))
+                return Math.Sqrt(d2);
+            double m = d.MaxAbs;
+            if (double.IsNaN(m)) return double.NaN;
+            if (m == 0) return 0;
+            if (double.IsInfinity(m)) return double.PositiveInfinity;
+            int e = Pow2Exp(m);
+            Vector3d ds = ScaleVec(d, -e);
+            return ExactPoint3.ScaleB(Math.Sqrt(ds.LengthSquared), e);
+        }
+
+        static bool SafeUnit(Vector3d v, out Vector3d u)
+        {
+            double m = v.MaxAbs;
+            if (!(m > 0) || double.IsInfinity(m)) { u = Vector3d.Zero; return false; }
+            if (m >= FastScaleMin && m <= FastScaleMax) {
+                double l = v.Length;
+                if (!(l > 0)) { u = Vector3d.Zero; return false; }
+                u = v / l;
+                return true;
+            }
+            Vector3d vs = ScaleVec(v, -Pow2Exp(m));
+            u = vs / Math.Sqrt(vs.LengthSquared);
+            return true;
+        }
+
+        static long NormBits(double d) => BitConverter.DoubleToInt64Bits(d == 0.0 ? 0.0 : d);
+
+        static bool IsOpenWidth(double openingWork, double workAlpha, double alpha, int scaleExp)
+        {
+            double width = OpeningFactor * workAlpha;
+            if (scaleExp == 0 || width > 0)
+                return openingWork > width;
+            // workAlpha underflowed to 0 at extreme span / alpha (> 2^1072): compare in input units.
+            return openingWork > 0 && ExactPoint3.ScaleB(openingWork, scaleExp) > OpeningFactor * alpha;
+        }
+
+        static bool IsThinThickness(double absVolume, double area, double workAlpha, double alpha, int scaleExp)
+        {
+            if (!(area > 0)) return false;
+            double limit = ThinFactor * workAlpha;
+            if (limit > 0)
+                return 2 * absVolume / area < limit;
+            // ThinFactor * workAlpha underflowed to 0 while alpha > 0: a zero-volume plate is still thin.
+            if (absVolume == 0) return true;
+            double rawLimit = ThinFactor * alpha;
+            if (rawLimit > 0)
+                return ExactPoint3.ScaleB(2 * absVolume / area, scaleExp) < rawLimit;
+            // alpha <= 2^-1073: shift both sides up by 2^64 so ThinFactor * alpha stays normal.
+            return ExactPoint3.ScaleB(2 * absVolume / area, scaleExp + 64) < ThinFactor * ExactPoint3.ScaleB(alpha, 64);
+        }
+
+        // Prepares either the original list (ordinary scale, bit-identical to master) or a shifted, power-of-two
+        // globally span-normalized copy where coordinates lie in [0, 2) so area, cubic volume and cross products stay O(1).
+        // Normalization is single-scale per mesh (components ~1e-120x smaller than the mesh span are outside this single-alpha estimator).
+        // Returns false if any coordinate is non-finite or all points coincide.
+        static bool PrepareFrame(List<Vector3d> tris, double alpha, out List<Vector3d> work, out double workAlpha, out int scaleExp, out bool exactKeys)
+        {
+            work = tris;
+            workAlpha = alpha;
+            scaleExp = 0;
+            exactKeys = false;
+            if (tris.Count < 3 || !(alpha > 0) || double.IsInfinity(alpha))
+                return false;
+            Vector3d lo = tris[0], hi = tris[0];
+            double maxAbs = 0;
+            for (int i = 0; i < tris.Count; ++i) {
+                Vector3d p = tris[i];
+                if (!p.IsFinite) return false;
+                double ma = p.MaxAbs;
+                if (ma > maxAbs) maxAbs = ma;
+                if (p.x < lo.x) lo.x = p.x;
+                if (p.y < lo.y) lo.y = p.y;
+                if (p.z < lo.z) lo.z = p.z;
+                if (p.x > hi.x) hi.x = p.x;
+                if (p.y > hi.y) hi.y = p.y;
+                if (p.z > hi.z) hi.z = p.z;
+            }
+            Vector3d span = hi - lo;
+            int pre = 0;
+            if (!span.IsFinite) {
+                span = 0.5 * hi - 0.5 * lo;
+                pre = 1;
+            }
+            double spanMax = span.MaxAbs;
+            if (!(spanMax > 0))
+                return false;
+            double cell = alpha / WeldCells;
+            if (pre == 0
+                && alpha >= FastScaleMin && alpha <= FastScaleMax
+                && maxAbs <= FastScaleMax
+                && spanMax >= FastScaleMin && spanMax <= FastScaleMax
+                && cell > 0 && maxAbs / cell <= SafeGridLimit) {
+                return true;
+            }
+            int exp = Pow2Exp(spanMax);
+            scaleExp = exp + pre;
+            workAlpha = ExactPoint3.ScaleB(alpha, -scaleExp);
+            double workCell = workAlpha / WeldCells;
+            // In the normalized frame coordinates lie in [0, 2); when 2 / workCell > 2^52, v / workCell can exceed binary64's
+            // exact integer range (ulp > 1) and grid-cell division loses resolution. Fall back to exact-bit welding: once
+            // workCell < 2^-52 (2 / workCell > 2^53; sub-half-ULP at span / cell > 2^54) it agrees with infinite-precision cells
+            // on [1, 2), and in the narrow band workCell in [2^-52, 2^-51) it acts as a conservative non-collapsing fallback
+            // without claiming exact equivalence near lo.
+            exactKeys = !(workCell > 0) || (2.0 / workCell > SafeGridLimit);
+            work = new List<Vector3d>(tris.Count);
+            if (pre == 0) {
+                for (int i = 0; i < tris.Count; ++i)
+                    work.Add(ScaleVec(tris[i] - lo, -exp));
+            } else {
+                Vector3d halfLo = 0.5 * lo;
+                for (int i = 0; i < tris.Count; ++i)
+                    work.Add(ScaleVec(0.5 * tris[i] - halfLo, -exp));
+            }
+            return true;
+        }
+
         public static double OpenArea(List<Vector3d> tris, double alpha)
         {
-            if (tris.Count < 3 || !(alpha > 0))
+            if (!PrepareFrame(tris, alpha, out List<Vector3d> work, out double workAlpha, out int scaleExp, out bool exactKeys))
                 return 0;
-            Analyze(tris, alpha, out int[] corner, out int[] comp, out double[] opening, out _, out _);
-            double width = OpeningFactor * alpha;
+            Analyze(work, workAlpha, exactKeys, out int[] corner, out int[] comp, out double[] opening, out _, out _);
             bool any = false;
             for (int v = 0; v < opening.Length; ++v)
-                if (opening[v] > width) { any = true; break; }
+                if (IsOpenWidth(opening[v], workAlpha, alpha, scaleExp)) { any = true; break; }
             if (!any)
                 return 0;
             double area = 0;
-            for (int t = 0; t < tris.Count / 3; ++t)
-                if (opening[Find(comp, corner[3 * t])] > width)
-                    area += 0.5 * (tris[3 * t + 1] - tris[3 * t]).Cross(tris[3 * t + 2] - tris[3 * t]).Length;
-            return area;
+            for (int t = 0; t < work.Count / 3; ++t)
+                if (IsOpenWidth(opening[Find(comp, corner[3 * t])], workAlpha, alpha, scaleExp))
+                    area += 0.5 * SafeLength((work[3 * t + 1] - work[3 * t]).Cross(work[3 * t + 2] - work[3 * t]));
+            return scaleExp == 0 ? area : ExactPoint3.ScaleB(area, 2 * scaleExp);
         }
 
         /// <summary> the sizes the offset band of the wrap's estimate needs (see Terms); lengths and areas in the units of the input </summary>
@@ -86,11 +225,10 @@ namespace g3
         public static EstimateTerms Terms(List<Vector3d> tris, double alpha)
         {
             var terms = new EstimateTerms();
-            if (tris.Count < 3 || !(alpha > 0))
+            if (!PrepareFrame(tris, alpha, out List<Vector3d> work, out double workAlpha, out int scaleExp, out bool exactKeys))
                 return terms;
-            Analyze(tris, alpha, out int[] corner, out int[] comp, out double[] opening, out Vector3d[] pos, out Dictionary<(int, int), int> edgeUse);
-            double width = OpeningFactor * alpha;
-            int n = tris.Count / 3;
+            Analyze(work, workAlpha, exactKeys, out int[] corner, out int[] comp, out double[] opening, out Vector3d[] pos, out Dictionary<(int, int), int> edgeUse);
+            int n = work.Count / 3;
             // (per component root, in vertex ids: arrays, so that the sums come in a fixed order)
             int nv = pos.Length;
             var area = new double[nv];
@@ -102,15 +240,14 @@ namespace g3
             var inconsistent = new bool[nv];
             for (int t = 0; t < n; ++t) {
                 int root = Find(comp, corner[3 * t]);
-                Vector3d a = tris[3 * t], b = tris[3 * t + 1], c = tris[3 * t + 2];
+                Vector3d a = work[3 * t], b = work[3 * t + 1], c = work[3 * t + 2];
                 if (!hasReference[root]) { hasReference[root] = true; reference[root] = a; }
                 Vector3d cross = (b - a).Cross(c - a);
-                area[root] += 0.5 * cross.Length;
+                double len = SafeLength(cross);
+                area[root] += 0.5 * len;
                 Vector3d r = reference[root];
                 volume[root] += (a - r).Dot((b - r).Cross(c - r)) / 6.0;
-                double len = cross.Length;
-                if (!(len > 0)) continue;
-                Vector3d normal = cross / len;
+                if (!SafeUnit(cross, out Vector3d normal)) continue;
                 for (int k = 0; k < 3; ++k) {
                     int u = corner[3 * t + k], v = corner[3 * t + (k + 1) % 3];
                     if (u == v) continue;
@@ -122,7 +259,7 @@ namespace g3
                             // between the planes (|dot|), whatever the orientation of the two triangles
                             if (first.forward == forward) inconsistent[root] = true;
                             if (Math.Abs(first.normal.Dot(normal)) < SharpCos)
-                                sharp[root] += (pos[u] - pos[v]).Length;
+                                sharp[root] += SafeLength(pos[u] - pos[v]);
                             firstUse.Remove(key);
                         } else {
                             firstUse[key] = (normal, forward);
@@ -133,19 +270,26 @@ namespace g3
             foreach (var kv in edgeUse)
                 if (kv.Value == 1) {
                     int root = Find(comp, kv.Key.Item1);
-                    if (opening[root] > width)
-                        terms.OpenBoundary += (pos[kv.Key.Item1] - pos[kv.Key.Item2]).Length;
+                    if (IsOpenWidth(opening[root], workAlpha, alpha, scaleExp))
+                        terms.OpenBoundary += SafeLength(pos[kv.Key.Item1] - pos[kv.Key.Item2]);
                 }
             for (int root = 0; root < nv; ++root) {
                 if (!hasReference[root]) continue;
-                if (opening[root] > width) {
+                if (IsOpenWidth(opening[root], workAlpha, alpha, scaleExp)) {
                     terms.OpenArea += area[root];
-                } else if (!inconsistent[root] && area[root] > 0 && 2 * Math.Abs(volume[root]) / area[root] < ThinFactor * alpha) {
+                } else if (!inconsistent[root] && IsThinThickness(Math.Abs(volume[root]), area[root], workAlpha, alpha, scaleExp)) {
                     terms.ThinArea += area[root];
                     terms.ThinRim += Math.Max(0.5 * sharp[root], 2 * Math.Sqrt(Math.PI * 0.5 * area[root]));
                 } else {
                     terms.ThickSharp += sharp[root];
                 }
+            }
+            if (scaleExp != 0) {
+                terms.OpenArea = ExactPoint3.ScaleB(terms.OpenArea, 2 * scaleExp);
+                terms.ThinArea = ExactPoint3.ScaleB(terms.ThinArea, 2 * scaleExp);
+                terms.OpenBoundary = ExactPoint3.ScaleB(terms.OpenBoundary, scaleExp);
+                terms.ThinRim = ExactPoint3.ScaleB(terms.ThinRim, scaleExp);
+                terms.ThickSharp = ExactPoint3.ScaleB(terms.ThickSharp, scaleExp);
             }
             return terms;
         }
@@ -153,25 +297,35 @@ namespace g3
         /// <summary> the largest opening of the input: the largest bounding box diagonal of a chain of boundary edges (0 if there are none), welded with the cells of alpha </summary>
         public static double LargestOpening(List<Vector3d> tris, double alpha)
         {
-            if (tris.Count < 3 || !(alpha > 0))
+            if (!PrepareFrame(tris, alpha, out List<Vector3d> work, out double workAlpha, out int scaleExp, out bool exactKeys))
                 return 0;
-            Analyze(tris, alpha, out _, out _, out double[] opening, out _, out _);
-            return opening.Length == 0 ? 0 : opening.Max();
+            Analyze(work, workAlpha, exactKeys, out _, out _, out double[] opening, out _, out _);
+            double best = opening.Length == 0 ? 0 : opening.Max();
+            return scaleExp == 0 ? best : ExactPoint3.ScaleB(best, scaleExp);
         }
 
         // corner: the welded vertex of each corner; comp: the union-find of the vertices by triangle; opening: by component root, the
         // largest diagonal of its boundary chains
-        static void Analyze(List<Vector3d> tris, double alpha, out int[] corner, out int[] comp, out double[] opening, out Vector3d[] pos, out Dictionary<(int, int), int> edgeUse)
+        static void Analyze(List<Vector3d> tris, double alpha, bool exactKeys, out int[] corner, out int[] comp, out double[] opening, out Vector3d[] pos, out Dictionary<(int, int), int> edgeUse)
         {
             int n = tris.Count / 3;
             double cell = alpha / WeldCells;
             var ids = new Dictionary<(long, long, long), int>(Math.Min(tris.Count, 1 << 20));
             corner = new int[tris.Count];
-            for (int i = 0; i < tris.Count; ++i) {
-                Vector3d p = tris[i];
-                var key = (Cell(p.x, cell), Cell(p.y, cell), Cell(p.z, cell));
-                if (!ids.TryGetValue(key, out int id)) { id = ids.Count; ids.Add(key, id); }
-                corner[i] = id;
+            if (exactKeys) {
+                for (int i = 0; i < tris.Count; ++i) {
+                    Vector3d p = tris[i];
+                    var key = (NormBits(p.x), NormBits(p.y), NormBits(p.z));
+                    if (!ids.TryGetValue(key, out int id)) { id = ids.Count; ids.Add(key, id); }
+                    corner[i] = id;
+                }
+            } else {
+                for (int i = 0; i < tris.Count; ++i) {
+                    Vector3d p = tris[i];
+                    var key = (Cell(p.x, cell), Cell(p.y, cell), Cell(p.z, cell));
+                    if (!ids.TryGetValue(key, out int id)) { id = ids.Count; ids.Add(key, id); }
+                    corner[i] = id;
+                }
             }
             int nv = ids.Count;
             comp = new int[nv];
@@ -208,11 +362,11 @@ namespace g3
             for (int v = 0; v < nv; ++v)
                 if (onBoundary[v] && Find(chain, v) == v) {
                     int c = Find(comp, v);
-                    opening[c] = Math.Max(opening[c], (hi[v] - lo[v]).Length);
+                    opening[c] = Math.Max(opening[c], SafeLength(hi[v] - lo[v]));
                 }
         }
 
-        // (beyond the range of a long, a tiny alpha against large coordinates, the cells merge: the estimate is then infinite anyway)
+        // (called only when coordinates / cell stay within SafeGridLimit = 2^52; saturates cleanly otherwise)
         static long Cell(double v, double cell) => (long)Math.Max(-9e18, Math.Min(9e18, Math.Floor(v / cell)));
 
         static void CountEdge(Dictionary<(int, int), int> uses, int a, int b)
