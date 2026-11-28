@@ -103,6 +103,14 @@ Research or not scheduled (not built without a new decision):
 
 ### Done / history
 
+#### Settled 2026-11-28
+
+- **`m3.locks` (quality and area refinement near locked segments and locked rings; spec O8, O9; catalogue F-25/a, F-25/b, F-31/a, F-36): done.**
+  - API: additive `Mesh2Ring.Locked` field and 4-arg constructor overload `Mesh2Ring(int[], bool, int, bool)` (binary-compatible with 3-arg callers), propagated through `ConstrainedDelaunayMesh2`, `SnapRounding2` (including collapsed rings; `DeterministicApis.txt` and `DETERMINISM_PROOF.md` §5.4 ledger updated), `g3cli mesh2d` JSON (`"locked"`), and the oracle/text format (`outer-locked`, `hole-locked`).
+  - Mesher (`QualityMesh2`): angle-consistent area floor `(L^2 / 4) tan(MinAngle)` on triangles incident to a locked edge of length `L` (no area floor when `MinAngle == 0`, so area-only runs refine fully); `SizeFunction` exempts only triangles whose longest edge is itself locked; `LockedEdgeAt` prevents a Steiner point landing on the open interior of a locked edge (e.g., right-triangle circumcentre) from splitting it; `TryLockedFallback` inserts the scale-free centroid for `BadBySize` triangles blocked by a locked edge and searches bisector pullbacks + petal candidates with a `1.05 * |pq|` insertion-radius floor (`B > 1` prevents creeping) for `BadByAngle` triangles not strictly obtuse opposite their own locked edge.
+  - Oracle: exact rational area-floor check `16 * area^2 * (1 - sin^2 θ) < L^4 * sin^2 θ` and `CircumcentreBehindLocked` (reusing `Behind` + `BoxGrid` fast path, replacing the coarse `TouchesLocked` excuse); `OracleReport.LockedAngleExcused`; 494 self-checks.
+  - Catalogue & goldens: `Feature.Locks` registered (114 covered, 4 pending, 8 deferred, 3 blocked); `f-25/a` (180 tris, 93 verts, 4 subsegments), `f-25/b` (318 tris, 162 verts, 4 subsegments), `f-31/a` (117 tris, 62 verts, 5 subsegments), `f-36` (156/150 tris, 101/93 verts conforming/constrained) recorded in `m3.json` and `m3-constrained.json` with zero changes to existing golden rows.
+
 #### Settled 2026-11-12 to 2026-11-15
 
 - **#986, `QualityMesh2` Empty at an aspect ratio of 2^±41 (found by the metamorphic relation A1): settled 2026-11-17 as a documented

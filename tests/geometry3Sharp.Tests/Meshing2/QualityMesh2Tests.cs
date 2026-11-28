@@ -160,20 +160,21 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Fuzz_LockedSegments_StayWholeAndValid()
         {
-            // review of M3: near locked segments the bounds are not met yet (m3.locks, documented on QualityMesh2). What holds: the
-            // mesh is valid, locked segments keep their vertices, and every triangle left below the angle is in the bad list
-            var allowed = new HashSet<Violation> { Violation.AngleBelowBound, Violation.AreaAboveBound };
-            for (int seed = 0; seed < 60; ++seed) {
-                var input = FuzzLocked(seed);
-                var report = Judge(input, out var output);
-                Assert.True(output.Status == Mesh2Status.Success, "seed " + seed + ": " + output.FailureKind);
-                var other = report.Violations.Where(v => !allowed.Contains(v.Kind)).ToList();
-                Assert.True(other.Count == 0, "seed " + seed + ": " + string.Join("; ", other.Select(v => v.Kind + ": " + v.Detail)));
-                foreach (var s in input.Segments.Where(s => s.Locked)) {
-                    int a = output.InputToVertex[s.A], b = output.InputToVertex[s.B];
-                    // whole unless another segment crosses it (then split only at crossings, which are not Steiner points of refinement)
-                    bool crossed = output.Subsegments.Count(q => q.Marker == s.Marker) > input.Segments.Count(q => q.Marker == s.Marker);
-                    if (!crossed) Assert.Contains(output.Subsegments, q => (q.A == a && q.B == b) || (q.A == b && q.B == a));
+            // m3.locks: bounds hold near locked segments wherever geometrically possible without splitting them; zero oracle violations
+            foreach (bool constrained in new[] { false, true }) {
+                for (int seed = 0; seed < 60; ++seed) {
+                    var input = FuzzLocked(seed);
+                    input.ConstrainedQuality = constrained;
+                    var report = Judge(input, out var output);
+                    Assert.True(output.Status == Mesh2Status.Success, "mode=" + constrained + " seed " + seed + ": " + output.FailureKind);
+                    Assert.False(output.SteinerLimitReached, "mode=" + constrained + " seed " + seed + ": Steiner limit reached");
+                    Assert.True(report.Ok, "mode=" + constrained + " seed " + seed + ": " + report);
+                    foreach (var s in input.Segments.Where(s => s.Locked)) {
+                        int a = output.InputToVertex[s.A], b = output.InputToVertex[s.B];
+                        // whole unless another segment crosses it (then split only at crossings, which are not Steiner points of refinement)
+                        bool crossed = output.Subsegments.Count(q => q.Marker == s.Marker) > input.Segments.Count(q => q.Marker == s.Marker);
+                        if (!crossed) Assert.Contains(output.Subsegments, q => (q.A == a && q.B == b) || (q.A == b && q.B == a));
+                    }
                 }
             }
         }

@@ -20,7 +20,7 @@ namespace Meshing2Acceptance
             }
         }
 
-        public static readonly HashSet<string> Features = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap };
+        public static readonly HashSet<string> Features = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Locks, Feature.Snap };
 
         /// <summary>
         /// Public library types that mean a milestone has arrived. If one appears while its feature is not registered, a test fails:

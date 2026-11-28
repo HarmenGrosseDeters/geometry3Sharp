@@ -92,6 +92,25 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Mesh2d_LockedRing_KeepsBoundaryUnsplit()
+        {
+            string geometry = "{\"points\": [[0,0],[10,0],[10,20],[0,20]], " +
+                "\"rings\": [{\"vertices\": [0,1,2,3], \"hole\": false, \"marker\": 1, \"locked\": true}]}";
+            string output = m.Path_("locked_ring.obj");
+            var (exit, r) = Run("mesh2d", "--geometry", geometry, "--output", output, "--min-angle", "0", "--max-area", "1.75");
+            AssertOk(exit, r);
+            Assert.Equal(200, D(r["area"]), 9);
+            Assert.True(I(r["triangles"]) >= 115, r.ToJsonString());
+            Assert.True(D(r["largest_area"]) <= 1.75 + 1e-9, r.ToJsonString());
+            DMesh3 mesh = ReadMesh(output);
+            Assert.Equal(I(r["triangles"]), mesh.TriangleCount);
+            // outer loop stays at exactly 4 edges (the 4 locked input segments)
+            var loops = new MeshBoundaryLoops(mesh);
+            Assert.Equal(1, loops.Count);
+            Assert.Equal(4, loops[0].VertexCount);
+        }
+
+        [Fact]
         public void Mesh2d_ConstrainedDelaunayOnly_AddsNoVertices()
         {
             // a square and its centre: 4 triangles, no Steiner points
