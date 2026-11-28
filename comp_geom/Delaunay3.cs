@@ -219,6 +219,16 @@ namespace g3
             return CellVolume(vertices[cv[4 * c]], vertices[cv[4 * c + 1]], vertices[cv[4 * c + 2]], vertices[cv[4 * c + 3]]);
         }
 
+        static int ColResidualExp(double ux, int eu, double vx, int ev, double wx, int ew, out bool any)
+        {
+            int ec = int.MinValue;
+            any = false;
+            if (ux != 0) { ec = Math.Max(ec, Pow2Exp(Math.Abs(ux)) - eu); any = true; }
+            if (vx != 0) { ec = Math.Max(ec, Pow2Exp(Math.Abs(vx)) - ev); any = true; }
+            if (wx != 0) { ec = Math.Max(ec, Pow2Exp(Math.Abs(wx)) - ew); any = true; }
+            return ec;
+        }
+
         internal static double CellVolume(Vector3d a, Vector3d b, Vector3d d, Vector3d e)
         {
             Vector3d u = b - a, v = d - a, w = e - a;
@@ -226,25 +236,47 @@ namespace g3
                 double mu = u.MaxAbs, mv = v.MaxAbs, mw = w.MaxAbs;
                 double hi = Math.Max(mu, Math.Max(mv, mw));
                 double lo = Math.Min(mu, Math.Min(mv, mw));
-                if (hi <= FastScaleMax && (hi == 0 || lo >= FastScaleMin))
+                double mx = Math.Max(Math.Abs(u.x), Math.Max(Math.Abs(v.x), Math.Abs(w.x)));
+                double my = Math.Max(Math.Abs(u.y), Math.Max(Math.Abs(v.y), Math.Abs(w.y)));
+                double mz = Math.Max(Math.Abs(u.z), Math.Max(Math.Abs(v.z), Math.Abs(w.z)));
+                double loCol = Math.Min(mx, Math.Min(my, mz));
+                if (hi <= FastScaleMax && (hi == 0 || (lo >= FastScaleMin && loCol >= FastScaleMin)))
                     return u.Cross(v).Dot(w) / 6.0;
             }
             if (!a.IsFinite || !b.IsFinite || !d.IsFinite || !e.IsFinite)
                 return double.NaN;
+            // Anchor at a vertex of the shortest edge (via an even permutation so the signed volume is unchanged),
+            // preventing catastrophic cancellation when two vertices are much closer to each other than to a.
             u = SafeDiff(b, a, out int pu);
             v = SafeDiff(d, a, out int pv);
             w = SafeDiff(e, a, out int pw);
-            // det(diag(2^-pu,2^-pv,2^-pw) * M * diag(2^-ex,2^-ey,2^-ez)) = 2^-(ex+ey+ez+pu+pv+pw) * det(M):
-            // per-column (axis) scaling keeps all three coordinate axes in [-2, 2] without losing thin axes.
-            double mx = Math.Max(Math.Abs(u.x), Math.Max(Math.Abs(v.x), Math.Abs(w.x)));
-            double my = Math.Max(Math.Abs(u.y), Math.Max(Math.Abs(v.y), Math.Abs(w.y)));
-            double mz = Math.Max(Math.Abs(u.z), Math.Max(Math.Abs(v.z), Math.Abs(w.z)));
-            if (mx == 0 || my == 0 || mz == 0) return 0;
-            int ex = Pow2Exp(mx), ey = Pow2Exp(my), ez = Pow2Exp(mz);
-            Vector3d us = new Vector3d(ExactPoint3.ScaleB(u.x, -ex), ExactPoint3.ScaleB(u.y, -ey), ExactPoint3.ScaleB(u.z, -ez));
-            Vector3d vs = new Vector3d(ExactPoint3.ScaleB(v.x, -ex), ExactPoint3.ScaleB(v.y, -ey), ExactPoint3.ScaleB(v.z, -ez));
-            Vector3d ws = new Vector3d(ExactPoint3.ScaleB(w.x, -ex), ExactPoint3.ScaleB(w.y, -ey), ExactPoint3.ScaleB(w.z, -ez));
-            return ExactPoint3.ScaleB(us.Cross(vs).Dot(ws) / 6.0, ex + ey + ez + pu + pv + pw);
+            int bestP = pu; double bestM = u.MaxAbs; int anchor = 0;
+            if (pv < bestP || (pv == bestP && v.MaxAbs < bestM)) { bestP = pv; bestM = v.MaxAbs; }
+            if (pw < bestP || (pw == bestP && w.MaxAbs < bestM)) { bestP = pw; bestM = w.MaxAbs; }
+            Vector3d bd = SafeDiff(d, b, out int pbd);
+            if (pbd < bestP || (pbd == bestP && bd.MaxAbs < bestM)) { bestP = pbd; bestM = bd.MaxAbs; anchor = 1; }
+            Vector3d be = SafeDiff(e, b, out int pbe);
+            if (pbe < bestP || (pbe == bestP && be.MaxAbs < bestM)) { bestP = pbe; bestM = be.MaxAbs; anchor = 1; }
+            Vector3d de = SafeDiff(e, d, out int pde);
+            if (pde < bestP || (pde == bestP && de.MaxAbs < bestM)) { anchor = 2; }
+            if (anchor == 1) {
+                u = SafeDiff(a, b, out pu); v = be; pv = pbe; w = bd; pw = pbd;
+            } else if (anchor == 2) {
+                u = de; pu = pde; v = SafeDiff(a, d, out pv); w = SafeDiff(b, d, out pw);
+            }
+            double um = u.MaxAbs, vm = v.MaxAbs, wm = w.MaxAbs;
+            if (um == 0 || vm == 0 || wm == 0) return 0;
+            // det(R * M * C) = det(R) * det(M) * det(C): row exponents (eu, ev, ew) plus residual column exponents
+            // (ecx, ecy, ecz <= 0) keep every nonzero entry in (-2, 2) without losing either thin rows or thin columns.
+            int eu = Pow2Exp(um), ev = Pow2Exp(vm), ew = Pow2Exp(wm);
+            int ecx = ColResidualExp(u.x, eu, v.x, ev, w.x, ew, out bool anyX);
+            int ecy = ColResidualExp(u.y, eu, v.y, ev, w.y, ew, out bool anyY);
+            int ecz = ColResidualExp(u.z, eu, v.z, ev, w.z, ew, out bool anyZ);
+            if (!anyX || !anyY || !anyZ) return 0;
+            Vector3d us = new Vector3d(ExactPoint3.ScaleB(u.x, -(eu + ecx)), ExactPoint3.ScaleB(u.y, -(eu + ecy)), ExactPoint3.ScaleB(u.z, -(eu + ecz)));
+            Vector3d vs = new Vector3d(ExactPoint3.ScaleB(v.x, -(ev + ecx)), ExactPoint3.ScaleB(v.y, -(ev + ecy)), ExactPoint3.ScaleB(v.z, -(ev + ecz)));
+            Vector3d ws = new Vector3d(ExactPoint3.ScaleB(w.x, -(ew + ecx)), ExactPoint3.ScaleB(w.y, -(ew + ecy)), ExactPoint3.ScaleB(w.z, -(ew + ecz)));
+            return ExactPoint3.ScaleB(us.Cross(vs).Dot(ws) / 6.0, eu + ev + ew + ecx + ecy + ecz + pu + pv + pw);
         }
 
         /// <summary> circumcenter of cell c (floating point) </summary>

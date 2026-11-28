@@ -16,7 +16,7 @@ class Delaunay3CosphericalZ3Tests(unittest.TestCase):
         cases = [
             ('return SafeDistance(a, b) <= minSeparation;',
              'return a.DistanceSquared(b) <= minSeparation * minSeparation;'),
-            ('return ExactPoint3.ScaleB(us.Cross(vs).Dot(ws) / 6.0, ex + ey + ez + pu + pv + pw);',
+            ('return ExactPoint3.ScaleB(us.Cross(vs).Dot(ws) / 6.0, eu + ev + ew + ecx + ecy + ecz + pu + pv + pw);',
              'return us.Cross(vs).Dot(ws) / 6.0;'),
             ('int shift = maxE - 1000;',
              'int shift = 0;'),

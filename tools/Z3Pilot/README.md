@@ -1151,17 +1151,18 @@ python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topol
 * `delaunay3_cospherical.py` checks cospherical cavity properties, star-shape growth, Portaneri
   et al.'s ball-center breaker guarantee boundary, and extreme-scale `Circumcenter` / `CellVolume` /
   `WithinSeparation` arithmetic in `comp_geom/Delaunay3.cs`: proves in `QF_NRA` that an exact
-  Delaunay strict cavity is always star-shaped (`Delaunay3.cs:583-584` & `847-849`) and cospherical
+  Delaunay strict cavity is always star-shaped (`Delaunay3.cs:615-616` & `879-881`) and cospherical
   adjacent tetrahedra share identical strict cavity membership (with a non-Delaunay negative control),
   proves the 3-ball cavity Euler identity `F = 2T + 2 - 2 E_i` (`ALPHA_WRAP_ROUNDS.md:159`, with a
   `V_i >= 1` negative control), derives `2*T = V_b^2 - 5*V_b + 6` and quadratic `T = Theta(V_b^2)`
   cospherical blow-up directly in `QF_NIA`, establishes the `QF_LRA` separation and triangle-inequality
   open-offset-ball clearance boundary for inserting a cospherical ball center
   (`ALPHA_WRAP_PAPER_NOTES.md` §1, with `R <= alpha` and unguarded `d_c == 0` counterexamples), proves
-  3-axis per-edge `Circumcenter` / `CellVolume` scaling (`QF_NRA`) and `FastScaleMin`/`FastScaleMax`
-  degree-4 exponent bounds (`QF_LIA`), and runs 6 `binary64` replays (`2^±270`/`2^±600`, mixed-exponent
-  anisotropic axes, `pre == 1`, `|cc - a| > DBL_MAX` rescaled frame, anisotropic sliver `CellVolume`,
-  and `WithinSeparation` underflow/overflow). Full 3D Delaunay walk performance remains outside this pilot.
+  3-axis per-edge `Circumcenter` and combined row+column `CellVolume` scaling (`QF_NRA`) plus
+  `FastScaleMin`/`FastScaleMax` degree-4 exponent bounds (`QF_LIA`), and runs 6 `binary64` replays
+  (`2^±270`/`2^±600`, mixed-exponent anisotropic axes, `pre == 1`, `|cc - a| > DBL_MAX` rescaled
+  frame, anisotropic/rotated sliver `CellVolume`, and `WithinSeparation` underflow/overflow). Full
+  3D Delaunay walk performance remains outside this pilot.
 
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_delaunay3_cospherical.py -v

@@ -5,7 +5,7 @@ Portaneri et al.'s cospherical ball-center breaker guarantee boundary, and extre
 Circumcenter / CellVolume / WithinSeparation invariants of comp_geom/Delaunay3.cs
 (docs/design/ALPHA_WRAP_PAPER_NOTES.md §1, docs/design/ALPHA_WRAP_ROUNDS.md §4.3 & §6):
 
-1. Exact Delaunay strict cavity is ALWAYS star-shaped (Delaunay3.cs:583-584 & 847-849):
+1. Exact Delaunay strict cavity is ALWAYS star-shaped (Delaunay3.cs:615-616 & 879-881):
    - WLOG by rigid motion + positive scaling, place a boundary facet (a, b, c) in z = 0 with
      unit circumcircle centered at (0, 0, 0). Adjacent tetrahedra T1 (z < 0, sphere center
      (0, 0, h1)) and T2 (z > 0, sphere center (0, 0, h2)) satisfy the local Delaunay condition
@@ -15,7 +15,7 @@ Circumcenter / CellVolume / WithinSeparation invariants of comp_geom/Delaunay3.c
    - Proves (QF_NRA, 4 vars): [h2 >= h1, Pi1 < 0, Pi2 >= 0] => pz < 0 ALWAYS (pz >= 0 is UNSAT),
      so p sees every boundary facet strictly from inside and the star-shape growth loop never
      adds a cell in an exact Delaunay triangulation (box-boundary facets are already excluded by
-     the strict Box.Min < p < Box.Max guard at Delaunay3.cs:555 & 819).
+     the strict Box.Min < p < Box.Max guard at Delaunay3.cs:587 & 851).
    - Proves (QF_NRA): when T1 and T2 are cospherical (h1 == h2), they always have identical
      strict cavity membership (Xor(Pi1 < 0, Pi2 < 0) is UNSAT) — explaining why cospherical domes
      collapse all at once.
@@ -41,7 +41,7 @@ Circumcenter / CellVolume / WithinSeparation invariants of comp_geom/Delaunay3.c
      UNSAT), while dc > delta (SAT) relaxes on-surface placement; if unguarded (dc >= 0 only),
      d_cx == 0 with d_xq == 0 (dc == 0, center ON the input) is SAT, answering
      ALPHA_WRAP_PAPER_NOTES.md:67.
-4. Per-edge Circumcenter & CellVolume scaling + FastScale exponent bounds + binary64 replays:
+4. Per-edge Circumcenter & combined row+column CellVolume scaling + FastScale bounds + replays:
    - Proves (QF_NRA, 6 vars) on a 3-axis tetrahedron with independent scales (su, sv, sw > 0)
      that per-edge scaling cancels su*sv*sw in dens and preserves both Circumcenter and CellVolume
      identically, while single-axis scaling fails when su != sv (SAT negative control).
@@ -50,8 +50,9 @@ Circumcenter / CellVolume / WithinSeparation invariants of comp_geom/Delaunay3.c
      controls at +-270.
    - 6 binary64 replays mirroring comp_geom/Delaunay3.cs 1-to-1: isotropic 2^±270 & 2^±600,
      mixed-exponent H1 ((1, 2^-600, 2^-600) and (2^520, 2^520, 2^-1000)), pre == 1 ([-9e307, 9e307]),
-     large-offset H2 (|cc - a| > DBL_MAX while |cc| <= DBL_MAX), anisotropic CellVolume (per-column
-     axis scaling across corner & diagonal Kuhn cells), and WithinSeparation underflow/overflow.
+     large-offset H2 (|cc - a| > DBL_MAX while |cc| <= DBL_MAX), anisotropic CellVolume (corner,
+     diagonal Kuhn cell, fast-path column-thin cell, and rotated anisotropic sliver via shortest-edge
+     anchor + combined row+column scaling), and WithinSeparation underflow/overflow.
 """
 import math
 import struct
@@ -64,7 +65,7 @@ DT_SOURCE = 'comp_geom/Delaunay3.cs'
 
 DT_ANCHORS = [
     ('const double MinNormal = 2.2250738585072014e-308;', 'int new_cell(',
-     '59c3cb1b4b4dfe6f66c2cf023de428ba3713b26f25e37be2f948a20a42bb36b5'),
+     '968b2fd9f9c457dc7a9e66c6c433643af04c866681dd58c3767f61cd8f1c384a'),
     ('// grow the cavity until p sees every boundary facet strictly from inside (star-shaped);', '// every vertex of the cavity must stay',
      '8ecd35b7343fdac08cec2327da39309bafabc68947a7e19287dfab1978dfbfc3'),
     ('// the nearest vertex of p is a vertex of its conflict region', 'if (support) {',
@@ -435,30 +436,73 @@ def _new_circumcenter(a, b, c, d):
     return _vscale(s_sum, shift)
 
 
+def _col_residual_exp(ux, eu, vx, ev, wx, ew):
+    ec = None
+    if ux != 0.0:
+        v = _pow2_exp(abs(ux)) - eu
+        ec = v if ec is None else max(ec, v)
+    if vx != 0.0:
+        v = _pow2_exp(abs(vx)) - ev
+        ec = v if ec is None else max(ec, v)
+    if wx != 0.0:
+        v = _pow2_exp(abs(wx)) - ew
+        ec = v if ec is None else max(ec, v)
+    return ec
+
+
 def _new_cell_volume(a, b, d, e):
     u, v, w = _vsub(b, a), _vsub(d, a), _vsub(e, a)
     if _vfinite(u) and _vfinite(v) and _vfinite(w):
         mu, mv, mw = _vmaxabs(u), _vmaxabs(v), _vmaxabs(w)
         hi, lo = max(mu, mv, mw), min(mu, mv, mw)
-        if hi <= _FAST_MAX and (hi == 0.0 or lo >= _FAST_MIN):
+        mx = max(abs(u[0]), abs(v[0]), abs(w[0]))
+        my = max(abs(u[1]), abs(v[1]), abs(w[1]))
+        mz = max(abs(u[2]), abs(v[2]), abs(w[2]))
+        lo_col = min(mx, my, mz)
+        if hi <= _FAST_MAX and (hi == 0.0 or (lo >= _FAST_MIN and lo_col >= _FAST_MIN)):
             return _vdot(_vcross(u, v), w) / 6.0
     if not (_vfinite(a) and _vfinite(b) and _vfinite(d) and _vfinite(e)):
         return float('nan')
     u, pu = _safe_diff(b, a)
     v, pv = _safe_diff(d, a)
     w, pw = _safe_diff(e, a)
-    mx = max(abs(u[0]), abs(v[0]), abs(w[0]))
-    my = max(abs(u[1]), abs(v[1]), abs(w[1]))
-    mz = max(abs(u[2]), abs(v[2]), abs(w[2]))
-    if mx == 0.0 or my == 0.0 or mz == 0.0:
+    best_p, best_m, anchor = pu, _vmaxabs(u), 0
+    if pv < best_p or (pv == best_p and _vmaxabs(v) < best_m):
+        best_p, best_m = pv, _vmaxabs(v)
+    if pw < best_p or (pw == best_p and _vmaxabs(w) < best_m):
+        best_p, best_m = pw, _vmaxabs(w)
+    bd, pbd = _safe_diff(d, b)
+    if pbd < best_p or (pbd == best_p and _vmaxabs(bd) < best_m):
+        best_p, best_m, anchor = pbd, _vmaxabs(bd), 1
+    be, pbe = _safe_diff(e, b)
+    if pbe < best_p or (pbe == best_p and _vmaxabs(be) < best_m):
+        best_p, best_m, anchor = pbe, _vmaxabs(be), 1
+    de, pde = _safe_diff(e, d)
+    if pde < best_p or (pde == best_p and _vmaxabs(de) < best_m):
+        anchor = 2
+    if anchor == 1:
+        u, pu = _safe_diff(a, b)
+        v, pv = be, pbe
+        w, pw = bd, pbd
+    elif anchor == 2:
+        u, pu = de, pde
+        v, pv = _safe_diff(a, d)
+        w, pw = _safe_diff(b, d)
+    um, vm, wm = _vmaxabs(u), _vmaxabs(v), _vmaxabs(w)
+    if um == 0.0 or vm == 0.0 or wm == 0.0:
         return 0.0
-    ex, ey, ez = _pow2_exp(mx), _pow2_exp(my), _pow2_exp(mz)
-    us = (math.ldexp(u[0], -ex), math.ldexp(u[1], -ey), math.ldexp(u[2], -ez))
-    vs = (math.ldexp(v[0], -ex), math.ldexp(v[1], -ey), math.ldexp(v[2], -ez))
-    ws = (math.ldexp(w[0], -ex), math.ldexp(w[1], -ey), math.ldexp(w[2], -ez))
+    eu, ev, ew = _pow2_exp(um), _pow2_exp(vm), _pow2_exp(wm)
+    ecx = _col_residual_exp(u[0], eu, v[0], ev, w[0], ew)
+    ecy = _col_residual_exp(u[1], eu, v[1], ev, w[1], ew)
+    ecz = _col_residual_exp(u[2], eu, v[2], ev, w[2], ew)
+    if ecx is None or ecy is None or ecz is None:
+        return 0.0
+    us = (math.ldexp(u[0], -(eu + ecx)), math.ldexp(u[1], -(eu + ecy)), math.ldexp(u[2], -(eu + ecz)))
+    vs = (math.ldexp(v[0], -(ev + ecx)), math.ldexp(v[1], -(ev + ecy)), math.ldexp(v[2], -(ev + ecz)))
+    ws = (math.ldexp(w[0], -(ew + ecx)), math.ldexp(w[1], -(ew + ecy)), math.ldexp(w[2], -(ew + ecz)))
     val = _vdot(_vcross(us, vs), ws) / 6.0
     try:
-        return math.ldexp(val, ex + ey + ez + pu + pv + pw)
+        return math.ldexp(val, eu + ev + ew + ecx + ecy + ecz + pu + pv + pw)
     except OverflowError:
         return math.copysign(float('inf'), val)
 
@@ -551,20 +595,32 @@ def replay_fp():
         passed=h2_ok,
     ))
 
-    # 5. CellVolume on anisotropic box [0, 2^520] x [0, 2^520] x [0, 2^-1000] (corner + diagonal Kuhn cell)
+    # 5. CellVolume on corner, diagonal Kuhn cell, fast-path column-thin cell, and rotated anisotropic sliver
     s520, sm1000 = math.ldexp(1.0, 520), math.ldexp(1.0, -1000)
+    sm100, s100 = math.ldexp(1.0, -100), math.ldexp(1.0, 100)
     a0, b0, d0, e0 = (0.0, 0.0, 0.0), (s520, 0.0, 0.0), (0.0, s520, 0.0), (0.0, 0.0, sm1000)
-    # Diagonal Kuhn cell where u, v, w, e-b, e-d all have magnitude 2^520: per-row scaling loses z, per-column stays exact!
     a1, b1, d1, e1 = (0.0, 0.0, 0.0), (s520, 0.0, 0.0), (s520, 0.0, sm1000), (s520, s520, sm1000)
+    a2, b2, d2, e2 = (0.0, 0.0, 0.0), (sm100, 0.0, sm1000), (sm100, 0.0, 0.0), (0.0, s100, 0.0)
+    a3, b3, d3, e3 = (0.0, 0.0, 0.0), (s520, s520, s520), (s520, -s520, 0.0), (sm1000, sm1000, -2.0 * sm1000)
     old_vol0 = _vdot(_vcross(_vsub(b0, a0), _vsub(d0, a0)), _vsub(e0, a0)) / 6.0
+    old_vol2 = _vdot(_vcross(_vsub(b2, a2), _vsub(d2, a2)), _vsub(e2, a2)) / 6.0
     new_vol0 = _new_cell_volume(a0, b0, d0, e0)
     new_vol1 = abs(_new_cell_volume(a1, b1, d1, e1))
+    new_vol2 = _new_cell_volume(a2, b2, d2, e2)
+    new_vol3 = _new_cell_volume(a3, b3, d3, e3)
+    new_vol3_perm = _new_cell_volume(b3, a3, e3, d3)
     expected_vol = math.ldexp(1.0 / 6.0, 40)
+    expected_thin = math.ldexp(1.0 / 6.0, -1000)
+    expected_rot = math.ldexp(1.0, 40)
     replays.append(dict(
         name='cell_volume_anisotropic_sliver_replay',
         old_inf=math.isinf(old_vol0),
-        new_exact=(new_vol0 == expected_vol and new_vol1 == expected_vol),
-        passed=math.isinf(old_vol0) and (new_vol0 == expected_vol) and (new_vol1 == expected_vol),
+        old_col_thin_zero=(old_vol2 == 0.0),
+        new_exact=(new_vol0 == expected_vol and new_vol1 == expected_vol
+                   and new_vol2 == expected_thin and new_vol3 == expected_rot and new_vol3_perm == expected_rot),
+        passed=(math.isinf(old_vol0) and old_vol2 == 0.0 and new_vol0 == expected_vol
+                and new_vol1 == expected_vol and new_vol2 == expected_thin
+                and new_vol3 == expected_rot and new_vol3_perm == expected_rot),
     ))
 
     # 6. WithinSeparation at tiny (2^-540 vs 2^-545) and huge (2^520 vs 2^515) scales
