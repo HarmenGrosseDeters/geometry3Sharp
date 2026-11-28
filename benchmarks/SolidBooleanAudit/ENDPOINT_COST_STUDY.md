@@ -1,5 +1,7 @@
 # Exact Boolean endpoint budget cost study
 
+The [timed prototype report](WEIGHTED_ENDPOINT_TRIAL.md) follows up on the predicate counts with two stages of end-to-end A/B runs.
+
 The opt-in budget check can save crossing preparation, the second canonical point merge, and full piece prediction. It runs after pair intersections and the first point merge. At the caps in the refusal trials, the original predictor also stops before triangulation. Input size or final piece count alone cannot explain the speedup. The early check has to certify the requested cap using the endpoints available at the first merge, and the phases that follow must cost enough to pay for the check. [Endpoint budget design](../../docs/design/EXACT_BOOLEAN_ENDPOINT_BUDGET.md)
 
 ## Two questions for each workload
