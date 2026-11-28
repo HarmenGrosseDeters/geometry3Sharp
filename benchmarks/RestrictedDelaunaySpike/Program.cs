@@ -207,6 +207,18 @@ namespace RestrictedDelaunaySpike
             }
             foreach (double psi in new[] { 15.0, 30, 45, 60, 90, 120, 135, 150, 160, 170, 175, 200, 240, 270, 300, 330 })
                 cases.Add(("lens", "lens_psi" + psi, () => Lens(psi, 400, 60), 1.0 / 30));
+            if (args.Contains("probe")) {
+                // JIT warm-up on the coarsest sphere, output dropped
+                var stdout = Console.Out; Console.SetOut(System.IO.TextWriter.Null);
+                Probe.Run(Sphere(64, p => p), "warm-up", 1.0 / 30, Rotate, InitialSample, true, args.Contains("lazy"));
+                Console.SetOut(stdout);
+                foreach (var c in cases) {
+                    if (c.group != "smooth") continue;
+                    if (only != null && !System.Text.RegularExpressions.Regex.IsMatch(c.name, only)) continue;
+                    Probe.Run(c.make(), c.name, c.rmax, Rotate, InitialSample, args.Contains("cut") || args.Contains("lazy"), args.Contains("lazy"));
+                }
+                return;
+            }
             if (args.Contains("rvc")) {
                 // self-test of the RVC topology: sphere with samples at the poles (two hemispheres: disks, chi 1); torus with three
                 // samples on its centre circle (three tube sectors: annuli, chi 0, one component each)

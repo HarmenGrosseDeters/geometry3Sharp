@@ -81,3 +81,44 @@ cells of the samples in floating point (`RvcCheck.cs`: bisector clipping of the 
 propagation) and compares their (C') / R2 verdicts per sample with the proxy's, before the first region round and at the
 end, on the inputs above plus coarse ones (input edges up to 8 r_max). Results and reading:
 [GEOGRAM_MEASUREMENTS_2026-11.md](../../docs/research/GEOGRAM_MEASUREMENTS_2026-11.md), item 3.
+
+## Stage 1b upper bound: incremental restricted Voronoi cells (2026-11-28)
+
+The stop rule of stage 1b, measured before the library code: refinement with the exact clipping must cost at most 2x the
+spike's 223 us per output vertex (446 us), on the smooth set at d120. `RvcIncremental.cs` keeps the restricted Voronoi
+cells up to date in floating point during the spike's refinement. Every recompute is checked against a full `RvcCheck` on
+the final triangulation, comparing chi, components and pieces per cell: 0 mismatches in every run below. Each polygon
+vertex is tagged with the kind of point the exact clipping tests: 1 a mesh vertex (`BisectorSide1`), 2 a mesh edge on a
+bisector (`BisectorSide2`), 3 a Voronoi edge in the plane of a triangle (`BisectorSide3`, prepared once per point). The
+side tests and the R2 tests at the final polygon vertices (`DistanceAbove1-3`) are counted. Every 8th call's arguments are
+sampled (up to 200k per kind) and the exact entries are timed on them.
+
+```
+dotnet build benchmarks/RestrictedDelaunaySpike -c Release
+dotnet run -c Release --no-build --project benchmarks/RestrictedDelaunaySpike -- probe only=d120            # recompute
+dotnet run -c Release --no-build --project benchmarks/RestrictedDelaunaySpike -- probe cut only=d120        # cut
+dotnet run -c Release --no-build --project benchmarks/RestrictedDelaunaySpike -- probe lazy only=d120       # cut_lazy
+PRUNE=poly dotnet run -c Release --no-build --project benchmarks/RestrictedDelaunaySpike -- probe lazy only=d120
+PRUNE=tri  dotnet run -c Release --no-build --project benchmarks/RestrictedDelaunaySpike -- probe lazy only=d120
+```
+
+Raw output: [perf/stage1b-probe/](perf/stage1b-probe/) (master c855e5e7 plus this project, net10.0, 4 cores, one run each;
+the `poly` file was run as `PRUNE=1`). Bound = spike + RVC (float) + exact, where exact = the sum over kinds of count × ns
+per call. The spike's own time varies by about 15 % between runs (sphere 260-318 us).
+
+| mode | what is recomputed after an insertion of p | side tests / insertion (kind 1 / 2 / 3) | RVC float us / vertex | exact us / vertex | bound us / vertex |
+|---|---|---:|---:|---:|---:|
+| recompute | every cavity vertex's cell, on its candidate triangles, against all its neighbours | 4.1k-6.7k / 1.3k-2.1k / 73-135 | 455-605 | 205-380 | 905-1241 |
+| cut | old cells: their stored pieces clipped by bisector(j, p) only (V_new(j) = V_old(j) ∩ H(j, p)); p's cell: the triangles that were cut | 760-1197 / 603-916 / 67-126 | 143-201 | 55-80 | 403-596 |
+| cut_lazy | as cut; the (C') summary (chi, components) of cut cells once per region round, not per insertion | as cut | 102-150 | 56-79 | 366-462 |
+| cut_lazy_prune_poly | as cut_lazy; a piece is skipped when \|p - j\| > 2 max \|x - j\| over its float vertices | 361-552 / 273-352 / 34-35 | 95-132 | 29-42 | 368-430 |
+| cut_lazy_prune_tri | as cut_lazy; the skip radius from the triangle's input vertices, so it involves no constructed point | 407-591 / 359-423 / 42-51 | 109-143 | 35-46 | 382-473 |
+
+ns per exact call on the sampled arguments (the filter decides all of them; the plain predicate was 0 in none of the
+samples, so the symbolic cascade was never reached on this set): `BisectorSide1` 26-34, `BisectorSide2` 52-73,
+`BisectorSide3` 75-95 (prepared: 81-96 per prepare, 17-26 per call), `DistanceAbove1` 21-28, `DistanceAbove2` 48-57,
+`DistanceAbove3` 72-87. For comparison, the float side test is 5-8 ns. Prepares: 16.7 per insertion.
+
+The spike's dual-edge test (`compute_facet`: circumcentres, an AABB ray query and float crossings) is 94-151 us of the
+spike's 228-318 us per vertex in the two prune runs. The clipping makes it redundant: a facet pqr is restricted iff a kind-3 vertex has the
+sites {p, q, r}, and that point is the ball centre. Without it the cut_lazy_prune_tri bound is 285-322 us.

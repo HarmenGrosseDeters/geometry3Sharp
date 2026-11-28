@@ -42,6 +42,10 @@ namespace RestrictedDelaunaySpike
         readonly HashSet<(int, (int, int, int), int)> refused = new HashSet<(int, (int, int, int), int)>();
 
         public int Inserted, Refused, Failed;
+        /// <summary> probe hooks (stage 1b upper bound): called once the initial sample is in (with RefinementSupport on), and
+        /// after every accepted insertion with the new vertex and the cavity's removed / added cells </summary>
+        public Action Seeded;
+        public Action<int, List<int>, List<int>> AfterInsert;
         public double Seconds;
         readonly List<int> removed = new List<int>(), added = new List<int>(), hits = new List<int>();
 
@@ -63,7 +67,15 @@ namespace RestrictedDelaunaySpike
         bool valid(in Facet f) => dt.IsCell(f.Cell) && dt.CellStamp(f.Cell) == f.Stamp;
 
         // the dual Voronoi edge of facet (c, i) against S
+        public double FacetSeconds;
+        readonly Stopwatch facetWatch = new Stopwatch();
         void compute_facet(int c, int i)
+        {
+            facetWatch.Start();
+            try { compute_facet_(c, i); } finally { facetWatch.Stop(); FacetSeconds = facetWatch.Elapsed.TotalSeconds; }
+        }
+
+        void compute_facet_(int c, int i)
         {
             int n = dt.Neighbour(c, i);
             Index3i fv = dt.FacetVertices(c, i);
@@ -163,6 +175,7 @@ namespace RestrictedDelaunaySpike
             double margin = Math.Max(box.Diagonal.Length, 8 * HMin);
             box.Expand(margin);
             dt = new Delaunay3(box);
+            if (Seeded != null) dt.RefinementSupport = true;
             int hint = -1;
             foreach (var p in initial) {
                 if (dt.Insert(p, hint, HMin, out int v) == Delaunay3.InsertResult.Inserted) Inserted++;
@@ -172,6 +185,7 @@ namespace RestrictedDelaunaySpike
                     int n = dt.Neighbour(c, i);
                     if (n < 0 || c < n) compute_facet(c, i);
                 }
+            Seeded?.Invoke();
             refine();
             for (Rounds = 0; Rounds < 50; ++Rounds) {
                 BeforeRegionRound?.Invoke(Rounds);
@@ -186,6 +200,7 @@ namespace RestrictedDelaunaySpike
                     removed.Clear(); added.Clear();
                     if (dt.Insert(x, hint, HMin, out int nv, removed, added) != Delaunay3.InsertResult.Inserted) { Refused++; continue; }
                     Inserted++;
+                    AfterInsert?.Invoke(nv, removed, added);
                     foreach (int c in added)
                         if (dt.IsCell(c))
                             for (int i = 0; i < 4; ++i) compute_facet(c, i);
@@ -299,6 +314,7 @@ namespace RestrictedDelaunaySpike
                     continue;
                 }
                 Inserted++;
+                AfterInsert?.Invoke(nv, removed, added);
                 foreach (int c in added)
                     if (dt.IsCell(c))
                         for (int i = 0; i < 4; ++i) compute_facet(c, i);
