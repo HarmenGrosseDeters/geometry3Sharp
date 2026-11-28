@@ -263,6 +263,42 @@ The owner decided that `RegionClipping` becomes the default after a corpus run. 
 with the switch on; the time with and without is reported. Second PR, only if the gate is clean: the default switches to on (the flag stays as an opt-out), the pins and
 hashes move with a reason each, and a release note says "the triangulation of coplanar clusters differs; same surface".
 
+### Stage 4 part 2: the default switch (2026-11-28)
+
+`ExactMeshBoolean.RegionClipping` is on by default (`internal`, the opt-out stays: `RegionClipping = false`). What moved with it:
+
+- **Regions are built lean**: only for triangles that share a plane with another needed triangle (`rep` equality instead of the exact `same_plane`), so an input with no
+  coplanar cluster pays for no BigInteger plane and no edge dictionary. This is the suspected source of the slower medians on small and mid-size corpus inputs
+  (0-5k triangles 41 against 55 ms, 20k-100k 72 against 182 ms in the corpus run before the change); on the procedural inputs below it is gone (two crossing spheres without a
+  coplanar face: x0.95-0.99). The corpus meshes are not available in the session, so the median of the corpus is to be read from the next corpus run (workflow
+  `region-clipping-corpus.yml`), not from this note.
+- **Two consumers of the stacks became region-aware** (found by the suite with the default on): the contact regions of `BooleanVolumeGradient` (a piece with its centroid on a
+  flat edge listed two triangles of one region: one contact region of area 0.25 came out as two of 0.125) and the fast generalized winding number in front of a piece
+  (`front_generalized_winding` counted the +-1/2 of a region twice: the intersection of two coplanar boxes through `ForceGeneralizedWinding` was open with 15 boundary edges).
+  Both are pinned by existing tests that fail on the old code of this branch (`GeneralizedWinding_MatchesExactForClosedMeshes` with the mutation: the dedup off, red).
+- **Pins**: tests that compare the old rule's mechanics (coplanar walk, certificate fan and box tree tests, certificate file round trip: the file format has no regions) set
+  `RegionClipping = false` explicitly; `GeneralizedWinding_MatchesExactForClosedMeshes` compares triangle counts with the old rule (the exact path culls, the generalized does not,
+  and the triangulations then differ: 12 against 21) and the volumes with the default.
+- **Known limit**: a certificate file (`CertificateFile`) of a region-clipped result cannot be checked stand-alone; the in-process certificate checks it.
+
+Cost of the switch on procedural inputs of the corpus's sizes (`dotnet run --project benchmarks/CoplanarRegionClipping -c Release`, 4 cores, median of 3, ms; phases of the last run):
+
+| case | triangles | ms off | ms on | on / off | planes off / on | intersect off / on | merge off / on | classification off / on | assembly off / on |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two spheres crossing (no coplanar face), 30 per edge | 20184 | 47 | 46 | x0.98 | 1 / 1 | 1 / 1 | 2 / 2 | 3 / 4 | 8 / 8 |
+| two spheres crossing (no coplanar face), 60 per edge | 83544 | 148 | 141 | x0.95 | 1 / 2 | 2 / 2 | 8 / 7 | 11 / 9 | 25 / 33 |
+| two spheres crossing (no coplanar face), 120 per edge | 339864 | 540 | 535 | x0.99 | 5 / 17 | 5 / 10 | 25 / 22 | 40 / 39 | 120 / 122 |
+| two grid boxes, face contact, 30 per edge | 20184 | 302 | 110 | x0.36 | 2 / 4 | 26 / 31 | 17 / 6 | 159 / 20 | 9 / 9 |
+| two grid boxes, face contact, 60 per edge | 83544 | 1453 | 540 | x0.37 | 13 / 16 | 184 / 147 | 82 / 27 | 690 / 177 | 39 / 29 |
+| two grid boxes, face contact, 120 per edge | 339864 | 5700 | 2467 | x0.43 | 96 / 65 | 649 / 750 | 705 / 237 | 2509 / 611 | 191 / 173 |
+| two grid boxes overlapping, faces flush, 30 per edge | 20184 | 461 | 163 | x0.35 | 5 / 12 | 33 / 57 | 20 / 6 | 170 / 19 | 69 / 15 |
+| two grid boxes overlapping, faces flush, 60 per edge | 83544 | 1668 | 728 | x0.44 | 17 / 26 | 203 / 172 | 217 / 135 | 632 / 178 | 269 / 40 |
+| two grid boxes overlapping, faces flush, 120 per edge | 339864 | 7094 | 3007 | x0.42 | 63 / 91 | 1270 / 1257 | 733 / 235 | 2299 / 561 | 1088 / 218 |
+| two capped cylinders, shifted by 0.25 (fans) | 1920 | 1062 | 220 | x0.21 | 1 / 1 | 122 / 104 | 58 / 67 | 486 / 15 | 231 / 7 |
+
+Without a coplanar cluster the switch costs nothing measurable (spheres, perpendicular cylinders: 11 against 10 ms); with face contact it is x0.2-0.45 of the old time, the saving
+in the classification and the merge. Where the corpus run still shows slower medians, the planes phase (x1.3-3 in the table: the regions of the clustered inputs) is the first suspect.
+
 ## 9. Prior art (papers only; no code read)
 
 - G. Bernstein, D. Fussell, *Fast, Exact, Linear Booleans*, Computer Graphics Forum 28(5), 1269-1278, 2009 (Eurographics SGP): exact BSP
