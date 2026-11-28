@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Numerics;
 using System.Threading;
 using g3;
 
@@ -1505,25 +1506,9 @@ namespace gs
             // 6. the self-contacts of the result, separated (the final check is made again if a vertex moved)
             if (SeparateSelfContacts > 0 && result.TriangleCount > 0) {
                 clock.Restart();
-                var checkedBefore = new SolidBooleanReport();
-                checkedBefore.SetFinalCheck(Report);
-                var movedFrom = new Dictionary<int, Vector3d>();
-                SeparateSelfContactsOf(result, SeparateSelfContacts, Report, Cancellation, movedFrom);
+                SeparateSelfContactsChecked(result, SeparateSelfContacts, Report, Cancellation);
                 if (Cancellation.IsCancellationRequested)
                     return fail(PipelineStatus.Cancelled, "cancelled", total);
-                if (Report.SelfContactVerticesMoved > 0) {
-                    FinalCheck(result, Report);
-                    if (CheckRank(Report) < CheckRank(checkedBefore)) {
-                        // (the moves made the result worse: the tolerance test of NotCleanReason finds what the exact tests of the step do not)
-                        foreach (var kv in movedFrom)
-                            result.SetVertex(kv.Key, kv.Value);
-                        Report.SetFinalCheck(checkedBefore);
-                        Report.SelfContactMovesRevertedAsWorse = true;
-                        Report.SelfContactVerticesMoved = 0;
-                        Report.SelfContactMaxMove = 0;
-                        Report.SelfContactsLeft = Report.SelfContactsFound;
-                    }
-                }
                 Report.FinalCheckMilliseconds += clock.ElapsedMilliseconds;
             }
 
@@ -1531,6 +1516,32 @@ namespace gs
             Status = PipelineStatus.Success;
             Report.TotalMilliseconds = total.ElapsedMilliseconds;
             return true;
+        }
+
+        /// <summary>
+        /// The step of SeparateSelfContacts with its guard: report holds the final check of the mesh as it is. The moves are made
+        /// (SeparateSelfContactsOf), the final check is made again if a vertex moved, and if the result is worse than before
+        /// (WorseThan) all moves are put back and the final check of before is restored (SelfContactMovesRevertedAsWorse)
+        /// </summary>
+        internal static void SeparateSelfContactsChecked(DMesh3 result, double delta, SolidBooleanReport report, CancellationToken cancel)
+        {
+            var checkedBefore = new SolidBooleanReport();
+            checkedBefore.SetFinalCheck(report);
+            var movedFrom = new Dictionary<int, Vector3d>();
+            SeparateSelfContactsOf(result, delta, report, cancel, movedFrom);
+            if (cancel.IsCancellationRequested || report.SelfContactVerticesMoved == 0)
+                return;
+            FinalCheck(result, report);
+            if (WorseThan(report, checkedBefore)) {
+                // (the moves made the result worse: the tolerance test of NotCleanReason finds what the exact tests of the step do not)
+                foreach (var kv in movedFrom)
+                    result.SetVertex(kv.Key, kv.Value);
+                report.SetFinalCheck(checkedBefore);
+                report.SelfContactMovesRevertedAsWorse = true;
+                report.SelfContactVerticesMoved = 0;
+                report.SelfContactMaxMove = 0;
+                report.SelfContactsLeft = report.SelfContactsFound;
+            }
         }
 
         // the positions where two or more vertices of one solid lie (a solid: an outer shell with the cavities inside it,
@@ -1590,7 +1601,7 @@ namespace gs
             if (contacts.Count == 0)
                 return;
             var old = new Dictionary<int, Vector3d>();          // moved vertex -> its position before
-            var oldNormal = new Dictionary<int, Vector3d>();    // triangle at a moved vertex -> its normal before
+            var oldNormal = new Dictionary<int, BigInteger[]>();    // triangle at a moved vertex -> its normal before (exact, scaled)
             var target = new List<KeyValuePair<int, Vector3d>>();       // (every move is taken from the mesh before any of them, so the order of the vertices does not matter)
             double largestStep = 0;
             foreach (List<int> vs in contacts)
@@ -1620,7 +1631,7 @@ namespace gs
                     }
                     foreach (int t in mesh.VtxTrianglesItr(v))
                         if (!oldNormal.ContainsKey(t))
-                            oldNormal[t] = UnitNormal(mesh, t);
+                            oldNormal[t] = ExactNormal(mesh, t);
                     old[v] = p;
                     target.Add(new KeyValuePair<int, Vector3d>(v, p + n * (step / len)));
                     largestStep = Math.Max(largestStep, step);
@@ -1633,6 +1644,8 @@ namespace gs
                 // their boxes by twice that and read the current coordinates from the mesh
                 var tree = new DMeshAABBTree3(new DMesh3(mesh, false, MeshComponents.None), true);
                 double pad = TreePad(largestStep);
+                // (every round puts back at least one move and checks all that remain: quadratic in the moved vertices in the worst case,
+                // linear in practice, where one round puts back what there is. Kept so: a state that is not checked is never returned)
                 while (old.Count > 0) {
                     if (cancel.IsCancellationRequested) {
                         // (a state that was not checked is not kept: every move still standing is put back)
@@ -1650,7 +1663,7 @@ namespace gs
                                 undoX.Add(tv[j]);
                     }
                     foreach (var kv in oldNormal)
-                        if (UnitNormal(mesh, kv.Key).Dot(kv.Value) <= 0) {
+                        if (DotSign(ExactNormal(mesh, kv.Key), kv.Value) <= 0) {
                             Index3i tv = mesh.GetTriangle(kv.Key);
                             for (int j = 0; j < 3; ++j)
                                 if (old.ContainsKey(tv[j]) && !undoX.Contains(tv[j]))
@@ -1676,25 +1689,46 @@ namespace gs
             report.SelfContactsLeft = SelfContacts(mesh).Count;
         }
 
-        // the unit normal of a triangle, zero if it has none (GetTriNormal has an absolute tolerance, which a mesh of tiny coordinates
-        // would fall below: every triangle would count as turned over)
-        static Vector3d UnitNormal(DMesh3 mesh, int t)
+        // the coordinate as an integer, times 2^1074 (exact: a double is an integer times 2^-1074)
+        static BigInteger Scaled(double x)
         {
-            Index3i tv = mesh.GetTriangle(t);
-            Vector3d a = mesh.GetVertex(tv.a);
-            Vector3d e1 = mesh.GetVertex(tv.b) - a, e2 = mesh.GetVertex(tv.c) - a;
-            double scale = Math.Max(e1.MaxAbs, e2.MaxAbs);      // (the edges in their own units: the cross product and its length neither under- nor overflow)
-            if (!(scale > 0))
-                return Vector3d.Zero;
-            Vector3d n = (e1 / scale).Cross(e2 / scale);
-            double len = n.Length;
-            return len > 0 ? n / len : Vector3d.Zero;
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int e = (int)((bits >> 52) & 0x7FF);
+            long m = bits & 0xFFFFFFFFFFFFFL;
+            if (e > 0)
+                m |= 1L << 52;
+            BigInteger r = new BigInteger(m) << (e > 0 ? e - 1 : 0);
+            return bits < 0 ? -r : r;
         }
 
-        // the order of the kinds of a result by its final check: clean (Solid) before contacts only (SolidWithContacts) before another defect
-        static int CheckRank(SolidBooleanReport r)
+        // the exact normal (the cross product of two edges, times 2^2148) of a triangle: no rounding, no tolerance, no under- or overflow
+        internal static BigInteger[] ExactNormal(DMesh3 mesh, int t)
         {
-            return r.Clean ? 2 : r.OnlyContacts ? 1 : 0;
+            Index3i tv = mesh.GetTriangle(t);
+            Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
+            BigInteger e1x = Scaled(b.x) - Scaled(a.x), e1y = Scaled(b.y) - Scaled(a.y), e1z = Scaled(b.z) - Scaled(a.z);
+            BigInteger e2x = Scaled(c.x) - Scaled(a.x), e2y = Scaled(c.y) - Scaled(a.y), e2z = Scaled(c.z) - Scaled(a.z);
+            return new[] { e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x };
+        }
+
+        internal static int DotSign(BigInteger[] u, BigInteger[] v)
+        {
+            return (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]).Sign;
+        }
+
+        // is the check of a result worse than that of before: a lower kind (clean before contacts only before another defect), or in the
+        // same kind another reason (a new class of defect), more positions with contacts, or more triangles that cross another
+        // (-1: not counted, more than the cap)
+        internal static bool WorseThan(SolidBooleanReport after, SolidBooleanReport before)
+        {
+            int ra = after.Clean ? 2 : after.OnlyContacts ? 1 : 0, rb = before.Clean ? 2 : before.OnlyContacts ? 1 : 0;
+            if (ra != rb)
+                return ra < rb;
+            if (after.NotCleanReason != before.NotCleanReason || after.ContactsResult > before.ContactsResult)
+                return true;
+            int ca = after.SelfIntersectingTriangles < 0 ? int.MaxValue : after.SelfIntersectingTriangles;
+            int cb = before.SelfIntersectingTriangles < 0 ? int.MaxValue : before.SelfIntersectingTriangles;
+            return ca > cb;
         }
 
         // how far the boxes of the stale tree of SeparateSelfContactsOf are grown: a triangle is within largestStep of its box there

@@ -593,6 +593,130 @@ namespace geometry3Sharp.Tests
             Assert.Equal(r0.SelfContactMaxMove * f, r1.SelfContactMaxMove);
         }
 
+        [Fact]
+        public void ANotCleanResult_ThatTheMovesWouldMakeWorseInAnotherWay_IsLeftAsItWas()
+        {
+            // a mesh that is already not clean (a box passes through the cube's face: a real crossing), with the thin fan triangle of the
+            // test above: the kind stays the same (SolidNotClean) but the moves would add a defect (degenerate triangles)
+            const double diagonalSquared = 344;          // (the box of everything: 12 x 10 x 10)
+            double eps = 1.002 * 1e-12 * diagonalSquared / 1.5811388300841898;
+            DMesh3 mesh = CubeWithATetCavity(eps);
+            new MeshEditor(mesh).AppendMesh(Box(8, 4, 4, 12, 6, 6));
+            var before = new SolidBooleanReport();
+            SolidBooleanPipeline.FinalCheck(mesh, before);
+            Assert.Equal("self-intersections", before.NotCleanReason);
+            Assert.False(before.OnlyContacts);
+            Assert.True(before.SelfIntersectingTriangles > 0);
+
+            var stepOnly = new DMesh3(mesh);
+            var stepReport = new SolidBooleanReport();
+            SolidBooleanPipeline.SeparateSelfContactsOf(stepOnly, 0.05, stepReport);
+            Assert.True(stepReport.SelfContactVerticesMoved > 0);
+            Assert.Equal("degenerate triangles", MeshRobustRepair.NotCleanReason(stepOnly));       // (a defect that it did not have)
+
+            var guarded = new DMesh3(mesh);
+            var report = new SolidBooleanReport();
+            SolidBooleanPipeline.FinalCheck(guarded, report);
+            SolidBooleanPipeline.SeparateSelfContactsChecked(guarded, 0.05, report, default(System.Threading.CancellationToken));
+            Assert.True(report.SelfContactMovesRevertedAsWorse);
+            Assert.Equal(0, report.SelfContactVerticesMoved);
+            Assert.Equal("", Invariance.Difference(mesh, guarded));
+            Assert.Equal("self-intersections", report.NotCleanReason);
+            Assert.Equal(before.SelfIntersectingTriangles, report.SelfIntersectingTriangles);
+        }
+
+        // a hash of a mesh (the coordinates and the triangles in id order) and of the report's fields of a run
+        static ulong Fnv(ulong h, long x)
+        {
+            unchecked {
+                for (int i = 0; i < 8; ++i) {
+                    h ^= (ulong)((x >> (8 * i)) & 0xFF);
+                    h *= 1099511628211UL;
+                }
+            }
+            return h;
+        }
+
+        static ulong Fingerprint(SolidBooleanPipeline p)
+        {
+            ulong h = 14695981039346656037UL;
+            DMesh3 m = p.Result;
+            foreach (int v in m.VertexIndices()) {
+                Vector3d q = m.GetVertex(v);
+                h = Fnv(Fnv(Fnv(Fnv(h, v), BitConverter.DoubleToInt64Bits(q.x)), BitConverter.DoubleToInt64Bits(q.y)), BitConverter.DoubleToInt64Bits(q.z));
+            }
+            foreach (int t in m.TriangleIndices()) {
+                Index3i tv = m.GetTriangle(t);
+                h = Fnv(Fnv(Fnv(Fnv(h, t), tv.a), tv.b), tv.c);
+            }
+            SolidBooleanReport r = p.Report;
+            foreach (char c in $"{r.ResultKind}|{r.NotCleanReason}|{r.ContactsResult}|{r.ContactsBoolean}|{r.SelfIntersectingTriangles}|{r.OnlyContacts}|{r.ResultTriangles}|{r.BooleanTriangles}|{r.StopReason}")
+                h = Fnv(h, c);
+            return h;
+        }
+
+        [Fact]
+        public void WithTheOptionOff_TheResultsAndReportsAreTheFixedOnes()
+        {
+            // constants computed on the code before the option existed (a build of its parent commit; the off path is that code): a later change of the off path,
+            // also one that both runs of a comparison would share, fails here
+            Assert.Equal(EdgePinchOffFingerprint, Fingerprint(Run(EdgePinch(), D, 0)));
+            Assert.Equal(HandleOffFingerprint, Fingerprint(Run(Handle(), U, 0)));
+            Assert.Equal(CavitiesOffFingerprint, Fingerprint(Run(CavitiesAtACorner(), D, 0)));
+        }
+
+        const ulong EdgePinchOffFingerprint = 5438221981468261046UL, HandleOffFingerprint = 3522023333126687452UL, CavitiesOffFingerprint = 5239713679286966689UL;
+
+        [Fact]
+        public void TheTurnOverTest_IsExact_WhereTheFloatingPointSignIsWrong()
+        {
+            // a sliver (nearly collinear corners) whose third corner moves by one unit in the last place of a coordinate, past the line of
+            // the other two: the exact dot of the two normals is negative (turned over), floating point says positive
+            var o = new Vector3d(0.647257137413722, 0.006648367739584468, 0.6581575864265475);
+            var a = new Vector3d(0.7965608883167434, 0.2101846402325596, 0.6863910339010838);
+            var b = new Vector3d(0.8505297670643213, 0.2837569674143613, 0.69659658797567);
+            var b2 = new Vector3d(0.8505297670643212, 0.2837569674143613, 0.6965965879756701);
+            DMesh3 Tri(Vector3d c)
+            {
+                var m = new DMesh3();
+                m.AppendVertex(o); m.AppendVertex(a); m.AppendVertex(c);
+                m.AppendTriangle(0, 1, 2);
+                return m;
+            }
+            Assert.True((a - o).Cross(b - o).Dot((a - o).Cross(b2 - o)) > 0);          // (floating point)
+            Assert.Equal(-1, SolidBooleanPipeline.DotSign(SolidBooleanPipeline.ExactNormal(Tri(b), 0), SolidBooleanPipeline.ExactNormal(Tri(b2), 0)));
+            Assert.Equal(1, SolidBooleanPipeline.DotSign(SolidBooleanPipeline.ExactNormal(Tri(b), 0), SolidBooleanPipeline.ExactNormal(Tri(b), 0)));
+            // exact at any scale, also where the coordinates of the floating point cross product would under- or overflow
+            foreach (double f in new[] { Math.Pow(2, -500), Math.Pow(2, 500) }) {
+                DMesh3 Scale(DMesh3 m) { var c = new DMesh3(m); foreach (int v in c.VertexIndices()) c.SetVertex(v, c.GetVertex(v) * f); return c; }
+                Assert.Equal(-1, SolidBooleanPipeline.DotSign(SolidBooleanPipeline.ExactNormal(Scale(Tri(b)), 0), SolidBooleanPipeline.ExactNormal(Scale(Tri(b2)), 0)));
+            }
+        }
+
+        [Fact]
+        public void WorseThan_IsALowerKind_ANewReason_MoreContacts_OrMoreCrossings()
+        {
+            Func<string, bool, int, int, SolidBooleanReport> r = (reason, onlyContacts, contacts, crossing) =>
+                new SolidBooleanReport { NotCleanReason = reason, OnlyContacts = onlyContacts, ContactsResult = contacts, SelfIntersectingTriangles = crossing };
+            SolidBooleanReport clean = r("", false, 0, 0), withContacts = r("self-intersections", true, 2, 0), crossing = r("self-intersections", false, 2, 4),
+                degenerate = r("degenerate triangles", false, 0, 0);
+            Assert.False(SolidBooleanPipeline.WorseThan(clean, clean));
+            Assert.False(SolidBooleanPipeline.WorseThan(clean, withContacts));
+            Assert.True(SolidBooleanPipeline.WorseThan(withContacts, clean));
+            Assert.True(SolidBooleanPipeline.WorseThan(crossing, withContacts));
+            Assert.False(SolidBooleanPipeline.WorseThan(withContacts, crossing));
+            // the same kind
+            Assert.False(SolidBooleanPipeline.WorseThan(r("self-intersections", true, 1, 0), withContacts));
+            Assert.True(SolidBooleanPipeline.WorseThan(r("self-intersections", true, 3, 0), withContacts));        // more contacts
+            Assert.True(SolidBooleanPipeline.WorseThan(r("self-intersections", false, 2, 5), crossing));            // more crossings
+            Assert.False(SolidBooleanPipeline.WorseThan(r("self-intersections", false, 2, 3), crossing));
+            Assert.True(SolidBooleanPipeline.WorseThan(r("self-intersections", false, 2, -1), crossing));           // (-1: more than counted)
+            Assert.False(SolidBooleanPipeline.WorseThan(r("self-intersections", false, 2, -1), r("self-intersections", false, 2, -1)));
+            Assert.False(SolidBooleanPipeline.WorseThan(crossing, r("self-intersections", false, 2, -1)));
+            Assert.True(SolidBooleanPipeline.WorseThan(degenerate, crossing));                                      // a new class of defect, the same kind
+            Assert.True(SolidBooleanPipeline.WorseThan(crossing, degenerate));
+        }
+
         // ---- the bounds of a move
 
         [Fact]
@@ -643,6 +767,8 @@ namespace geometry3Sharp.Tests
                 Assert.True(p.Report.SelfContactVerticesMoved > 0, $"{c.op} {c.inputs.Count}: found {p.Report.SelfContactsFound} skipped {p.Report.SelfContactVerticesSkipped} undone {p.Report.SelfContactMovesUndoneCrossing} {p.Report.SelfContactMovesUndoneFlipped}");
                 Assert.True(Invariance.AllFinite(p.Result));
                 Assert.True(p.Result.IsClosed());
+                Assert.Equal(MeshRobustRepair.NotCleanReason(p.Result), p.Report.NotCleanReason);
+                Assert.True(p.Report.NotCleanReason == "" || p.Report.NotCleanReason == plain.Report.NotCleanReason, p.Report.NotCleanReason);
                 double expect = 0;
                 foreach (int v in SolidBooleanPipeline.SelfContacts(plain.Result).SelectMany(l => l)) {
                     double shortest = plain.Result.VtxVerticesItr(v).Min(w => plain.Result.GetVertex(v).Distance(plain.Result.GetVertex(w)));
@@ -717,20 +843,34 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ComputeTwice_OnOneInstance_GivesTheSameResultAndReport()
         {
-            var p = new SolidBooleanPipeline(EdgePinch(), D) { SeparateSelfContacts = 0.01 };
+            // (all eight fields of the report about the step)
+            Func<SolidBooleanReport, string> fields = r => string.Join(" ", r.ResultKind, r.SelfContactsFound, r.SelfContactsLeft, r.SelfContactVerticesMoved,
+                r.SelfContactVerticesSkipped, r.SelfContactMovesUndoneCrossing, r.SelfContactMovesUndoneFlipped, r.SelfContactMaxMove.ToString("R"), r.SelfContactMovesRevertedAsWorse);
+            // off, then on, then on again, then off again, on one instance
+            var p = new SolidBooleanPipeline(EdgePinch(), D);
+            Assert.True(p.Compute(), p.Error);
+            string off = fields(p.Report);
+            DMesh3 offResult = p.Result;
+            Assert.Equal(SolidBooleanResultKind.SolidWithContacts, p.Report.ResultKind);
+
+            p.SeparateSelfContacts = 0.01;
             Assert.True(p.Compute(), p.Error);
             DMesh3 first = p.Result;
-            string r1 = p.Report.ResultKind + " " + p.Report.SelfContactsFound + " " + p.Report.SelfContactVerticesMoved + " " + p.Report.SelfContactMaxMove.ToString("R");
+            string on = fields(p.Report);
+            Assert.NotEqual(off, on);
+            Assert.Equal(SolidBooleanResultKind.Solid, p.Report.ResultKind);
+            Assert.Equal(0, PositionsWithSeveralVertices(first));
             Assert.True(p.Compute(), p.Error);
-            string r2 = p.Report.ResultKind + " " + p.Report.SelfContactsFound + " " + p.Report.SelfContactVerticesMoved + " " + p.Report.SelfContactMaxMove.ToString("R");
-            Assert.Equal(r1, r2);
+            Assert.Equal(on, fields(p.Report));
             Assert.Equal("", Invariance.Difference(first, p.Result));
             // the inputs are not changed by the separation
             Assert.Equal("", Invariance.Difference(EdgePinch()[1], p.Inputs[1]));
-            // the option is read on each run
+
+            // the option is read on each run: nothing of the run with it is left in the next one without it
             p.SeparateSelfContacts = 0;
             Assert.True(p.Compute(), p.Error);
-            Assert.Equal(0, p.Report.SelfContactsFound);
+            Assert.Equal(off, fields(p.Report));
+            Assert.Equal("", Invariance.Difference(offResult, p.Result));
             Assert.Equal(SolidBooleanResultKind.SolidWithContacts, p.Report.ResultKind);
         }
 
