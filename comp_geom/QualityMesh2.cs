@@ -1045,7 +1045,7 @@ namespace g3
             bool ExistedBeforeRefinement(int v)
             {
                 if (v >= firstSteiner) return false;
-                if (b.PreloadedBeforeRefinement != null && v != k.Infinite) {
+                if (b.PreloadedBeforeRefinement != null && v >= 0 && v < k.Representative.Length) {
                     int rep = k.Representative[v];
                     if (rep >= 0 && rep < b.PreloadedBeforeRefinement.Length) return b.PreloadedBeforeRefinement[rep];
                 }
