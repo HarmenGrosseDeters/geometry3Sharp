@@ -421,9 +421,9 @@ namespace geometry3Sharp.Tests
                         foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
                             var P = Enumerable.Range(0, en.n).Select(i => new Vector3d(i + 1, 2 * i - 3, 0.5 * i)).ToArray();
                             P[j] = new Vector3d(c == 0 ? bad : 1, c == 1 ? bad : 2, c == 2 ? bad : 3);
-                            Assert.Throws<ArgumentException>(() => en.d(P));
+                            Assert.Contains(en.name, Assert.Throws<ArgumentException>(() => en.d(P)).Message);
                             if (en.name == "BisectorSide3" && j < 6)
-                                Assert.Throws<ArgumentException>(() => BisectorPredicates.BisectorSide3Prepare(P[0], P[1], P[2], P[3], P[4], P[5], out _));
+                                Assert.Contains("BisectorSide3", Assert.Throws<ArgumentException>(() => BisectorPredicates.BisectorSide3Prepare(P[0], P[1], P[2], P[3], P[4], P[5], out _)).Message);
                         }
                 for (int j = 0; j < en.n; ++j) {
                     var E = Enumerable.Range(0, en.n).Select(i => ExactPoint3.FromInteger(RandomInt(rand, 40), RandomInt(rand, 40), RandomInt(rand, 40))).ToArray();
@@ -431,7 +431,7 @@ namespace geometry3Sharp.Tests
                     rational[j] = ExactPoint3.Create(3 * RandomInt(rand, 40) + 1, RandomInt(rand, 40), RandomInt(rand, 40), 3);     // (x / 3 is not an integer)
                     var fr = rational.Select(Fixed).ToArray();
                     Assert.False(fr[j].WIsOne);
-                    Assert.Throws<ArgumentException>(() => en.f(fr));
+                    Assert.Contains(en.name, Assert.Throws<ArgumentException>(() => en.f(fr)).Message);
                     for (int comp = 0; comp < 3; ++comp) {
                         // (r.y, r.z of DistanceAbove* and k.z of RadiusEdgeAbove are not in the formula: the integer entry does not read them)
                         bool unread = j == en.n - 1 && (en.name.StartsWith("DistanceAbove") ? comp > 0 : en.name == "RadiusEdgeAbove" && comp == 2);

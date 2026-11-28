@@ -6,8 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/math/Generated/BisectorPredicates.cs",
-      "**/math/ExactBisectorSoS.cs"
+      "**/math/Generated/BisectorPredicates.cs{0..137153}"
     ],
     "test-case-filter": "FullyQualifiedName~GeneratedPredicatesBisectorTests|FullyQualifiedName~ExactBisectorSoSTests",
     "ignore-methods": [
@@ -23,9 +22,9 @@
       "markdown"
     ],
     "thresholds": {
-      "high": 97,
-      "low": 94,
-      "break": 92
+      "high": 95,
+      "low": 90,
+      "break": 88
     },
     "concurrency": 2
   }

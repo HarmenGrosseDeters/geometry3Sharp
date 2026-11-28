@@ -366,6 +366,18 @@ namespace geometry3Sharp.Tests
             Assert.Throws<ArgumentException>(() => ExactBisectorSoS.Side2(z, z, z, 1, z, 2, z, 1));
             Assert.Throws<ArgumentException>(() => ExactBisectorSoS.Side3(z, 1, z, 2, z, 3, z, z, z, z, 2));
             Assert.Throws<ArgumentException>(() => ExactBisectorSoS.InSphere(z, 1, z, 2, z, 3, z, 4, z, 4));
+            // every pair of positions, for each arity
+            for (int i = 0; i < 5; ++i)
+                for (int j = i + 1; j < 5; ++j) {
+                    int[] id = { 10, 20, 30, 40, 50 };
+                    id[j] = id[i];
+                    if (j < 3) Assert.Throws<ArgumentException>(() => ExactBisectorSoS.Side2(z, z, z, id[0], z, id[1], z, id[2]));
+                    if (j < 4) Assert.Throws<ArgumentException>(() => ExactBisectorSoS.Side3(z, id[0], z, id[1], z, id[2], z, z, z, z, id[3]));
+                    Assert.Throws<ArgumentException>(() => ExactBisectorSoS.InSphere(z, id[0], z, id[1], z, id[2], z, id[3], z, id[4]));
+                }
+            Assert.Throws<ArgumentException>(() => ExactBisectorSoS.Side1(z, z, 4, z, 4));
+            // distinct ids at a degenerate point: no throw
+            Assert.Equal(0, ExactBisectorSoS.Side3(z, 1, z, 2, z, 3, z, z, z, z, 4));
         }
 
         // ---- Delaunay3 with SymbolicPerturbation ----

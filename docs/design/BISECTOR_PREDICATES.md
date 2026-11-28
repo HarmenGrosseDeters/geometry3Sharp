@@ -372,6 +372,20 @@ the existing fixtures bit for bit against master.
 
   Each of its 21 lemmas has a SAT mutant. The error bounds stay with the generator and the Symbolic Taylor check.
 
+- **Mutation** (`tests/mutation/stryker-mesh-bisector-1.json` and `-2.json`, split by character spans of the generated file
+  as the `arrangement-*` shards, because the whole shard took about 3 hours locally). The thresholds come from a local
+  full run on 2026-11-28 by the README rule (break = the score rounded down less 2, low = break + 2):
+  - shard 1 (`BisectorSide1-3`, `DotSites`; 85 min): 90.08 %, so break 88 and low 90;
+  - shard 2 (the rest of the file and `ExactBisectorSoS.cs`; 98 min): 86.79 %, so break 84 and low 86.
+
+  The remaining survivors are:
+  - weakened magnitudes in the filters (`m~ + m~` → `m~ − m~`), which show only at inputs close to the filter's bound;
+  - the range-gate helpers, where moving a call between the filter and the exact stage keeps the exact result;
+  - `<` → `<=` in `nth_smallest`, which is equivalent for distinct ids.
+
+  Tests added after the measurement (id pairs, exception messages) only raise the score. The full run on master is the
+  gate (GATE ON MASTER).
+
 ## 5. Sources
 
 Papers only, no code read (the coordinator's decision of 2026-11-27: not Geogram's RVD / PCK code either, although it is
