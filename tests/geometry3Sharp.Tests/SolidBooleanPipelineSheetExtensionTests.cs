@@ -170,6 +170,30 @@ namespace geometry3Sharp.Tests
             if (without.Result != null)
                 Assert.Equal("", Invariance.Difference(without.Result, with.Result));
             Assert.Equal(without.Report.ResultKind, with.Report.ResultKind);
+            // every public field of the report except the clock, the route and the extension's own entries; and the steps other than SheetExtension, field by field
+            foreach (System.Reflection.FieldInfo f in typeof(SolidBooleanReport).GetFields()) {
+                if (f.Name.EndsWith("Milliseconds") || f.Name == "Route" || f.Name == "SheetExtensions")
+                    continue;
+                Assert.Equal(Flat(f.GetValue(without.Report)), Flat(f.GetValue(with.Report)));
+            }
+            List<SolidBooleanRouteStep> a = without.Report.Route, b = with.Report.Route.Where(s => s.Name != "SheetExtension").ToList();
+            Assert.Equal(a.Count, b.Count);
+            for (int i = 0; i < a.Count; ++i) {
+                Assert.Equal(a[i].Name, b[i].Name);
+                Assert.Equal(a[i].Input, b[i].Input);
+                Assert.Equal(a[i].Reason, b[i].Reason);
+                Assert.Equal(a[i].Change, b[i].Change);
+                Assert.Equal(a[i].SheetReason, b[i].SheetReason);
+                Assert.Equal(a[i].Grid, b[i].Grid);
+            }
+        }
+
+        static string Flat(object v)
+        {
+            if (v == null) return "null";
+            if (v is string || v.GetType().IsPrimitive || v.GetType().IsEnum) return Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture);
+            if (v is System.Collections.IEnumerable e) return "[" + string.Join(";", e.Cast<object>().Select(Flat)) + "]";
+            return string.Join(",", v.GetType().GetFields().Where(f => !f.Name.EndsWith("Milliseconds")).Select(f => f.Name + "=" + Flat(f.GetValue(v))));
         }
 
         [Theory]
@@ -636,6 +660,63 @@ namespace geometry3Sharp.Tests
             Assert.Contains("Fallback", Names(p));
             Assert.Equal(Status.DepthAboveLimit, p.Report.SheetExtensions.Single().Status);
             Assert.True(p.Report.SheetExtensionMilliseconds > 0, "the helper time is carried over to the report of the fallback run");
+        }
+
+        // A refused extension gives the run without the option, bit for bit: the result mesh, every report field but the clock, and every route step but SheetExtension
+        // (AssertSameAsWithout). The cases: too deep with a repair that succeeds (a non-empty result), the strip through a tool, the two-sheet strip check in both orders
+        [Fact]
+        public void ARefusedExtension_GivesTheRunWithoutTheOption_BitForBit_AlsoWhereTheFallbackSucceeds()
+        {
+            Action<SolidBooleanPipeline> repair = q => q.InputRepair = SolidBooleanPipeline.InputRepairModes.AutoRepair;
+            Func<DMesh3> lidless = () => {
+                var t = new DMesh3(SheetGeometry.Box(3, 3, 2, 7, 7, 8));
+                foreach (int id in t.TriangleIndices().ToArray()) if (t.GetTriCentroid(id).z > 7.9) t.RemoveTriangle(id, true);
+                return t;
+            };
+            var p = Make(new[] { Cube(), lidless() }, Modes.AlsoAutoRoutedTools, false, repair);
+            var without = Without(new[] { Cube(), lidless() }, false, repair);
+            Assert.True(p.Compute(), p.Error);
+            Assert.True(without.Compute(), without.Error);
+            Assert.NotNull(p.Result);
+            Assert.Equal(Status.DepthAboveLimit, p.Report.SheetExtensions.Single().Status);
+            AssertSameAsWithout(p, without);
+            Assert.InRange(Volume(p.Result), 1000 - 16 * 6 - 0.2, 1000 - 16 * 6 + 0.2);     // the closed cavity of the repair
+        }
+
+        [Fact]
+        public void TheStripCheckRefusal_GivesTheRunWithoutTheOption_BitForBit_InBothOrders()
+        {
+            foreach (bool wallFirst in new[] { false, true }) {
+                Func<DMesh3[]> make = () => wallFirst ? new[] { Cube(), ShortWall(), Short(0.005) } : new[] { Cube(), Short(0.005), ShortWall() };
+                var p = Make(make(), Modes.StatedSheets, true);
+                var without = Without(make(), true);
+                Assert.False(p.Compute());
+                Assert.False(without.Compute());
+                AssertSameAsWithout(p, without);
+            }
+        }
+
+        // M18 (all other tools given the Solid role to the helper) is equivalent in what the pipeline returns: the helper only decides whether to extend, and an open mesh as a
+        // Solid in its cut (AllowOpenMeshes) cuts the same and is as clean as the sheet; no case was found where the roles differ. Pinned: a fine open sheet next to a short one
+        [Fact]
+        public void AFineOpenSheetNextToAShortOne_IsNoObstacle_ForTheHelper()
+        {
+            var open = new DMesh3(SheetGeometry.Box(3, 3, 1, 7, 7, 12));
+            foreach (int id in open.TriangleIndices().ToArray()) if (open.GetTriCentroid(id).z > 11.9) open.RemoveTriangle(id, true);
+            var p = Make(new[] { Cube(), Short(0.005), open }, Modes.StatedSheets, true);
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            Assert.True(p.Report.SheetExtensions.Single().InResult);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(p.Result));
+        }
+
+        [Fact]
+        public void WithSeparateSelfContacts_TheStepRunsAfterTheExtendedBoolean()
+        {
+            var p = Make(new[] { Cube(), Short(0.005) }, Modes.StatedSheets, true, q => q.SeparateSelfContacts = 1e-6);
+            Assert.True(p.Compute(), p.Status + " " + p.Error);
+            AssertCut(p, Kept);
+            Assert.True(p.Report.SheetExtensions.Single().InResult);
+            Assert.Equal(0, p.Report.SelfContactsLeft);
         }
 
         [Fact]

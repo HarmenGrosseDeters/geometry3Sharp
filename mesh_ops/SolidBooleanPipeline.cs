@@ -132,7 +132,11 @@ namespace gs
         public bool Applied;
         /// <summary> true: the extended sheet is in the run that is the result (false if the cut with it failed and the run went on without the extension) </summary>
         public bool InResult;
-        /// <summary> the sheet's bounding box diagonal, the largest depth of its rim inside the workpiece (absolute, and relative to the diagonal) as the helper measured it, also for a refusal </summary>
+        /// <summary>
+        /// Diagonal: the diagonal of the bounding box of the sheet as given, in the input's own frame (not rotation invariant: a rotated copy has another box). Depth: the largest depth of the
+        /// sheet's rim inside the workpiece as the helper measured it (sampled: a lower bound), absolute. DepthRelative: Depth / Diagonal, the number that the helper's limit of 5 % is
+        /// compared with, so a rim near the limit can be extended in one frame and refused in another. Also set for a refusal
+        /// </summary>
         public double Diagonal, Depth, DepthRelative;
         /// <summary> the triangles of the strip, and the area of the strip inside the workpiece (the surface the extension adds to the cut; 0 if not applied) </summary>
         public int AddedTriangles;
