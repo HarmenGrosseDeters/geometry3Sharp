@@ -55,6 +55,8 @@ namespace Meshing2Acceptance
                 if (input.Conforming) throw new InvalidOperationException("the constrained quality mode contradicts conforming");
                 sb.Append("mode constrained\n");
             }
+            if (input.ReduceSteiner) sb.Append("reduce_steiner 1\n");
+            if (input.SmoothingPasses > 0) sb.Append("smoothing_passes ").Append(input.SmoothingPasses.ToString(CultureInfo.InvariantCulture)).Append('\n');
             sb.Append("end\n");
             return sb.ToString();
         }
@@ -157,6 +159,16 @@ namespace Meshing2Acceptance
                 if (mode.Length != 2 || mode[1] != "constrained") throw new FormatException("mode: expected \"mode constrained\", got: " + string.Join(" ", mode));
                 if (input.Conforming) throw new FormatException("mode constrained contradicts conforming 1");
                 input.ConstrainedQuality = true;
+            }
+            if (r.TryOptional("reduce_steiner", out var red)) {
+                if (red.Length != 2 || (red[1] != "0" && red[1] != "1")) throw new FormatException("reduce_steiner: expected 0 or 1, got: " + string.Join(" ", red));
+                input.ReduceSteiner = red[1] == "1";
+            }
+            if (r.TryOptional("smoothing_passes", out var sp)) {
+                if (sp.Length != 2) throw new FormatException("smoothing_passes: expected 1 value, got: " + string.Join(" ", sp));
+                int passes = Int(sp[1]);
+                if (passes < 0) throw new FormatException("smoothing_passes is negative");
+                input.SmoothingPasses = passes;
             }
             r.Named("end", 1);
             return input;

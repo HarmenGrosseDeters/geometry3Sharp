@@ -81,6 +81,7 @@ A description is a list of steps, read from the left. A point is numbered at its
 | `min_angle(d)`, `max_area(a)`, `steiner_limit(n)`, `snap(t)` | options: minimum angle in degrees, largest triangle area, cap on inserted points, snap tolerance in coordinate units (default 0, automatic); an explicit tolerance is the pixel width of the snap grid, anchored at the origin with half-open pixels (decision D14) |
 | `no_noding`, `conforming` | options: crossing segments must fail with a status; empty circumcircles also across segments |
 | `mode(constrained)` | M3 constrained-quality mode (`Conforming = false`); canonical input text adds `mode constrained`. These inputs have separate hashes and golden rows. |
+| `reduce_steiner`, `smooth(n)` | post-refinement Steiner-point reduction (O14) and `n` Steiner-point smoothing passes (O15); canonical input text adds `reduce_steiner 1` / `smoothing_passes <n>` only when active. |
 
 Without an outer ring the domain is the convex hull of the points. A hole does not fill back what another hole removed, and overlapping
 outer rings unite. Decisions on these semantics are open ([MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md)); the
@@ -120,12 +121,15 @@ size_constant <value|->                           # the largest edge; a size tha
 resolve_crossings <0|1>
 conforming <0|1>
 mode constrained                                  # optional: only when set
+reduce_steiner 1                                  # optional: only when set (O14)
+smoothing_passes <n>                              # optional: only when positive (O15)
 end
 ```
 
 The line `mode constrained` marks the constrained quality mode (owner decision 2026-11-02): quality without O2, judged as
 constrained Delaunay. It is written only when set, so every other input keeps its text and its `input_sha256`; it contradicts
-`conforming 1`, which a reader rejects. In a generator the mode is `mode(constrained)`.
+`conforming 1`, which a reader rejects. In a generator the mode is `mode(constrained)`. The optional `reduce_steiner 1` and
+`smoothing_passes <n>` lines follow the same rule (omitted when off/zero so existing input hashes are unchanged).
 
 Worked example: the input `literal(0 0, 1 0, 0 1)` has this canonical text, with a final line end,
 

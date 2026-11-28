@@ -92,6 +92,141 @@ namespace g3
             return true;
         }
 
+        /// <summary>
+        /// Computes the exact Delaunay retriangulation of the star polygon of made vertex <paramref name="p"/> without
+        /// modifying the triangulation, passes the <c>m = deg - 2</c> replacement triangles to <paramref name="accept"/>,
+        /// and commits the deletion only if <paramref name="accept"/> returns <c>true</c>.
+        /// <para>Arguments passed to <paramref name="accept"/>:
+        /// <c>tV</c> (<c>3*m</c> CCW vertex ids), <c>tH</c> (<c>3*m</c> local twin half-edges; <c>&lt; 0</c> encodes
+        /// polygon boundary edge <c>b = -tH[e] - 1</c>), <c>outer</c> (outside half-edge per boundary edge),
+        /// <c>outerSeg</c> (constraint id per boundary edge), <c>m</c> (triangle count), <c>tag</c> (star tag).</para>
+        /// </summary>
+        internal bool DeleteVertexIf(int p, Func<int[], int[], int[], int[], int, int, bool> accept, int maxDegree = int.MaxValue)
+        {
+            if (leaving == null || p == N || p < 0 || p >= VertexCount || leaving[p] < 0) return false;
+            if (p < N) return false;
+            var tris = new List<int>(16);
+            var ring = new List<int>(16);
+            var outerList = new List<int>(16);
+            var outerSegList = new List<int>(16);
+            int tag = Tag[leaving[p] / 3];
+            foreach (int e in Star(p)) {
+                int t = e / 3;
+                if (Seg[e] >= 0 || Seg[Prev(e)] >= 0 || IsGhost(t) || Tag[t] != tag) return false;
+                tris.Add(t);
+                ring.Add(V[Next(e)]);
+                outerList.Add(H[Next(e)]);
+                outerSegList.Add(Seg[Next(e)]);
+                if (ring.Count > maxDegree) return false;
+            }
+            int deg = ring.Count;
+            if (deg < 3) return false;
+
+            int m = deg - 2;
+            var tV = new int[3 * m];
+            var tH = new int[3 * m];
+            var outer = outerList.ToArray();
+            var outerSeg = outerSegList.ToArray();
+
+            // Ear-clip ring[0..deg-1] into m local triangles (exact orientations, deterministic from start of Star(p))
+            var next = new int[deg];
+            var prev = new int[deg];
+            var edgeRef = new int[deg];
+            for (int i = 0; i < deg; ++i) {
+                next[i] = (i + 1) % deg;
+                prev[i] = (i + deg - 1) % deg;
+                edgeRef[i] = -(i + 1);
+            }
+            int left = deg, at = 0, sinceEar = 0, ti = 0;
+            while (left > 3) {
+                int ia = prev[at], ib = at, ic = next[at];
+                if (IsEar(ring, next, ia, ib, ic)) {
+                    int b3 = 3 * ti;
+                    tV[b3] = ring[ia]; tV[b3 + 1] = ring[ib]; tV[b3 + 2] = ring[ic];
+                    int r0 = edgeRef[ia], r1 = edgeRef[ib];
+                    tH[b3] = r0; if (r0 >= 0) tH[r0] = b3;
+                    tH[b3 + 1] = r1; if (r1 >= 0) tH[r1] = b3 + 1;
+                    edgeRef[ia] = b3 + 2;
+                    next[ia] = ic; prev[ic] = ia;
+                    ++ti; --left; at = ic; sinceEar = 0;
+                    continue;
+                }
+                at = next[at];
+                if (++sinceEar > left) return false;
+            }
+            {
+                int ia = prev[at], ib = at, ic = next[at];
+                if (Orient(ring[ia], ring[ib], ring[ic]) <= 0) return false;
+                int b3 = 3 * ti;
+                tV[b3] = ring[ia]; tV[b3 + 1] = ring[ib]; tV[b3 + 2] = ring[ic];
+                int r0 = edgeRef[ia], r1 = edgeRef[ib], r2 = edgeRef[ic];
+                tH[b3] = r0; if (r0 >= 0) tH[r0] = b3;
+                tH[b3 + 1] = r1; if (r1 >= 0) tH[r1] = b3 + 1;
+                tH[b3 + 2] = r2; if (r2 >= 0) tH[r2] = b3 + 2;
+            }
+
+            // Local Lawson flips inside the pocket until every internal diagonal is locally Delaunay (exact)
+            long maxFlips = (long)deg * deg;
+            long flips = 0;
+            bool flipped;
+            do {
+                flipped = false;
+                for (int e = 0; e < 3 * m; ++e) {
+                    int f = tH[e];
+                    if (f < 0 || f < e) continue;
+                    int e1 = Next(e), e2 = Prev(e);
+                    int f1 = Next(f), f2 = Prev(f);
+                    int a = tV[e], b = tV[e1], c = tV[e2], d = tV[f2];
+                    if (ExactPredicates.InCircle(Point(a), Point(b), Point(c), Point(d)) <= 0) continue;
+                    if (Orient(c, d, b) <= 0 || Orient(d, c, a) <= 0) continue;
+                    if (++flips > maxFlips) return false;
+                    int he1 = tH[e1], he2 = tH[e2], hf1 = tH[f1], hf2 = tH[f2];
+                    int t1 = e / 3, t2 = f / 3;
+                    int b1 = 3 * t1, b2 = 3 * t2;
+                    tV[b1] = c; tV[b1 + 1] = d; tV[b1 + 2] = b;
+                    tH[b1] = b2;
+                    tH[b1 + 1] = hf2; if (hf2 >= 0) tH[hf2] = b1 + 1;
+                    tH[b1 + 2] = he1; if (he1 >= 0) tH[he1] = b1 + 2;
+                    tV[b2] = d; tV[b2 + 1] = c; tV[b2 + 2] = a;
+                    tH[b2] = b1;
+                    tH[b2 + 1] = he2; if (he2 >= 0) tH[he2] = b2 + 1;
+                    tH[b2 + 2] = hf1; if (hf1 >= 0) tH[hf1] = b2 + 2;
+                    flipped = true;
+                }
+            } while (flipped);
+
+            if (!accept(tV, tH, outer, outerSeg, m, tag)) return false;
+
+            // Commit the verified pocket directly into tris[0..m-1] and release tris[m..m+1]
+            for (int i = 0; i < m; ++i)
+                MakeTriangle(tris[i], tV[3 * i], tV[3 * i + 1], tV[3 * i + 2], tag);
+            for (int i = 0; i < m; ++i) {
+                for (int j = 0; j < 3; ++j) {
+                    int le = 3 * i + j;
+                    int lh = tH[le];
+                    int ge = 3 * tris[i] + j;
+                    if (lh < 0) {
+                        int b = -lh - 1;
+                        Join(ge, outer[b], outerSeg[b]);
+                    } else {
+                        int twin = 3 * tris[lh / 3] + (lh % 3);
+                        H[ge] = twin;
+                        Seg[ge] = -1;
+                    }
+                }
+            }
+            leaving[p] = -1;
+            for (int i = 0; i < m; ++i) {
+                Touch(tris[i]);
+                if (Dirty != null) Dirty.Add(tris[i]);
+            }
+            hint = tris[0];
+            int f1s = tris[deg - 2], f2s = tris[deg - 1];
+            ReleaseSlot(Math.Max(f1s, f2s));
+            ReleaseSlot(Math.Min(f1s, f2s));
+            return true;
+        }
+
         bool IsEar(List<int> ring, int[] next, int ia, int ib, int ic)
         {
             int a = ring[ia], b = ring[ib], c = ring[ic];

@@ -69,13 +69,34 @@ namespace g3
         /// </summary>
         public double SnapTolerance;
 
+        /// <summary>
+        /// Remove redundant free interior Steiner points after refinement (spec O14, default <c>false</c>).
+        /// Only free Steiner vertices (created by refinement and not on any constrained segment or hull boundary) are
+        /// candidates; a vertex is removed only when the exact Delaunay retriangulation of its star polygon satisfies
+        /// all active minimum-angle, area, non-encroachment, and Delaunay invariants without increasing the number of
+        /// triangles below <see cref="MinAngle"/>. Disabled when <see cref="SizeFunction"/> is set (spec O14 / O6).
+        /// Deterministic.
+        /// </summary>
+        public bool ReduceSteiner;
+
+        /// <summary>
+        /// Number of post-refinement Steiner-point smoothing passes (spec O15, F-64/c); 0 (default): off.
+        /// Each pass visits every free Steiner vertex (created by refinement and not on any constraint or hull boundary)
+        /// in deterministic vertex-index order and relocates it only if the move strictly improves the smallest angle of
+        /// its incident star while keeping exact orientation, local/conforming Delaunay invariants, active area/size
+        /// bounds, and the snap grid (when set).
+        /// </summary>
+        public int SmoothingPasses;
+
         /// <exception cref="ArgumentException">An option or the input is invalid (an angle outside [0, 60), a non-positive area).</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><see cref="SmoothingPasses"/> is negative.</exception>
         public ConstrainedTriangulation2Result Compute(ConstrainedMesh2Input input, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
             if (double.IsNaN(MinAngle) || MinAngle < 0 || MinAngle >= 60) throw new ArgumentException("MinAngle must be at least 0 and below 60 degrees (decision D12)");
             if (MaxArea != null && !(MaxArea.Value > 0) || MaxArea != null && double.IsInfinity(MaxArea.Value)) throw new ArgumentException("MaxArea must be positive and finite");
             if (SteinerLimit != null && SteinerLimit.Value < 0) throw new ArgumentException("SteinerLimit must not be negative");
+            if (SmoothingPasses < 0) throw new ArgumentOutOfRangeException(nameof(SmoothingPasses), "SmoothingPasses must not be negative (spec O15)");
             if (input.Regions != null)
                 foreach (var r in input.Regions)
                     if (r != null && r.MaxArea != null && !(r.MaxArea.Value > 0)) throw new ArgumentException("a region's MaxArea must be positive");
@@ -512,7 +533,441 @@ namespace g3
                 // the result is a constrained Delaunay triangulation in any case, also when the limit stopped refinement
                 var bad = k.NonDelaunayEdges();
                 if (bad.Count > 0) k.RestoreDelaunay(bad);
+                if (options.ReduceSteiner && options.SizeFunction == null) ReduceSteiner();
+                if (options.SmoothingPasses > 0) SmoothSteiner();
                 return null;
+            }
+
+            static int Prev(int e) => e % 3 == 0 ? e + 2 : e - 1;
+
+            bool LockedSeg(int segId)
+            {
+                foreach (int s in k.Sources[segId]) if (b.sources[s].Locked) return true;
+                return false;
+            }
+
+            /// <summary>
+            /// Post-refinement Steiner-point reduction (spec O14): deterministically removes redundant free interior
+            /// Steiner vertices when the exact Delaunay retriangulation of their star polygon satisfies every active
+            /// minimum-angle, area, non-encroachment, and Delaunay constraint. Disabled when SizeFunction is set.
+            /// Uses a deterministic dirty-neighbor frontier after the first pass so total work stays O(V).
+            /// </summary>
+            void ReduceSteiner()
+            {
+                const int maxStarDegree = 64;
+                int vc = k.VertexCount;
+                if (firstSteiner >= vc) return;
+
+                var frontier = new List<int>(vc - firstSteiner);
+                for (int v = firstSteiner; v < vc; ++v)
+                    if (v != k.Infinite) frontier.Add(v);
+                var nextFrontier = new List<int>(64);
+                var inNext = new bool[vc];
+                var neighbors = new List<int>(32);
+
+                int checkedCount = 0;
+                while (frontier.Count > 0) {
+                    nextFrontier.Clear();
+                    for (int fi = 0; fi < frontier.Count; ++fi) {
+                        if ((++checkedCount & 255) == 0) b.cancel.ThrowIfCancellationRequested();
+                        int v = frontier[fi];
+                        neighbors.Clear();
+
+                        bool deleted = k.DeleteVertexIf(v, (tV, tH, outer, outerSeg, m, tag) => {
+                            if (tag < 0) return false;
+                            double? regionMaxArea = options.MaxArea;
+                            if (tag > 0) {
+                                var ra = b.input.Regions[tag - 1].MaxArea;
+                                if (ra != null) regionMaxArea = regionMaxArea == null ? ra : Math.Min(regionMaxArea.Value, ra.Value);
+                            }
+                            double areaBound = regionMaxArea != null ? regionMaxArea.Value * (1.0 - 1.0 / (1L << 40)) : 0;
+
+                            for (int i = 0; i < m; ++i) {
+                                int a = tV[3 * i], c = tV[3 * i + 1], d = tV[3 * i + 2];
+                                var pa = k.Point(a); var pc = k.Point(c); var pd = k.Point(d);
+                                if (ExactPredicates.Orient2d(pa, pc, pd) <= 0) return false;
+                                if (options.MinAngle > 0 && TriMinSin2(pa, pc, pd) < sin2Min) return false;
+                                if (regionMaxArea != null && TriArea(pa, pc, pd) > areaBound) return false;
+
+                                for (int j = 0; j < 3; ++j) {
+                                    int lh = tH[3 * i + j];
+                                    if (lh >= 0) continue;
+                                    int bi = -lh - 1;
+                                    int twin = outer[bi];
+                                    int nt = twin / 3;
+                                    int segId = outerSeg[bi];
+                                    int u = tV[3 * i + j];
+                                    int w = tV[3 * i + (j + 1) % 3];
+                                    int apex = tV[3 * i + (j + 2) % 3];
+                                    var pu = k.Point(u); var pw = k.Point(w); var pApex = k.Point(apex);
+                                    if (segId < 0) {
+                                        if (!k.IsGhost(nt)) {
+                                            int opp = k.V[Prev(twin)];
+                                            if (ExactPredicates.InCircle(pu, pw, pApex, k.Point(opp)) > 0) return false;
+                                        }
+                                    } else {
+                                        if (!LockedSeg(segId) && EncroachesOn(pu, pw, pApex)) return false;
+                                        if (options.Conforming && !k.IsGhost(nt)) {
+                                            int opp = k.V[Prev(twin)];
+                                            if (ExactPredicates.InCircle(pu, pw, pApex, k.Point(opp)) > 0) return false;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Collect boundary ring and immediate opposite vertices whose local neighborhood changed
+                            for (int bi = 0; bi < outer.Length; ++bi) {
+                                int twin = outer[bi];
+                                int nt = twin / 3;
+                                int rv = k.V[twin];
+                                if (rv >= firstSteiner && rv != k.Infinite) neighbors.Add(rv);
+                                if (!k.IsGhost(nt)) {
+                                    int opp = k.V[Prev(twin)];
+                                    if (opp >= firstSteiner && opp != k.Infinite) neighbors.Add(opp);
+                                }
+                            }
+                            return true;
+                        }, maxStarDegree);
+
+                        if (deleted) {
+                            for (int ni = 0; ni < neighbors.Count; ++ni) {
+                                int u = neighbors[ni];
+                                if (!inNext[u]) {
+                                    inNext[u] = true;
+                                    nextFrontier.Add(u);
+                                }
+                            }
+                        }
+                    }
+                    if (nextFrontier.Count == 0) break;
+                    nextFrontier.Sort();
+                    for (int i = 0; i < nextFrontier.Count; ++i) inNext[nextFrontier[i]] = false;
+                    var tmp = frontier; frontier = nextFrontier; nextFrontier = tmp;
+                }
+            }
+
+            /// <summary>
+            /// Post-refinement Steiner-point smoothing (spec O15, F-64/c): moves free interior Steiner vertices
+            /// in deterministic index order using offset coordinates (exact precision at 2^20 and UTM offsets)
+            /// and accepts a move only when it strictly improves the star's minimum angle while preserving exact
+            /// orientation, Delaunay/conforming invariants, area/size bounds, and snap-grid rules.
+            /// </summary>
+            void SmoothSteiner()
+            {
+                const double halfSqrt3 = 0.8660254037844386;
+                var star = new List<int>(16);
+                var targets = new Vector2d[3];
+                double[] alphas = { 1.0, 0.5, 0.25 };
+
+                for (int pass = 0; pass < options.SmoothingPasses; ++pass) {
+                    int moved = 0;
+                    for (int v = firstSteiner; v < k.VertexCount; ++v) {
+                        if ((v & 255) == 0) b.cancel.ThrowIfCancellationRequested();
+                        if (v == k.Infinite) continue;
+
+                        star.Clear();
+                        bool free = true;
+                        foreach (int e in k.Star(v)) {
+                            int t = e / 3;
+                            if (k.IsGhost(t) || !InDomain(t) || k.Seg[e] >= 0 || k.Seg[Prev(e)] >= 0) {
+                                free = false;
+                                break;
+                            }
+                            star.Add(e);
+                        }
+                        if (!free || star.Count < 3) continue;
+
+                        var oldPos = k.Point(v);
+                        int deg = star.Count;
+                        double oldMinSin2 = double.MaxValue;
+                        int worstIdx = 0;
+                        int oldBelow = 0;
+                        double sumDx = 0, sumDy = 0;
+                        double sumCcDx = 0, sumCcDy = 0;
+                        int ccCount = 0;
+
+                        for (int i = 0; i < deg; ++i) {
+                            int e = star[i];
+                            var pu = k.Point(k.V[Next(e)]);
+                            var pw = k.Point(k.V[Prev(e)]);
+                            double s2 = TriMinSin2(oldPos, pu, pw);
+                            if (s2 < oldMinSin2) { oldMinSin2 = s2; worstIdx = i; }
+                            if (options.MinAngle > 0 && s2 < sin2Min) ++oldBelow;
+
+                            double dux = pu.x - oldPos.x, duy = pu.y - oldPos.y;
+                            double dwx = pw.x - oldPos.x, dwy = pw.y - oldPos.y;
+                            sumDx += dux;
+                            sumDy += duy;
+
+                            // Scaled local circumcentre offset (overflow/underflow-free, 2^k scale invariant).
+                            if (TryLocalCircumcentreOffset(dux, duy, dwx, dwy, out double ccDx, out double ccDy)) {
+                                sumCcDx += ccDx;
+                                sumCcDy += ccDy;
+                                ++ccCount;
+                            }
+                        }
+
+                        // Target 0: Laplacian link centroid (offset form for UTM / 2^20 precision)
+                        int targetCount = 0;
+                        targets[targetCount++] = new Vector2d(oldPos.x + sumDx / deg, oldPos.y + sumDy / deg);
+                        // Target 1: Average circumcentre of incident triangles (centroidal Voronoi-like target)
+                        if (ccCount > 0)
+                            targets[targetCount++] = new Vector2d(oldPos.x + sumCcDx / ccCount, oldPos.y + sumCcDy / ccCount);
+                        // Target 2: Equilateral apex across the worst triangle's link edge
+                        {
+                            int we = star[worstIdx];
+                            var pu = k.Point(k.V[Next(we)]);
+                            var pw = k.Point(k.V[Prev(we)]);
+                            double dux = pu.x - oldPos.x, duy = pu.y - oldPos.y;
+                            double dwx = pw.x - oldPos.x, dwy = pw.y - oldPos.y;
+                            double ex = dwx - dux, ey = dwy - duy;
+                            targets[targetCount++] = new Vector2d(
+                                oldPos.x + 0.5 * (dux + dwx) - halfSqrt3 * ey,
+                                oldPos.y + 0.5 * (duy + dwy) + halfSqrt3 * ex);
+                        }
+
+                        double bestMinSin2 = oldMinSin2 * (1.0 + 1e-12);
+                        Vector2d bestPos = oldPos;
+                        bool hasBest = false;
+
+                        for (int ti = 0; ti < targetCount; ++ti) {
+                            double tdx = targets[ti].x - oldPos.x;
+                            double tdy = targets[ti].y - oldPos.y;
+                            for (int ai = 0; ai < alphas.Length; ++ai) {
+                                double a = alphas[ai];
+                                var cand = new Vector2d(oldPos.x + a * tdx, oldPos.y + a * tdy);
+                                if (!Usable(cand)) continue;
+                                if (grid != null) {
+                                    if (!RoundableOnGrid(grid, cand)) continue;
+                                    cand = grid.Round(cand);
+                                }
+                                cand = new Vector2d(cand.x == 0 ? 0.0 : cand.x, cand.y == 0 ? 0.0 : cand.y);
+                                if (cand == oldPos) continue;
+                                if (CanMoveSteiner(v, oldPos, cand, star, oldBelow, bestMinSin2, out double candMinSin2)) {
+                                    bestMinSin2 = candMinSin2;
+                                    bestPos = cand;
+                                    hasBest = true;
+                                }
+                            }
+                        }
+
+                        if (hasBest) {
+                            k.X[v] = bestPos.x;
+                            k.Y[v] = bestPos.y;
+                            if (grid != null) {
+                                while (pixels.Count <= v) pixels.Add((long.MinValue, long.MinValue));
+                                pixels[v] = (grid.Pixel(bestPos.x), grid.Pixel(bestPos.y));
+                            }
+                            if (b.heights != null) b.SetHeightOnReference(v);
+                            ++moved;
+                        }
+                    }
+                    if (moved == 0) break;
+                }
+            }
+
+            bool CanMoveSteiner(int v, Vector2d oldPos, Vector2d cand, List<int> star, int oldBelow, double minRequiredSin2, out double candMinSin2)
+            {
+                candMinSin2 = 0;
+                int deg = star.Count;
+                double minS2 = double.MaxValue;
+                int newBelow = 0;
+
+                // 1. Exact positive orientation, angle improvement, and area/size preservation on every triangle in star
+                double? regionMaxArea = options.MaxArea;
+                int tag = k.Tag[star[0] / 3];
+                if (tag > 0) {
+                    var ra = b.input.Regions[tag - 1].MaxArea;
+                    if (ra != null) regionMaxArea = regionMaxArea == null ? ra : Math.Min(regionMaxArea.Value, ra.Value);
+                }
+
+                long candPx = 0, candPy = 0;
+                if (grid != null) {
+                    candPx = grid.Pixel(cand.x);
+                    candPy = grid.Pixel(cand.y);
+                }
+
+                for (int i = 0; i < deg; ++i) {
+                    int e = star[i];
+                    int t = e / 3;
+                    int u = k.V[Next(e)];
+                    int w = k.V[Prev(e)];
+                    var pu = k.Point(u);
+                    var pw = k.Point(w);
+
+                    if (ExactPredicates.Orient2d(cand, pu, pw) <= 0) return false;
+                    double s2 = TriMinSin2(cand, pu, pw);
+                    if (s2 <= minRequiredSin2) return false;
+                    if (s2 < minS2) minS2 = s2;
+                    if (options.MinAngle > 0 && s2 < sin2Min) {
+                        ++newBelow;
+                        if (newBelow > oldBelow) return false;
+                        // Preserve oracle small-angle / grid-floor exemptions if a triangle remains below MinAngle.
+                        if (TriMinSin2(oldPos, pu, pw) >= sin2Min) return false;
+                        if (grid != null && BelowFloor(t) && !PairWithinGridFloor(candPx, candPy, u, w)) return false;
+                        if (ShortestEdgeCorner(cand, pu, pw) != ShortestEdgeCorner(oldPos, pu, pw)) return false;
+                    }
+
+                    if (regionMaxArea != null) {
+                        double newArea = TriArea(cand, pu, pw);
+                        double bound = regionMaxArea.Value * (1.0 - 1.0 / (1L << 40));
+                        if (newArea > bound) {
+                            double oldArea = TriArea(oldPos, pu, pw);
+                            if (oldArea <= bound || newArea > oldArea) return false;
+                        }
+                    }
+
+                    if (options.SizeFunction != null) {
+                        var gc = new Vector2d(cand.x + ((pu.x - cand.x) + (pw.x - cand.x)) / 3.0, cand.y + ((pu.y - cand.y) + (pw.y - cand.y)) / 3.0);
+                        double h = options.SizeFunction(gc.x, gc.y);
+                        if (double.IsNaN(h) || h <= 0) return false;
+                        double newLong2 = TriLongestEdge2(cand, pu, pw);
+                        double hBound = h * h * (1.0 - 1.0 / (1L << 40));
+                        if (newLong2 > hBound) {
+                            double oldLong2 = TriLongestEdge2(oldPos, pu, pw);
+                            if (oldLong2 <= hBound || newLong2 > oldLong2) return false;
+                        }
+                    }
+                }
+
+                // 2. Grid pixel collision and constraint-crossing checks (snap rounding invariant + Q17)
+                if (grid != null) {
+                    double h = grid.W / 2;
+                    foreach (int nt in TrianglesNear(star[0] / 3, cand.x - h, cand.y - h, cand.x + h, cand.y + h)) {
+                        for (int j = 0; j < 3; ++j) {
+                            int ne = 3 * nt + j;
+                            int nv = k.V[ne];
+                            if (nv != v && nv != k.Infinite) {
+                                var (px, py) = PixelOf(nv);
+                                if (px == candPx && py == candPy) return false;
+                            }
+                            if (k.Seg[ne] >= 0 && grid.CrossesInterior(k.Point(k.V[ne]), k.Point(k.V[Next(ne)]), candPx, candPy))
+                                return false;
+                        }
+                    }
+                }
+
+                // 3. Exact local Delaunay on every spoke edge and link edge (Lawson's Delaunay Lemma => global Delaunay)
+                for (int i = 0; i < deg; ++i) {
+                    int e = star[i];
+                    int u = k.V[Next(e)];
+                    int w = k.V[Prev(e)];
+                    var pu = k.Point(u);
+                    var pw = k.Point(w);
+
+                    // Spoke edge e (v -> u), twin f (u -> v), opposite vertex w2 = V[Prev(f)]
+                    int f = k.H[e];
+                    int w2 = k.V[Prev(f)];
+                    if (w2 != k.Infinite) {
+                        var pw2 = k.Point(w2);
+                        if (ExactPredicates.InCircle(cand, pu, pw, pw2) > 0) return false;
+                    }
+
+                    // Link edge le (u -> w)
+                    int le = Next(e);
+                    int twin = k.H[le];
+                    int nt = twin / 3;
+                    if (k.Seg[le] < 0) {
+                        if (!k.IsGhost(nt)) {
+                            int opp = k.V[Prev(twin)];
+                            var popp = k.Point(opp);
+                            if (ExactPredicates.InCircle(cand, pu, pw, popp) > 0) return false;
+                        }
+                    } else {
+                        // Constrained link edge: never introduce encroachment on unlocked edges, and preserve conforming Delaunay across all constrained edges (including hole boundaries)
+                        if (!Locked(le) && !EncroachesOn(pu, pw, oldPos) && EncroachesOn(pu, pw, cand)) return false;
+                        if (options.Conforming && !k.IsGhost(nt)) {
+                            int opp = k.V[Prev(twin)];
+                            var popp = k.Point(opp);
+                            if (ExactPredicates.InCircle(oldPos, pu, pw, popp) <= 0
+                                && ExactPredicates.InCircle(cand, pu, pw, popp) > 0)
+                                return false;
+                        }
+                    }
+                }
+
+                candMinSin2 = minS2;
+                return true;
+            }
+
+            bool PairWithinGridFloor(long cx, long cy, int u, int w)
+            {
+                double fl = FloorPixelsForBenchmarks ?? 2;
+                double f2 = fl * fl;
+                var (ux, uy) = PixelOf(u);
+                var (wx, wy) = PixelOf(w);
+                double d1x = cx - ux, d1y = cy - uy;
+                if (d1x * d1x + d1y * d1y <= f2) return true;
+                double d2x = cx - wx, d2y = cy - wy;
+                if (d2x * d2x + d2y * d2y <= f2) return true;
+                double d3x = ux - wx, d3y = uy - wy;
+                return d3x * d3x + d3y * d3y <= f2;
+            }
+
+            static double TriMinSin2(Vector2d a, Vector2d b, Vector2d c)
+            {
+                double qx = b.x - a.x, qy = b.y - a.y, rx = c.x - a.x, ry = c.y - a.y;
+                double scale = Math.Max(Math.Max(Math.Abs(qx), Math.Abs(qy)), Math.Max(Math.Abs(rx), Math.Abs(ry)));
+                if (scale == 0) return 0;
+                ExactPoint3.Decompose(scale, out var m, out int e);
+                int ex = e + (int)ExactPoint3.BitLength(m) - 1;
+                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
+                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
+                double area2 = qx * ry - qy * rx;
+                if (!(area2 > 0)) return 0;
+                double a2 = area2 * area2;
+                double l0 = (rx - qx) * (rx - qx) + (ry - qy) * (ry - qy);
+                double l1 = rx * rx + ry * ry;
+                double l2 = qx * qx + qy * qy;
+                double maxProd = Math.Max(l1 * l2, Math.Max(l0 * l2, l0 * l1));
+                return maxProd > 0 ? a2 / maxProd : 0;
+            }
+
+            static double TriArea(Vector2d a, Vector2d b, Vector2d c)
+            {
+                double qx = b.x - a.x, qy = b.y - a.y, rx = c.x - a.x, ry = c.y - a.y;
+                double scale = Math.Max(Math.Max(Math.Abs(qx), Math.Abs(qy)), Math.Max(Math.Abs(rx), Math.Abs(ry)));
+                if (scale == 0) return 0;
+                ExactPoint3.Decompose(scale, out var m, out int e);
+                int ex = e + (int)ExactPoint3.BitLength(m) - 1;
+                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
+                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
+                return ExactPoint3.ScaleB(0.5 * (qx * ry - qy * rx), 2 * ex);
+            }
+
+            static double TriLongestEdge2(Vector2d a, Vector2d b, Vector2d c)
+            {
+                double qx = b.x - a.x, qy = b.y - a.y, rx = c.x - a.x, ry = c.y - a.y;
+                double scale = Math.Max(Math.Max(Math.Abs(qx), Math.Abs(qy)), Math.Max(Math.Abs(rx), Math.Abs(ry)));
+                if (scale == 0) return 0;
+                ExactPoint3.Decompose(scale, out var m, out int e);
+                int ex = e + (int)ExactPoint3.BitLength(m) - 1;
+                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
+                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
+                double l0 = (rx - qx) * (rx - qx) + (ry - qy) * (ry - qy);
+                double l1 = rx * rx + ry * ry;
+                double l2 = qx * qx + qy * qy;
+                return ExactPoint3.ScaleB(Math.Max(l0, Math.Max(l1, l2)), 2 * ex);
+            }
+
+            static bool TryLocalCircumcentreOffset(double qx, double qy, double rx, double ry, out double ccDx, out double ccDy)
+            {
+                ccDx = 0; ccDy = 0;
+                double scale = Math.Max(Math.Max(Math.Abs(qx), Math.Abs(qy)), Math.Max(Math.Abs(rx), Math.Abs(ry)));
+                if (scale == 0) return false;
+                ExactPoint3.Decompose(scale, out var m, out int e);
+                int ex = e + (int)ExactPoint3.BitLength(m) - 1;
+                qx = ExactPoint3.ScaleB(qx, -ex); qy = ExactPoint3.ScaleB(qy, -ex);
+                rx = ExactPoint3.ScaleB(rx, -ex); ry = ExactPoint3.ScaleB(ry, -ex);
+                double det = 2.0 * (qx * ry - qy * rx);
+                if (Math.Abs(det) < 1e-12) return false;
+                double q2 = qx * qx + qy * qy, r2 = rx * rx + ry * ry;
+                double cx = (ry * q2 - qy * r2) / det;
+                double cy = (qx * r2 - rx * q2) / det;
+                if (cx * cx + cy * cy > 16.0) return false;
+                ccDx = ExactPoint3.ScaleB(cx, ex);
+                ccDy = ExactPoint3.ScaleB(cy, ex);
+                return !double.IsNaN(ccDx) && !double.IsInfinity(ccDx) && !double.IsNaN(ccDy) && !double.IsInfinity(ccDy);
             }
 
             bool HasRegionArea()

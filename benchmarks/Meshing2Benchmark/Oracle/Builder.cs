@@ -99,6 +99,8 @@ namespace Meshing2Acceptance
         public B NoNoding() { input.ResolveCrossings = false; text.Add("no_noding"); return this; }
         public B Conforming() { input.Conforming = true; text.Add("conforming"); return this; }
         public B ConstrainedQuality() { input.ConstrainedQuality = true; text.Add("mode(constrained)"); return this; }
+        public B ReduceSteiner() { input.ReduceSteiner = true; text.Add("reduce_steiner"); return this; }
+        public B Smooth(int passes) { input.SmoothingPasses = passes; text.Add("smooth(" + passes.ToString(CultureInfo.InvariantCulture) + ")"); return this; }
 
         public string Text => string.Join(" ", text);
         public Mesh2Input Build()
