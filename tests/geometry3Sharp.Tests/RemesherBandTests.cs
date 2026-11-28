@@ -175,6 +175,46 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.0, new Remesher(new DMesh3(input)).MaxDeviation);
         }
 
+        // the vertices (bits of the coordinates) and triangles of a mesh, in id order, hashed
+        static string Fingerprint(DMesh3 m)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create()) {
+                var bytes = new List<byte>();
+                foreach (int v in m.VertexIndices()) {
+                    Vector3d p = m.GetVertex(v);
+                    bytes.AddRange(BitConverter.GetBytes(v));
+                    bytes.AddRange(BitConverter.GetBytes(BitConverter.DoubleToInt64Bits(p.x)));
+                    bytes.AddRange(BitConverter.GetBytes(BitConverter.DoubleToInt64Bits(p.y)));
+                    bytes.AddRange(BitConverter.GetBytes(BitConverter.DoubleToInt64Bits(p.z)));
+                }
+                foreach (int t in m.TriangleIndices()) {
+                    Index3i tv = m.GetTriangle(t);
+                    bytes.AddRange(BitConverter.GetBytes(t)); bytes.AddRange(BitConverter.GetBytes(tv.a));
+                    bytes.AddRange(BitConverter.GetBytes(tv.b)); bytes.AddRange(BitConverter.GetBytes(tv.c));
+                }
+                return BitConverter.ToString(sha.ComputeHash(bytes.ToArray())).Replace("-", "").Substring(0, 16);
+            }
+        }
+
+        /// <summary>
+        /// the off path (MaxDeviation = 0, the default) is master's, bit for bit: pinned fingerprints of three remeshes (plain;
+        /// projection and the safe preset; RemesherPro), the same on master and on this branch
+        /// </summary>
+        [Fact]
+        public void OffPath_Fingerprints_AsOnMaster()
+        {
+            DMesh3 input = Cylinder();
+            Assert.Equal("PIN1", Fingerprint(Remesh(input, 0.1, 0, 6)));
+            Assert.Equal("PIN2", Fingerprint(Remesh(input, 0.1, 0, 6, true, true, r => r.ApplySafePreset())));
+            DMesh3 m = new DMesh3(input);
+            var pro = new RemesherPro(m) { SmoothSpeedT = 0.5 };
+            pro.SetProjectionTarget(MeshProjectionTarget.Auto(input));
+            MeshConstraintUtil.PreserveBoundaryAndFeatures(pro, 30);
+            pro.SetTargetEdgeLength(0.1);
+            pro.FastestRemesh(10);
+            Assert.Equal("PIN3", Fingerprint(m));
+        }
+
         /// <summary> the parallel buffered moves give the serial result, and repeated runs the same </summary>
         [Fact]
         public void Determinism_ParallelEqualsSerial_Repeated()
@@ -222,6 +262,8 @@ namespace geometry3Sharp.Tests
             for (int k = 0; k < 4; ++k) r.BasicRemeshPass();
             for (int k = 0; k < 4; ++k) r.BasicRemeshPass();
             Assert.True(OneSided(m, input, 0.01 * delta) <= delta * (1 + 1e-9), "measured from the input, not from the mesh after the first run");
+            // (the buffered rounds keep no state across the runs: 4 + 4 passes on one instance are 8 passes on a fresh one)
+            Assert.Equal("", Invariance.Difference(Remesh(input, 0.1, delta, 8), m));
             r.MaxDeviation = 0.5 * delta;
             int before = r.DeviationRejected;
             for (int k = 0; k < 2; ++k) r.BasicRemeshPass();
