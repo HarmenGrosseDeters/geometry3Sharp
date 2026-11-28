@@ -3,13 +3,15 @@ RefineNonManifold / PullPinchPoints (#1045) and R1 1-Lipschitz bisection worst c
 
 Formally verifies the geometric guarantees, parameter boundaries, and worst-case
 complexity of:
-  - mesh_ops/MeshAlphaWrap.cs: PullMaxOffsets (line 215), rule_intersection (1369-1390),
-    refine_non_manifold (1513-1579), cells_moved_by_manifold_step (1742-1783),
-    pinch_point (1789-1827), pulled_pinch_point (1839-1862);
+  - mesh_ops/MeshAlphaWrap.cs: RefineNonManifold / MaxNonManifoldRounds (lines 192-193),
+    PullPinchPoints / PullMaxOffsets (213-215), rule_intersection (1369-1390),
+    project_to_offset (1459-1479), refine_non_manifold (1513-1589),
+    cells_moved_by_manifold_step (1742-1783), pinch_point (1789-1827),
+    pulled_pinch_point (1839-1862);
   - mesh_ops/AlphaWrapOracle.cs: FirstEntry (433-443), sphere_entry (566-577);
   - docs/design/ALPHA_WRAP_MANIFOLD_QUALITY.md (#1045) & ALPHA_WRAP_PAPER_NOTES.md.
 
-1. PullPinchPoints geometry, band cap, and angle bound (QF_NRA & QF_LRA):
+1. PullPinchPoints geometry, band cap, and angle bound (alpha > delta > 0; QF_NRA & QF_LRA):
    - Given empty circumsphere B(c, r) (every vertex v at d_cv >= r), separation
      s = min(delta, alpha - delta) with 0 < s < r, offset projection q with L = |q - c| > r - s,
      and pulled point x = c + ((r - s) / L) * (q - c):
@@ -18,41 +20,48 @@ complexity of:
      * every existing vertex satisfies |x - v| >= s (triangle inequality; UNSAT to violate);
      * negative control (SAT): variant C (half depth 0.5 * s, ALPHA_WRAP_MANIFOLD_QUALITY.md §2)
        violates separation.
-   - Along the closest-point ray (dc > delta, L = dc - delta > r - s, dx = dc - (r - s)):
+   - Along the closest-point ray when cc is outside the offset (dc > delta, L = dc - delta > r - s,
+     dx = dc - (r - s)):
      * geometric triangle-inequality clearance from any point y inside the open offset ball
        (|y - q_I| < delta, dx <= d_xy + d_yq) proves d_xy > 0 (d_xy <= 0 is UNSAT);
      * without the PullMaxOffsets = 2.0 cap, dx = 3.3 * delta is SAT (reproducing Soup 28 in
-       AlphaWrapPullPinchTests.cs:95);
-     * negative control (SAT): if cc lies inside the offset (dc < delta), dx < delta is reachable,
-       explaining why pulled_pinch_point explicitly checks dx >= offset (MeshAlphaWrap.cs:1858).
+       AlphaWrapPullPinchTests.cs:95).
+   - Along the closest-point ray when cc lies inside the offset (0 <= dc < delta):
+     * project_to_offset moves away from q_I to q at distance delta, so L = delta - dc > r - s
+       and dx = dc + (r - s) < delta ALWAYS (dx >= delta is UNSAT!), proving why
+       pulled_pinch_point explicitly checks dx >= offset (MeshAlphaWrap.cs:1858).
    - Law-of-sines angle bound (e / (2*R) >= s / (2*alpha)):
      * holds for every gate facet (R <= alpha, e >= s; UNSAT to violate);
      * broken by make_manifold flips (R > alpha even with e >= s; SAT, matching Soup 42);
      * broken by variant C half-separation (R <= alpha, e >= 0.5 * s; SAT).
-2. RefineNonManifold loop termination & LocalPinchTrials confirmation (QF_LIA):
-   - Proves every continuing round strictly advances both round count (<= MaxNonManifoldRounds)
-     and Steiner count (<= MaxSteinerPoints).
-   - Proves (SAT witness) why LocalPinchTrials requires a confirming full trial: remove_pockets
-     can flip an enclosed pocket cell away from changedSinceTrial, turning an unseeded vertex
-     non-manifold.
+2. RefineNonManifold per-cell guard, round progress, and LocalPinchTrials confirmation (QF_LIA):
+   - Models the actual per-cell MaxSteinerPoints guard (MeshAlphaWrap.cs:1559-1565) and
+     round-continuation guard (1571-1577): proves guarded insertion never exceeds MaxSteinerPoints
+     and every continuing round strictly advances both round count and Steiner count (with SAT
+     negative controls removing the MaxSteinerPoints guard and the inserted == 0 break).
+   - Proves LocalPinchTrials completeness when no remote pocket flips (with assumptions_sat) and
+     constructs the SAT remote-pocket-flip miss witness motivating the confirming full trial.
 3. R1 1-Lipschitz bisection worst case vs analytic sphere_entry (QF_LRA & QF_NRA):
-   - Proves 1-Lipschitz interval pruning soundness: d(mid) - delta > (s1 - s0) / 2 => d(s) > delta
-     for all s in [s0, s1] (UNSAT for d(s) <= delta), with SAT negative controls for an overly
-     tight (s1 - s0) / 4 guard and for a 2-Lipschitz function.
+   - Proves 1-Lipschitz interval pruning soundness (with non-negative distances d_s >= 0, d_mid >= 0):
+     d(mid) - delta > (s1 - s0) / 2 => d(s) > delta for all s in [s0, s1] (UNSAT for d(s) <= delta),
+     with SAT negative controls for an overly tight (s1 - s0) / 4 guard and for a 2-Lipschitz function.
    - Proves grazing-tangent non-pruning worst case: a segment at clearance delta + eps (eps > 0)
      never enters the offset volume (UNSAT), yet defeats 1-Lipschitz pruning across the entire
-     quadratic band u^2 <= 2*delta*(half_w - eps) (UNSAT to prune in QF_NRA!), yielding
-     Omega(sqrt(delta / eps)) unpruned intervals at depth ~ log2(L / eps), whereas
+     quadratic band u^2 <= 2*delta*(half_w - eps) (UNSAT to prune in QF_NRA; SAT outside the band),
+     yielding Omega(sqrt(delta / eps)) unpruned intervals at depth ~ log2(L / eps), whereas
      AlphaWrapOracle.sphere_entry's quadratic discriminant (B^2 - A*C < 0 => A*t^2 + 2*B*t + C > 0)
      soundly rejects every grazing tangent in O(1) (with SAT hit negative control).
 4. Three binary64 replays mirroring MeshAlphaWrap and AlphaWrapOracle:
-   - Replay 1: pulled_pinch_point on Soup 42 (strict candidate fails, pulled point accepted in
-     [offset, 2*offset]) and Soup 28 (3.3*offset rejected by PullMaxOffsets = 2.0).
-   - Replay 2: grazing tangent at eps = 2^-20: 1-Lipschitz bisection expands hundreds/thousands of
-     unpruned sub-intervals across 20 levels while sphere_entry rejects in 1 discriminant check.
-   - Replay 3: rule_intersection 60-step exit-bisection stall near t = 1 (7 wasted iterations)
-     and at UTM scale 5e6 (29 redundant oracle evaluations on identical binary64 coordinates).
+   - Replay 1: pulled_pinch_point on non-degenerate 3D inscribed tetrahedra (exact Fraction
+     Orient3d & InSphere, matching C# project_to_offset rounding order) for Soup 42 (strict fails,
+     pulled accepted at 1.5*offset with tight min_sep == depth) and Soup 28 (3.3*offset rejected
+     by PullMaxOffsets = 2.0).
+   - Replay 2: grazing tangent at eps = 2^-20: 1-Lipschitz bisection expands 627 distance queries
+     across 19 levels while sphere_entry rejects in 1 discriminant check.
+   - Replay 3: rule_intersection 60-step exit-bisection stalls near t = 1 (7 mid stalls) and at
+     UTM scale 5e6 (28 consecutive coordinate stalls / 30 redundant evaluations).
 """
+from fractions import Fraction
 import math
 import sys
 import z3
@@ -63,10 +72,14 @@ WRAP_SOURCE = 'mesh_ops/MeshAlphaWrap.cs'
 ORACLE_SOURCE = 'mesh_ops/AlphaWrapOracle.cs'
 
 WRAP_ANCHORS = [
-    ('internal const double PullMaxOffsets = 2.0;', '/// <summary>',
-     '7fdcd5720faa08d121e1a8638ea1e075393fdd6799a5cba9e956e8f97924a711'),
+    ('public bool RefineNonManifold = true;', '/// <summary>',
+     '7eec70271f971bde0984ef7bfc08d6009db9c0aa32241c0fed70e9beb70d40ea'),
+    ('public bool PullPinchPoints = false;', 'public double RefineMinAngleDegrees',
+     '9b2f5d3119def5f81c1c2fb7736846e4281a3b67b76a327f9c9e22dfd922acd1'),
     ('bool rule_intersection(Vector3d from, Vector3d to, out Vector3d p)', 'double vertex_distance(int v, RoundGate g = null)',
      '1dcd54814b2888519a0844314e8d7e50c645a1c198e9fadf4ac09b6d2b0484dc'),
+    ('bool project_to_offset(int c, int i, Vector3d cc, out Vector3d p)', '// ---- post-processing ----',
+     '419a5e5bdec44106c4e8c25db64cbdf941adb6d8b9f109e2320bc2005e0fb9b4'),
     ('WrapStatus refine_non_manifold(bool confirm = true)', '// (totals: the pinch refinement runs again after the quality refinement)',
      '07baa4065b2552b23f453327ed4e30d0d972600bf8865695513a1d9fa847b734'),
     ('WrapStatus cells_moved_by_manifold_step(List<int> moved, out bool local, bool full = false)', 'bool lastPinchPulled;',
@@ -142,16 +155,16 @@ def pull_pinch_geometry_obligations():
     # 2. Outside-offset clearance along closest-point ray & 2*delta band cap (QF_LRA)
     alpha, delta, r2, s2, dc, dx, d_xy, d_yq = z3.Reals('alpha delta r2 s2 dc dx d_xy d_yq')
     sep_def = s2 == z3.If(delta <= alpha - delta, delta, alpha - delta)
-    ray_base = [
+    ray_outside = [
         alpha > delta, delta > 0, sep_def,
         r2 > s2,
+        dc > delta,
+        dc - delta > r2 - s2,
         dx == dc - (r2 - s2),
         d_yq >= 0, d_yq < delta, d_xy >= 0,
         dx <= d_xy + d_yq,  # triangle inequality: dx = dist(x, I) <= dist(x, q_I) <= dist(x, y) + dist(y, q_I)
     ]
-    # When cc is outside offset (dc > delta) and L = dc - delta > r2 - s2, x clears every point y in open offset ball
-    ray_outside = ray_base + [dc > delta, dc - delta > r2 - s2]
-    rows.append(('pull_band_assumptions_sat', ray_outside, z3.And(alpha == 10, delta == 1, dx == 1.5), 'sat', 'QF_LRA'))
+    rows.append(('pull_band_assumptions_sat', ray_outside, z3.And(alpha == 10, delta == 1, dx == z3.Q(3, 2)), 'sat', 'QF_LRA'))
     rows.append((
         'pulled_point_clears_open_offset_ball_when_cc_outside',
         ray_outside,
@@ -167,16 +180,33 @@ def pull_pinch_geometry_obligations():
         'sat',
         'QF_LRA',
     ))
-    # Negative control: dropping dc > delta (cc inside offset volume) allows dx < delta (even hitting input!)
+
+    # 3. Inside-offset ray (0 <= dc < delta): project_to_offset moves away from q_I to q at distance delta,
+    #    so L = delta - dc > r2 - s2 and |x - q_I| = dc + (r2 - s2) < delta ALWAYS (dx >= delta is UNSAT!),
+    #    proving why pulled_pinch_point explicitly checks dx >= offset (MeshAlphaWrap.cs:1858).
+    ray_inside = [
+        alpha > delta, delta > 0, sep_def,
+        r2 > s2,
+        dc >= 0, dc < delta,
+        delta - dc > r2 - s2,
+        dx == dc + (r2 - s2),
+    ]
     rows.append((
-        'pulled_point_cc_inside_offset_can_enter_offset_negative_control',
-        ray_base + [dc >= 0, dc < delta],
-        z3.And(d_xy == 0, d_yq == 0),
+        'pull_inside_offset_assumptions_sat',
+        ray_inside,
+        z3.And(alpha == 10, delta == 1, dc == z3.Q(1, 10), r2 == z3.Q(3, 2)),
         'sat',
         'QF_LRA',
     ))
+    rows.append((
+        'pulled_point_cc_inside_offset_stays_strictly_inside_offset',
+        ray_inside,
+        dx >= delta,
+        'unsat',
+        'QF_LRA',
+    ))
 
-    # 3. Minimum angle bound sin(theta_min) = e / (2*R) >= s / (2*alpha) <=> e*alpha >= s*R (QF_NRA, 5 vars)
+    # 4. Minimum angle bound sin(theta_min) = e / (2*R) >= s / (2*alpha) <=> e*alpha >= s*R (QF_NRA, 5 vars)
     a3, d3, s3, R3, e3 = z3.Reals('a3 d3 s3 R3 e3')
     ang_base = [a3 > d3, d3 > 0, s3 == z3.If(d3 <= a3 - d3, d3, a3 - d3), R3 > 0, e3 > 0]
     rows.append(('angle_bound_assumptions_sat', ang_base + [R3 <= a3, e3 >= s3], z3.And(a3 == 10, d3 == 1), 'sat', 'QF_NRA'))
@@ -207,25 +237,72 @@ def pull_pinch_geometry_obligations():
 
 
 def refine_non_manifold_loop_obligations():
-    """Verify refine_non_manifold bounded progress and LocalPinchTrials confirmation necessity (QF_LIA)."""
+    """Verify refine_non_manifold per-cell guard, round progress, and LocalPinchTrials confirmation (QF_LIA)."""
     rows = []
 
-    # 1. Bounded termination & strict progress per continuing round (MeshAlphaWrap.cs:1519-1579)
-    rnd, max_rnd, steiner, max_st, pinch, ins = z3.Ints('rnd max_rnd steiner max_st pinch ins')
-    loop_prem = [
+    # 1. Model the actual per-cell MaxSteinerPoints guard and round-continuation check (MeshAlphaWrap.cs:1553-1579):
+    #    status: 0 = Success, 1 = PointLimitReached; try_ok: 1 if pinch_point & insert_steiner succeed, else 0.
+    rnd, max_rnd, st0, st1, max_st, ins0, ins1, try_ok, status1, cont = z3.Ints(
+        'rnd max_rnd st0 st1 max_st ins0 ins1 try_ok status1 cont'
+    )
+    step_base = [
         max_rnd >= 1, max_st >= 1,
         0 <= rnd, rnd < max_rnd,
-        0 <= steiner, steiner <= max_st,
-        pinch >= 1,
-        ins >= 1,
-        steiner + ins <= max_st,
+        0 <= st0, st0 <= max_st,
+        ins0 == 0,
+        z3.Or(try_ok == 0, try_ok == 1),
     ]
-    rows.append(('refine_loop_assumptions_sat', loop_prem, z3.And(rnd == 0, max_rnd == 8, ins == 1), 'sat', 'QF_LIA'))
+    # Guarded per-cell transition (lines 1559-1566):
+    #   if (st0 >= max_st) { status1 = 1; st1 = st0; ins1 = ins0; }
+    #   else if (try_ok == 1) { status1 = 0; st1 = st0 + 1; ins1 = ins0 + 1; }
+    #   else { status1 = 0; st1 = st0; ins1 = ins0; }
+    guarded_step = step_base + [
+        status1 == z3.If(st0 >= max_st, 1, 0),
+        st1 == z3.If(z3.And(st0 < max_st, try_ok == 1), st0 + 1, st0),
+        ins1 == z3.If(z3.And(st0 < max_st, try_ok == 1), ins0 + 1, ins0),
+        # Round continues iff status1 == 0 and ins1 > 0 (lines 1571, 1577)
+        cont == z3.If(z3.And(status1 == 0, ins1 > 0), 1, 0),
+    ]
+    rows.append(('refine_step_assumptions_sat', guarded_step, z3.And(cont == 1, st0 == 0, max_st == 5), 'sat', 'QF_LIA'))
+    rows.append((
+        'refine_non_manifold_step_respects_point_limit',
+        guarded_step,
+        st1 > max_st,
+        'unsat',
+        'QF_LIA',
+    ))
     rows.append((
         'refine_non_manifold_continuing_round_strict_progress',
-        loop_prem,
-        z3.Or(rnd + 1 > max_rnd, steiner + ins <= steiner, steiner + ins > max_st),
+        guarded_step + [cont == 1],
+        z3.Or(rnd + 1 > max_rnd, st1 <= st0, st1 > max_st),
         'unsat',
+        'QF_LIA',
+    ))
+    # Negative control 1: dropping the `if (steiner >= MaxSteinerPoints)` guard allows exceeding max_st
+    unguarded_limit = step_base + [
+        status1 == 0,
+        st1 == z3.If(try_ok == 1, st0 + 1, st0),
+        ins1 == z3.If(try_ok == 1, ins0 + 1, ins0),
+    ]
+    rows.append((
+        'refine_non_manifold_without_point_limit_guard_overflows_negative_control',
+        unguarded_limit,
+        st1 > max_st,
+        'sat',
+        'QF_LIA',
+    ))
+    # Negative control 2: dropping `if (inserted == 0) break;` allows a continuing round with zero Steiner progress
+    no_zero_break = step_base + [
+        status1 == z3.If(st0 >= max_st, 1, 0),
+        st1 == z3.If(z3.And(st0 < max_st, try_ok == 1), st0 + 1, st0),
+        ins1 == z3.If(z3.And(st0 < max_st, try_ok == 1), ins0 + 1, ins0),
+        cont == z3.If(status1 == 0, 1, 0),
+    ]
+    rows.append((
+        'refine_non_manifold_without_zero_insert_break_stalls_negative_control',
+        no_zero_break + [cont == 1],
+        st1 <= st0,
+        'sat',
         'QF_LIA',
     ))
 
@@ -245,6 +322,13 @@ def refine_non_manifold_loop_obligations():
         local_found == z3.If(z3.And(in_seeds == 1, is_nm == 1), 1, 0),
         full_found == is_nm,
     ]
+    rows.append((
+        'local_trial_assumptions_sat',
+        trial_prem + [pocket_flip == 0, was_nm == 0],
+        z3.And(in_seeds == 1, is_nm == 1),
+        'sat',
+        'QF_LIA',
+    ))
     rows.append((
         'local_trial_complete_without_pocket_flip',
         trial_prem + [pocket_flip == 0, was_nm == 0],
@@ -266,12 +350,12 @@ def lipschitz_bisection_obligations():
     """Verify 1-Lipschitz pruning soundness, grazing-tangent non-pruning worst case, and analytic sphere_entry."""
     rows = []
 
-    # 1. 1-Lipschitz interval pruning soundness along arclength [s0, s1] (QF_LRA, 6 vars)
+    # 1. 1-Lipschitz interval pruning soundness along arclength [s0, s1] with non-negative distances (QF_LRA, 6 vars)
     s0, s1, s, delta, d_mid, d_s = z3.Reals('s0 s1 s delta d_mid d_s')
     sm = (s0 + s1) / 2
     dist_to_mid = z3.If(s >= sm, s - sm, sm - s)
-    lip1_prem = [
-        delta > 0, s0 < s1, s0 <= s, s <= s1,
+    lip_domain = [delta > 0, s0 < s1, s0 <= s, s <= s1, d_mid >= 0, d_s >= 0]
+    lip1_prem = lip_domain + [
         d_mid - d_s <= dist_to_mid,  # 1-Lipschitz lower bound on d(s)
         d_mid - delta > (s1 - s0) / 2,
     ]
@@ -283,18 +367,18 @@ def lipschitz_bisection_obligations():
         'unsat',
         'QF_LRA',
     ))
-    # Negative control 1: overly tight quarter-width guard (s1 - s0) / 4 admits an offset entry (SAT)
+    # Negative control 1: overly tight quarter-width guard (s1 - s0) / 4 admits an offset entry with d_s >= 0 (SAT)
     rows.append((
         'lipschitz_quarter_width_guard_unsound_negative_control',
-        [delta > 0, s0 < s1, s0 <= s, s <= s1, d_mid - d_s <= dist_to_mid, d_mid - delta > (s1 - s0) / 4],
+        lip_domain + [d_mid - d_s <= dist_to_mid, d_mid - delta > (s1 - s0) / 4],
         d_s <= delta,
         'sat',
         'QF_LRA',
     ))
-    # Negative control 2: 2-Lipschitz function violates 1-Lipschitz pruning guard (SAT)
+    # Negative control 2: 2-Lipschitz function violates 1-Lipschitz pruning guard with d_s >= 0 (SAT)
     rows.append((
         'lipschitz_2_violates_1lipschitz_pruning_negative_control',
-        [delta > 0, s0 < s1, s0 <= s, s <= s1, d_mid - d_s <= 2 * dist_to_mid, d_mid - delta > (s1 - s0) / 2],
+        lip_domain + [d_mid - d_s <= 2 * dist_to_mid, d_mid - delta > (s1 - s0) / 2],
         d_s <= delta,
         'sat',
         'QF_LRA',
@@ -322,6 +406,14 @@ def lipschitz_bisection_obligations():
         'unsat',
         'QF_NRA',
     ))
+    # Negative control: outside the exact quadratic band, 1-Lipschitz pruning succeeds (SAT)
+    rows.append((
+        'grazing_tangent_outside_band_prunes_negative_control',
+        graz_prem + [half_w >= eps, u * u > (half_w - eps) * (2 * del_g + half_w + eps)],
+        d_u - del_g > half_w,
+        'sat',
+        'QF_NRA',
+    ))
 
     # 3. Analytic sphere_entry discriminant soundness (AlphaWrapOracle.cs:566-577; QF_NRA, 4 vars)
     A, B, C, tau = z3.Reals('A B C tau')
@@ -345,7 +437,7 @@ def lipschitz_bisection_obligations():
     return rows
 
 
-# ---- Python binary64 mirrors for replay_fp() ----
+# ---- Python binary64 mirrors & exact rational predicates for replay_fp() ----
 
 def _vsub(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
@@ -368,8 +460,43 @@ def _vdist(a, b):
     return math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
 
 
+def _exact_orient3d(a, b, c, d):
+    """Exact sign of ((b - a) x (c - a)) . (d - a) matching ExactPredicates.Orient3d."""
+    ax, ay, az = Fraction(a[0]), Fraction(a[1]), Fraction(a[2])
+    ux, uy, uz = Fraction(b[0]) - ax, Fraction(b[1]) - ay, Fraction(b[2]) - az
+    vx, vy, vz = Fraction(c[0]) - ax, Fraction(c[1]) - ay, Fraction(c[2]) - az
+    wx, wy, wz = Fraction(d[0]) - ax, Fraction(d[1]) - ay, Fraction(d[2]) - az
+    det = wx * (uy * vz - uz * vy) + wy * (uz * vx - ux * vz) + wz * (ux * vy - uy * vx)
+    return 1 if det > 0 else (-1 if det < 0 else 0)
+
+
+def _exact_insphere(a, b, c, d, e):
+    """Exact sign matching ExactPredicates.InSphere (+1 inside for Orient3d(a,b,c,d) > 0)."""
+    ex, ey, ez = Fraction(e[0]), Fraction(e[1]), Fraction(e[2])
+    aex, aey, aez = Fraction(a[0]) - ex, Fraction(a[1]) - ey, Fraction(a[2]) - ez
+    bex, bey, bez = Fraction(b[0]) - ex, Fraction(b[1]) - ey, Fraction(b[2]) - ez
+    cex, cey, cez = Fraction(c[0]) - ex, Fraction(c[1]) - ey, Fraction(c[2]) - ez
+    dex, dey, dez = Fraction(d[0]) - ex, Fraction(d[1]) - ey, Fraction(d[2]) - ez
+    ab = aex * bey - bex * aey
+    bc = bex * cey - cex * bey
+    cd = cex * dey - dex * cey
+    da = dex * aey - aex * dey
+    ac = aex * cey - cex * aey
+    bd = bex * dey - dex * bey
+    abc = aez * bc - bez * ac + cez * ab
+    bcd = bez * cd - cez * bd + dez * bc
+    cda = cez * da + dez * ac + aez * cd
+    dab = dez * ab + aez * bd + bez * da
+    alift = aex * aex + aey * aey + aez * aez
+    blift = bex * bex + bey * bey + bez * bez
+    clift = cex * cex + cey * cey + cez * cez
+    dlift = dex * dex + dey * dey + dez * dez
+    det = (dlift * abc - clift * dab) + (blift * cda - alift * bcd)
+    return 1 if det < 0 else (-1 if det > 0 else 0)
+
+
 def _mirror_pulled_pinch_point(cc, verts, q_in, offset, depth, pull_max_offsets=2.0):
-    """1-to-1 binary64 mirror of MeshAlphaWrap.pulled_pinch_point (MeshAlphaWrap.cs:1839-1862) against point q_in."""
+    """1-to-1 binary64 mirror of MeshAlphaWrap.project_to_offset + pulled_pinch_point (MeshAlphaWrap.cs:1459, 1839)."""
     if not all(math.isfinite(c) for c in cc):
         return False, None, None
     r = min(_vdist(cc, v) for v in verts)
@@ -378,16 +505,17 @@ def _mirror_pulled_pinch_point(cc, verts, q_in, offset, depth, pull_max_offsets=
     d_cc = _vdist(cc, q_in)
     if not (d_cc > 0.0):
         return False, None, None
-    # project_to_offset: q = q_in + offset * (cc - q_in) / |cc - q_in|
-    q = _vadd(q_in, _vmul(offset / d_cc, _vsub(cc, q_in)))
+    # Match MeshAlphaWrap.project_to_offset (lines 1471, 1477): dir = (cc - q_in) / dist; q = q_in + offset * dir
+    diff = _vsub(cc, q_in)
+    direction = (diff[0] / d_cc, diff[1] / d_cc, diff[2] / d_cc)
+    q = _vadd(q_in, _vmul(offset, direction))
     # Strict first candidate test (pinch_point:1796)
-    strict_ok = _vdist(cc, q) <= r - depth
+    strict_ok = (_vdist(cc, q) <= r - depth) and (_exact_insphere(*verts, q) > 0)
     length = _vdist(cc, q)
     if not (length > r - depth):
         return False, None, (strict_ok, None)
     x = _vadd(cc, _vmul((r - depth) / length, _vsub(q, cc)))
-    # Exact-equivalent strict in-circumsphere check (ball centered at cc with radius r)
-    if not (_vdist(cc, x) < r):
+    if not (_exact_insphere(*verts, x) > 0):
         return False, None, (strict_ok, None)
     dx = _vdist(x, q_in)
     if not (dx >= offset and dx <= pull_max_offsets * offset):
@@ -443,6 +571,7 @@ def _rule_intersection_exit_bisect(a, b, dist_fn, offset):
     lo, hi = 0.0, 1.0
     mid_stalls = 0
     coord_stalls = 0
+    seen_p = set()
     prev_p = None
     for _ in range(60):
         mid = 0.5 * (lo + hi)
@@ -451,50 +580,57 @@ def _rule_intersection_exit_bisect(a, b, dist_fn, offset):
         p_mid = _vadd(a, _vmul(mid, d))
         if p_mid == prev_p:
             coord_stalls += 1
+        seen_p.add(p_mid)
         prev_p = p_mid
         if dist_fn(p_mid) > offset:
             hi = mid
         else:
             lo = mid
     p_end = _vadd(a, _vmul(hi, d))
-    return p_end, mid_stalls, coord_stalls
+    return p_end, mid_stalls, coord_stalls, 60 - len(seen_p)
+
+
+def _inscribed_3d_tet(cc_z, r):
+    """Non-degenerate positively-oriented 3D tetrahedron inscribed on B((0, 0, cc_z), r) with south pole v0."""
+    # Pythagorean (0.8, 0.6, 1.0): every vertex lies on the sphere; v0 at south pole makes |x - v0| == depth tight.
+    return [
+        (0.0, 0.0, cc_z - r),
+        (-0.8 * r, 0.0, cc_z + 0.6 * r),
+        (0.8 * r, 0.0, cc_z + 0.6 * r),
+        (0.0, 0.8 * r, cc_z + 0.6 * r),
+    ]
 
 
 def replay_fp():
     replays = []
 
-    # 1. PullPinchPoints replay: Soup 42 acceptance (1.5 * offset) & Soup 28 cap rejection (3.3 * offset)
+    # 1. PullPinchPoints replay on non-degenerate 3D inscribed tetrahedra: Soup 42 (1.5*offset) & Soup 28 (3.3*offset)
     alpha, offset = 1.0, 0.1
     depth = min(offset, alpha - offset)
     q_in = (0.0, 0.0, 0.0)
-    # Soup 42-like cell: cc at 12.6 * offset, r = 1.21 -> q only 0.5 * offset inside sphere (strict fails), pulled at 1.5 * offset
-    cc42 = (0.0, 0.0, 1.26)
-    r42 = 1.21
-    verts42 = [
-        (r42, 0.0, 1.26), (-r42, 0.0, 1.26),
-        (0.0, r42, 1.26), (0.0, -r42, 1.26),
-    ]
+    cc42, r42 = (0.0, 0.0, 1.26), 1.21
+    verts42 = _inscribed_3d_tet(1.26, r42)
+    orient42 = _exact_orient3d(*verts42)
     ok42, x42, (strict42, dx42) = _mirror_pulled_pinch_point(cc42, verts42, q_in, offset, depth)
     min_sep42 = min(_vdist(x42, v) for v in verts42) if x42 is not None else 0.0
-    # Soup 28-like cell: cc at 15.0 * offset, r = 1.27 -> pulled point at 3.3 * offset (rejected by PullMaxOffsets = 2.0)
-    cc28 = (0.0, 0.0, 1.50)
-    r28 = 1.27
-    verts28 = [
-        (r28, 0.0, 1.50), (-r28, 0.0, 1.50),
-        (0.0, r28, 1.50), (0.0, -r28, 1.50),
-    ]
+
+    cc28, r28 = (0.0, 0.0, 1.50), 1.27
+    verts28 = _inscribed_3d_tet(1.50, r28)
+    orient28 = _exact_orient3d(*verts28)
     ok28, _x28, (strict28, dx28) = _mirror_pulled_pinch_point(cc28, verts28, q_in, offset, depth)
     replays.append(dict(
         name='pulled_pinch_point_soup42_and_soup28_replay',
+        orient_positive=(orient42 > 0 and orient28 > 0),
         soup42_strict_failed=(not strict42),
         soup42_pulled_accepted=ok42,
         soup42_dx_over_offset=round(dx42 / offset, 6),
-        soup42_sep_kept=(min_sep42 >= depth * (1.0 - 1e-12)),
+        soup42_sep_tight=(abs(min_sep42 - depth) <= 1e-12),
         soup28_strict_failed=(not strict28),
         soup28_capped_rejected=(not ok28),
         soup28_dx_over_offset=round(dx28 / offset, 6),
-        passed=(not strict42 and ok42 and abs(dx42 - 0.15) < 1e-12
-                and min_sep42 >= depth * (1.0 - 1e-12)
+        passed=(orient42 > 0 and orient28 > 0
+                and not strict42 and ok42 and abs(dx42 - 0.15) < 1e-12
+                and abs(min_sep42 - depth) <= 1e-12
                 and not strict28 and not ok28 and abs(dx28 - 0.33) < 1e-12),
     ))
 
@@ -517,19 +653,21 @@ def replay_fp():
 
     # 3. rule_intersection 60-step exit-bisection stall near t = 1 and at UTM 5e6
     off_near1 = 1.0 - math.ldexp(1.0, -50)
-    _, stalls_t1, _ = _rule_intersection_exit_bisect(
+    _, stalls_t1, _, _ = _rule_intersection_exit_bisect(
         (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), lambda p: p[0], off_near1
     )
     utm = 5.0e6
-    p_utm, _, coord_stalls_utm = _rule_intersection_exit_bisect(
+    p_utm, _, coord_stalls_utm, redundant_utm = _rule_intersection_exit_bisect(
         (utm, 0.0, 0.0), (utm + 1.0, 0.0, 0.0), lambda p: p[0] - utm, 1.0e-3
     )
     replays.append(dict(
         name='rule_intersection_exit_bisection_60step_stall_replay',
         near1_mid_stalls=stalls_t1,
         utm_coord_stalls=coord_stalls_utm,
+        utm_redundant_evals=redundant_utm,
         utm_exit_err=abs((p_utm[0] - utm) - 1.0e-3),
-        passed=(stalls_t1 >= 6 and coord_stalls_utm >= 25 and abs((p_utm[0] - utm) - 1.0e-3) <= 1e-8),
+        passed=(stalls_t1 >= 6 and coord_stalls_utm == 28 and redundant_utm == 30
+                and abs((p_utm[0] - utm) - 1.0e-3) <= 1e-8),
     ))
     return replays
 

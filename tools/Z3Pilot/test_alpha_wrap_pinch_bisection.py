@@ -12,14 +12,20 @@ class AlphaWrapPinchBisectionZ3Tests(unittest.TestCase):
         run_test(self, pilot.run, 'Z3_ALPHA_WRAP_PINCH_BISECTION_REPORT')
 
     def test_source_drift_is_rejected(self):
-        # 8 unique-context drift mutations covering all 6 WRAP_ANCHORS and both ORACLE_ANCHORS
+        # 10 unique-context drift mutations covering all 8 WRAP_ANCHORS and both ORACLE_ANCHORS via digest mismatch
         cases = [
+            (pilot.WRAP_SOURCE, pilot.WRAP_ANCHORS,
+             'const int MaxNonManifoldRounds = 10;',
+             'const int MaxNonManifoldRounds = 20;'),
             (pilot.WRAP_SOURCE, pilot.WRAP_ANCHORS,
              'internal const double PullMaxOffsets = 2.0;',
              'internal const double PullMaxOffsets = 4.0;'),
             (pilot.WRAP_SOURCE, pilot.WRAP_ANCHORS,
              'for (int k = 0; k < 60; ++k) {\n                double mid = 0.5 * (lo + hi);',
              'for (int k = 0; k < 30; ++k) {\n                double mid = 0.5 * (lo + hi);'),
+            (pilot.WRAP_SOURCE, pilot.WRAP_ANCHORS,
+             'dir = (cc - q) / dist;',
+             'dir = (q - cc) / dist;'),
             (pilot.WRAP_SOURCE, pilot.WRAP_ANCHORS,
              'else if (trial == WrapStatus.Success && pinch.Count == 0 && local) {\n                    confirmTrials++;',
              'else if (trial == WrapStatus.Success && pinch.Count == 0 && !local) {\n                    confirmTrials++;'),
@@ -47,7 +53,7 @@ class AlphaWrapPinchBisectionZ3Tests(unittest.TestCase):
                     text = (ROOT / src).read_text(encoding='utf-8-sig')
                     self.assertEqual(text.count(old), 1, f'expected unique match in {src} for {old!r}')
                     dst.write_text(text.replace(old, new, 1), encoding='utf-8')
-                    with self.assertRaises(ValueError):
+                    with self.assertRaisesRegex(ValueError, 'review the solver transcription'):
                         source_contract(src, anchors, root=Path(tmp))
 
 
