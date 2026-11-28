@@ -424,7 +424,15 @@ namespace gs
             /// MeshRobustRepair returns Apply() true also for an unclean solidify result (ResultReason = SolidifyReason, eg self-intersections), and the pipeline still uses such a winding-closed result: a known gap, a candidate follow-up. A MeshAutoRepair copy that self-intersects where the input does not is refused as with AutoRepair
             /// (Status OpenInput), without falling back to MeshRobustRepair
             /// </summary>
-            AutoRepairThenRobust = 2
+            AutoRepairThenRobust = 2,
+            /// <summary>
+            /// Thicken open inputs into closed mitered solids of thickness 2 * halfThickness using <see cref="MeshMiteredOffset"/>
+            /// (<see cref="MeshMiteredOffset.OffsetModes.DoubleSided"/>, Cao et al. SIGGRAPH 2026) instead of hole-filling or alpha wrapping.
+            /// Designed for intentionally open CAD / sheet-metal shells in Union, Intersection, or Difference where planar faces and
+            /// sharp creases should stay crisp with low triangle count. Closed inputs and inputs with explicit role
+            /// <see cref="ExactMeshBoolean.InputRole.Sheet"/> are left untouched.
+            /// </summary>
+            ThickenOpenSheet = 3
         }
 
         /// <summary> when the reduction collapses the edges of a contact line together with their twin edges (PairContactsMode) </summary>
@@ -546,6 +554,19 @@ namespace gs
 
         /// <summary> what to do with an input that is not closed (default Refuse: Status OpenInput; see InputRepairModes.AutoRepair before choosing a repair) </summary>
         public InputRepairModes InputRepair = InputRepairModes.Refuse;
+        /// <summary>
+        /// Half-thickness (offset distance on each side; total wall thickness 2 * OpenSheetHalfThickness) used when
+        /// <see cref="InputRepair"/> is <see cref="InputRepairModes.ThickenOpenSheet"/>. When &lt;= 0 (default),
+        /// <see cref="RelativeOpenSheetHalfThickness"/> times the open input's bounding-box diagonal is used.
+        /// </summary>
+        public double OpenSheetHalfThickness = 0;
+        /// <summary>
+        /// Half-thickness as a fraction of the open input's bounding-box diagonal when <see cref="InputRepair"/> is
+        /// <see cref="InputRepairModes.ThickenOpenSheet"/> and <see cref="OpenSheetHalfThickness"/> &lt;= 0 (default 0.01, i.e., 2% wall thickness).
+        /// </summary>
+        public double RelativeOpenSheetHalfThickness = 0.01;
+        /// <summary> Miter limit forwarded to <see cref="MeshMiteredOffset.MiterLimit"/> when <see cref="InputRepair"/> is <see cref="InputRepairModes.ThickenOpenSheet"/> (default 4.0). </summary>
+        public double OpenSheetMiterLimit = 4.0;
         /// <summary>
         /// the role of each input (entry i for Inputs[i]; null or a shorter list: the others are Solid). An input with the role Sheet
         /// (<see cref="ExactMeshBoolean.InputRole.Sheet"/>) is an open, oriented cutting surface, the tool of a Difference: it is handed to the boolean
@@ -1234,8 +1255,8 @@ namespace gs
             for (int i = 0; i < n; ++i) {
                 Report.InputTriangles[i] = Inputs[i].TriangleCount;
                 Report.InputClosed[i] = ExactMeshBoolean.IsWindingClosed(given[i]);
-                // the sheet route: an open tool of a Difference whose role is not stated
-                if (sheetRoute && Operation == ExactMeshBoolean.Operations.Difference && i > 0 && !Report.InputClosed[i] && (InputRoles == null || i >= InputRoles.Count)) {
+                // the sheet route: an open tool of a Difference whose role is not stated (not when ThickenOpenSheet is explicitly requested)
+                if (sheetRoute && InputRepair != InputRepairModes.ThickenOpenSheet && Operation == ExactMeshBoolean.Operations.Difference && i > 0 && !Report.InputClosed[i] && (InputRoles == null || i >= InputRoles.Count)) {
                     if (autoSheet == null)
                         autoSheet = new bool[n];
                     autoSheet[i] = true;
@@ -2919,6 +2940,52 @@ namespace gs
             repaired = null;
             robustRefusal = null;
             var clock = Stopwatch.StartNew();
+            if (InputRepair == InputRepairModes.ThickenOpenSheet) {
+                double halfThick = OpenSheetHalfThickness;
+                if (double.IsNaN(halfThick) || double.IsInfinity(halfThick) || halfThick < 0) {
+                    robustRefusal = "OpenSheetHalfThickness must be finite and >= 0";
+                    return null;
+                }
+                if (halfThick == 0) {
+                    if (double.IsNaN(RelativeOpenSheetHalfThickness) || double.IsInfinity(RelativeOpenSheetHalfThickness) || !(RelativeOpenSheetHalfThickness > 0)) {
+                        robustRefusal = "RelativeOpenSheetHalfThickness must be finite and > 0";
+                        return null;
+                    }
+                    AxisAlignedBox3d b = AxisAlignedBox3d.Empty;
+                    bool hasTri = false;
+                    foreach (int tid in input.TriangleIndices()) {
+                        Index3i t = input.GetTriangle(tid);
+                        b.Contain(input.GetVertex(t.a));
+                        b.Contain(input.GetVertex(t.b));
+                        b.Contain(input.GetVertex(t.c));
+                        hasTri = true;
+                    }
+                    double diag = 0;
+                    if (hasTri) {
+                        double wx = b.Width, wy = b.Height, wz = b.Depth;
+                        double m = Math.Max(wx, Math.Max(wy, wz));
+                        if (m > 0 && MathUtil.IsFinite(m)) {
+                            double rx = wx / m, ry = wy / m, rz = wz / m;
+                            diag = m * Math.Sqrt(rx * rx + ry * ry + rz * rz);
+                        }
+                    }
+                    halfThick = RelativeOpenSheetHalfThickness * diag;
+                }
+                var miter = new MeshMiteredOffset {
+                    Mesh = input,
+                    Mode = MeshMiteredOffset.OffsetModes.DoubleSided,
+                    Distance = halfThick,
+                    MiterLimit = OpenSheetMiterLimit,
+                    SafeRounding = true,
+                    Cancellation = Cancellation
+                };
+                if (!miter.Compute() || miter.Result == null || miter.Result.TriangleCount == 0) {
+                    robustRefusal = "MeshMiteredOffset " + miter.Status + (string.IsNullOrEmpty(miter.Error) ? "" : ": " + miter.Error);
+                    return null;
+                }
+                repaired = miter.Result;
+                return new SolidBooleanInputRepair { Index = i, Method = "MeshMiteredOffset", TrianglesBefore = input.TriangleCount, TrianglesAfter = repaired.TriangleCount, Milliseconds = clock.ElapsedMilliseconds };
+            }
             var auto = new MeshAutoRepair(new DMesh3(input));
             if (SkipAutoRepairForTests == false)
                 auto.Apply();
@@ -2945,7 +3012,7 @@ namespace gs
             return null;
         }
 
-        // why MeshRobustRepair was refused by the last repair() (its Apply() was false: the ResultReason), else null
+        // why MeshRobustRepair or MeshMiteredOffset was refused by the last repair(), else null
         string robustRefusal;
         // tests: skip MeshAutoRepair so that an input reaches MeshRobustRepair (MeshAutoRepair closes nearly every open surface)
         internal bool SkipAutoRepairForTests;
@@ -2954,7 +3021,11 @@ namespace gs
 
         string refusalSuffix()
         {
-            return robustRefusal == null ? "" : ": MeshRobustRepair did not repair it (Apply() was false, ResultReason: " + robustRefusal + ")";
+            if (robustRefusal == null)
+                return "";
+            if (InputRepair == InputRepairModes.ThickenOpenSheet)
+                return ": " + robustRefusal;
+            return ": MeshRobustRepair did not repair it (Apply() was false, ResultReason: " + robustRefusal + ")";
         }
 
         // Reducer that keeps the last refusal of each edge (ProcessResult is the Reducer's protected enum): the edges left at the
