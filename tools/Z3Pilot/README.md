@@ -1147,3 +1147,22 @@ small bound makes it impossible (UNSAT by the area); and the pair encoding on cr
 ```sh
 python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topology.py -v
 ```
+
+* `alpha_wrap_rounds_conflicts.py` checks parallel round reservation soundness, livelock-freedom,
+  worst-case hub deferral amplification, and candidate conflict-set relaxations (A, B, C, and A+C)
+  for `MeshAlphaWrap.carve_rounds_loop` and `Delaunay3` round insertion (`#774`,
+  `docs/design/ALPHA_WRAP_ROUNDS.md`): pairwise write disjointness, Serialization Lemma
+  read-after-write absence (including rejected insertions), carve-then-insert safety on shared
+  outside cells, non-circular 4-gate strict progress (`kept + consumed >= 1`, `deferred <= live - 1`),
+  facet-slot disjointness on shared outer neighbours between non-adjacent cavities under
+  Relaxation A (and the cross-phase duplicate-push witness for Insert + Carve on a shared outer
+  cell, prevented by current `Outer(Cav)` marking), refutation of adjacent cavities (Relaxation B),
+  and the exact boundary of Relaxation C (dropping `N` from `R(carve)` alone still blocks carving
+  into an earlier insertion's cavity via `adj(C, N)` and `Outer(Cav)` marking, whereas combining
+  Relaxation A+C admits a stale carve), paired with three 4-facet-per-tetrahedron Python replays
+  and 8 source-contract anchors. Full 3D Delaunay geometry, `WorkerTeam` thread scheduling, and
+  corpus wall times remain outside this pilot.
+
+```sh
+python3 -m unittest discover -s tools/Z3Pilot -p test_alpha_wrap_rounds_conflicts.py -v
+```
