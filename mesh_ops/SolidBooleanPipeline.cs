@@ -716,7 +716,7 @@ namespace gs
         /// the option (the fallback to solids runs); the helper's reason is in the route step "SheetExtension" and in Report.SheetExtensions. A result with an
         /// extended sheet is a cut along a surface that the caller did not give: Report.SheetExtensions says where, how deep and how much area the strip adds inside the
         /// workpiece, and NoInventedSurface counts the extended sheet as a reference surface (the strip is not invented surface of a repair). The outcome near the depth limit
-        /// can depend on the frame (the limit is a share of the sheet's bounding box diagonal, which a rotation changes by up to a factor of sqrt(3) for a curved sheet): a rim between
+        /// can depend on the frame (the limit is a share of the sheet's bounding box diagonal, which a rotation changes by up to a factor of sqrt(3)): a rim between
         /// about 3 % and 9 % of the diagonal can be continued in one orientation of the inputs and refused in another; scalings by powers of two give the same result bit for bit.
         /// A run with an extended sheet that fails (the boolean refuses it, RoundingNotClean: no grid retry on extended inputs) is dropped and the run goes on as without the option; a
         /// result that the Verification then refuses stays that refusal (no fallback). Only Difference. Not a defined value: InvalidInput
@@ -1151,7 +1151,7 @@ namespace gs
             var trees = new Dictionary<int, DMeshAABBTree3>();
             foreach (KeyValuePair<int, DMesh3> kv in used) {
                 DMesh3 ext = kv.Value;
-                int firstNew = Inputs[kv.Key].MaxTriangleID;
+                DMesh3 original = Inputs[kv.Key];     // (a strip triangle is one that the input does not have at that id: AppendTriangle reuses freed ids, so ids above MaxTriangleID are not the test)
                 for (int j = 1; j < Inputs.Count; ++j) {
                     if (j == kv.Key || Inputs[j].TriangleCount == 0 || (ThinInputs == ThinInputModes.TreatAsEmpty && Report.ThinInputs.Exists(x => x.Index == j)))
                         continue;
@@ -1162,7 +1162,7 @@ namespace gs
                     if (!trees.TryGetValue(j, out tree))
                         trees[j] = tree = new DMeshAABBTree3(other, true);
                     foreach (int t in ext.TriangleIndices()) {
-                        if (t < firstNew)
+                        if (original.IsTriangle(t))
                             continue;
                         var a = new Triangle3d();
                         ext.GetTriVertices(t, ref a.V0, ref a.V1, ref a.V2);

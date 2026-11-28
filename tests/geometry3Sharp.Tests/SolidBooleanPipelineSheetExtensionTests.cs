@@ -291,6 +291,20 @@ namespace geometry3Sharp.Tests
             Assert.Equal("SheetExtension,SheetExtension", Names(p));
         }
 
+        [Fact]
+        public void TwoShortSheets_GiveTheSameCut_InEitherOrder()
+        {
+            var one = Make(new[] { Cube(), Short(0.005, 3, true), Short(0.005, 7, false) }, Modes.StatedSheets, true);
+            var two = Make(new[] { Cube(), Short(0.005, 7, false), Short(0.005, 3, true) }, Modes.StatedSheets, true);
+            Assert.True(one.Compute(), one.Error);
+            Assert.True(two.Compute(), two.Error);
+            AssertCut(one, 400);
+            AssertCut(two, 400);
+            Assert.Equal(2, one.Report.SheetExtensions.Count(e => e.InResult));
+            Assert.Equal(2, two.Report.SheetExtensions.Count(e => e.InResult));
+            Assert.Equal(Volume(one.Result), Volume(two.Result), 9);
+        }
+
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
@@ -623,6 +637,39 @@ namespace geometry3Sharp.Tests
             Assert.Equal(Status.MeetsOtherTool, two.Report.SheetExtensions.Last().Status);
         }
 
+        // the same sheet with a hole in its id space: 400 triangles appended after the real ones and removed again, so that the strip of the helper (AppendTriangle reuses
+        // freed ids) lies in ids below MaxTriangleID
+        static DMesh3 HoledShort(double share)
+        {
+            DMesh3 m = Short(share);
+            int real = m.MaxTriangleID;
+            int prev = m.AppendVertex(new Vector3d(100, 100, 100)), cur = m.AppendVertex(new Vector3d(100, 101, 100));
+            var dummies = new List<int>();
+            for (int i = 0; i < 400; ++i) {
+                int next = m.AppendVertex(new Vector3d(101 + i, 100, 100 + (i % 2)));
+                dummies.Add(m.AppendTriangle(prev, cur, next));
+                prev = cur; cur = next;
+            }
+            foreach (int t in dummies)
+                m.RemoveTriangle(t, true);
+            Assert.True(m.MaxTriangleID >= real + 400 && m.TriangleCount == Short(share).TriangleCount);
+            return m;
+        }
+
+        [Fact]
+        public void TheStripCheck_AlsoCountsStripTrianglesInFreedIds_InBothOrders()
+        {
+            foreach (bool wallFirst in new[] { false, true }) {
+                Func<DMesh3[]> make = () => wallFirst ? new[] { Cube(), ShortWall(), HoledShort(0.005) } : new[] { Cube(), HoledShort(0.005), ShortWall() };
+                var p = Make(make(), Modes.StatedSheets, true);
+                var without = Without(make(), true);
+                Assert.False(p.Compute(), "wallFirst " + wallFirst);
+                Assert.False(without.Compute());
+                AssertSameAsWithout(p, without);
+                Assert.All(p.Report.SheetExtensions, e => Assert.False(e.InResult));
+            }
+        }
+
         [Fact]
         public void ALidlessBoxTool_IsContinuedAndCutAsAnOpenPocket_InAutoRoutedMode_WhereTheRepairWouldGiveACavity()
         {
@@ -696,8 +743,8 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // M18 (all other tools given the Solid role to the helper) is equivalent in what the pipeline returns: the helper only decides whether to extend, and an open mesh as a
-        // Solid in its cut (AllowOpenMeshes) cuts the same and is as clean as the sheet; no case was found where the roles differ. Pinned: a fine open sheet next to a short one
+        // M18 (all other tools given the Solid role to the helper) is killed by TwoShortSheets_GiveTheSameCut_InEitherOrder: an already extended sheet is a tool of the
+        // helper's cut for the second, and as a Solid it is cut differently. For a fine open sheet next to a short one (this test) no difference was found: pinned
         [Fact]
         public void AFineOpenSheetNextToAShortOne_IsNoObstacle_ForTheHelper()
         {
