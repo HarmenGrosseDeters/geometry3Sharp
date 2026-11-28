@@ -286,5 +286,90 @@ namespace geometry3Sharp.Tests
                 }
             }
         }
+
+        [Fact]
+        public void Circumcenter_ExtremeScales_2p260_2m260_And_Pre1_StaysFiniteAndScaled()
+        {
+            // Regular unit-corner tetrahedron: circumcenter is (0.5, 0.5, 0.5)
+            Vector3d a0 = Vector3d.Zero, b0 = new Vector3d(1, 0, 0), c0 = new Vector3d(0, 1, 0), d0 = new Vector3d(0, 0, 1);
+            Vector3d cc0 = Delaunay3.Circumcenter(a0, b0, c0, d0);
+            Assert.Equal(0.5, cc0.x, 12);
+            Assert.Equal(0.5, cc0.y, 12);
+            Assert.Equal(0.5, cc0.z, 12);
+
+            // At 2^+-270 and 2^+-600, u.LengthSquared * vw has degree 4 (2^+-1080 / 2^+-2400) and overflows/underflows to Inf/0/NaN on master
+            foreach (int exp in new[] { 270, -270, 600, -600 }) {
+                double s = ExactPoint3.ScaleB(1.0, exp);
+                Vector3d a = Vector3d.Zero, b = new Vector3d(s, 0, 0), c = new Vector3d(0, s, 0), d = new Vector3d(0, 0, s);
+                Vector3d cc = Delaunay3.Circumcenter(a, b, c, d);
+                Vector3d cc2 = Delaunay3.Circumcenter(a, b, c, d);
+                Assert.Equal(cc, cc2); // determinism
+                double expected = ExactPoint3.ScaleB(0.5, exp);
+                double tol = ExactPoint3.ScaleB(1e-12, exp);
+                Assert.True(cc.IsFinite, $"exp {exp}: non-finite circumcenter {cc}");
+                Assert.True(Math.Abs(cc.x - expected) <= tol && Math.Abs(cc.y - expected) <= tol && Math.Abs(cc.z - expected) <= tol,
+                    $"exp {exp}: cc={cc}, expected={expected}");
+            }
+
+            // pre == 1 branch: coordinate differences overflow double ([-9e307, +9e307]), circumcenter is (0, 0, 0)
+            double big = 9e307;
+            Vector3d ccPre1 = Delaunay3.Circumcenter(
+                new Vector3d(-big, -big, -big),
+                new Vector3d(big, big, -big),
+                new Vector3d(big, -big, big),
+                new Vector3d(-big, big, big));
+            Assert.True(ccPre1.IsFinite && ccPre1.MaxAbs <= 1e295, $"pre==1 cc={ccPre1}");
+
+            // Non-finite / zero-edge inputs return NaN cleanly
+            Vector3d ccNan = Delaunay3.Circumcenter(new Vector3d(double.NaN, 0, 0), b0, c0, d0);
+            Assert.True(double.IsNaN(ccNan.x));
+            Vector3d ccZero = Delaunay3.Circumcenter(a0, a0, a0, a0);
+            Assert.True(double.IsNaN(ccZero.x));
+        }
+
+        [Fact]
+        public void Insert_And_PlanInsert_TinyMinSeparation_And_CosphericalDomeCollapse()
+        {
+            // 1. Tiny minSeparation (2^-545) with point at distance sqrt(3) * 2^-540 > minSeparation from box corner (0,0,0):
+            //    on master, minSqr (2^-1090) and DistanceSquared (3 * 2^-1080) both underflow to 0.0, so 0.0 <= 0.0 falsely returns TooClose!
+            double coord = ExactPoint3.ScaleB(1.0, -540);
+            double minSep = ExactPoint3.ScaleB(1.0, -545);
+            Vector3d pNear = new Vector3d(coord, coord, coord);
+            var dt = new Delaunay3(new AxisAlignedBox3d(Vector3d.Zero, Vector3d.One));
+            var plan = new Delaunay3.InsertPlan();
+            dt.PlanInsert(pNear, -1, minSep, plan, 7u);
+            Assert.Equal(Delaunay3.InsertResult.Inserted, plan.Result);
+            Assert.Equal(Delaunay3.InsertResult.Inserted, dt.Insert(pNear, -1, minSep, out _));
+            Assert.Null(dt.Validate(true));
+
+            // Point strictly closer than minSeparation must still be rejected as TooClose
+            double closer = ExactPoint3.ScaleB(1.0, -547);
+            Vector3d pTooClose = new Vector3d(closer, closer, closer);
+            dt.PlanInsert(pTooClose, -1, minSep, plan, 11u);
+            Assert.Equal(Delaunay3.InsertResult.TooClose, plan.Result);
+            Assert.Equal(Delaunay3.InsertResult.TooClose, dt.Insert(pTooClose, -1, minSep, out _));
+
+            // 2. Cospherical sphere (14 exact integer-lattice points on sphere of radius sqrt(9) = 3 around (5,5,5)):
+            //    inserting the ball center (5,5,5) collapses the cospherical cavity cleanly with Validate(true) == null.
+            var dome = new Delaunay3(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(10, 10, 10)));
+            var cospherical = new List<Vector3d> {
+                new Vector3d(8, 5, 5), new Vector3d(2, 5, 5),
+                new Vector3d(5, 8, 5), new Vector3d(5, 2, 5),
+                new Vector3d(5, 5, 8), new Vector3d(5, 5, 2),
+                new Vector3d(7, 7, 6), new Vector3d(7, 7, 4),
+                new Vector3d(7, 3, 6), new Vector3d(7, 3, 4),
+                new Vector3d(3, 7, 6), new Vector3d(3, 7, 4),
+                new Vector3d(3, 3, 6), new Vector3d(3, 3, 4),
+            };
+            foreach (Vector3d q in cospherical)
+                Assert.Equal(Delaunay3.InsertResult.Inserted, dome.Insert(q, -1, 1e-12, out _));
+            Assert.Null(dome.Validate(true));
+            var removed = new List<int>();
+            var added = new List<int>();
+            Assert.Equal(Delaunay3.InsertResult.Inserted, dome.Insert(new Vector3d(5, 5, 5), -1, 1e-12, out _, removed, added));
+            Assert.True(removed.Count >= 14, $"expected large cospherical cavity, got {removed.Count}");
+            Assert.Equal(2 * cospherical.Count - 4, added.Count); // F = 2*V_b - 4 = 24 radial tetrahedra
+            Assert.Null(dome.Validate(true));
+        }
     }
 }
