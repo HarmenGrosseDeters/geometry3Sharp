@@ -1,4 +1,4 @@
-"""Unit tests and source-contract drift checks for alpha_wrap_rounds_conflicts."""
+"""Unit tests, source-contract drift checks, and replay mutation checks for alpha_wrap_rounds_conflicts."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,8 +11,27 @@ class AlphaWrapRoundsConflictsZ3Tests(unittest.TestCase):
     def test_obligations_and_replays(self):
         run_test(self, pilot.run, 'Z3_ALPHA_WRAP_ROUNDS_CONFLICTS_REPORT')
 
+    def test_replay_mutation_is_caught(self):
+        # Mutating Relaxation A1 so both cavities share slot (2, 0) must break slot disjointness
+        cn = {0: [2, 3, -1, -1], 1: [2, 4, -1, -1], 2: [0, 1, -1, -1], 3: [0, -1, -1, -1], 4: [1, -1, -1, -1]}
+        lbl = {0: True, 1: True, 2: False, 3: False, 4: False}
+        bad_ins = [
+            dict(kind=pilot.KIND_INSERT, c=0, n=3, cav={0}, outer={2, 3}, boundary=[(2, 0), (3, 0)]),
+            dict(kind=pilot.KIND_INSERT, c=1, n=4, cav={1}, outer={2, 4}, boundary=[(2, 0), (4, 0)]),
+        ]
+        kept, _ = pilot._pop_and_select(bad_ins, mark_outer_on_insert=False)
+        _, _, writes, _ = pilot._apply_and_compute_pushes(cn, lbl, kept)
+        slots = [(c, s) for c, s, _ in writes]
+        self.assertLess(len(set(slots)), len(slots))
+
     def test_source_drift_is_rejected(self):
         cases = [
+            (pilot.WRAP_SOURCE, pilot.WRAP_ANCHORS,
+             'bool round_marked(int c) { return c >= 0 && roundMark[c] == roundMarkValue; }',
+             'bool round_marked(int c) { return false; }'),
+            (pilot.WRAP_SOURCE, pilot.WRAP_ANCHORS,
+             'if (++roundMarkValue == int.MaxValue) {',
+             'if (roundMarkValue == int.MaxValue) {'),
             (pilot.WRAP_SOURCE, pilot.WRAP_ANCHORS,
              'if (roundInner[c] == roundMarkValue) {',
              'if (false) {'),
