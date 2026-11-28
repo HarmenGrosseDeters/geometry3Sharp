@@ -57,9 +57,10 @@ namespace g3
         }
 
         /// <summary>
-        /// Finds a double-precision point strictly inside a closed ring under exact even-odd parity (spec I4, F-49, F-50, decision D10).
+        /// Finds a double-precision point certified strictly inside a closed ring under exact even-odd parity (spec I4, F-49, F-50, decision D10).
         /// Accepts rings in either orientation, with or without a repeated closing vertex.
-        /// Returns <c>false</c> when the ring has no interior or no binary64 point lies strictly inside it.
+        /// Every point returned with <c>true</c> is strictly inside the ring; returns <c>false</c> when the ring has no interior,
+        /// no binary64 point lies strictly inside it, or only isolated sub-ULP diagonal lattice points exist off the probed scanlines.
         /// </summary>
         /// <param name="ring">The ring vertices in order.</param>
         /// <param name="point">When this method returns <c>true</c>, a point strictly inside <paramref name="ring"/>; otherwise default.</param>
@@ -70,9 +71,10 @@ namespace g3
             => RingInterior2.TryGetInteriorPoint(ring, out point);
 
         /// <summary>
-        /// Finds a double-precision point strictly inside an indexed closed ring under exact even-odd parity (spec I4, F-49, F-50, decision D10).
+        /// Finds a double-precision point certified strictly inside an indexed closed ring under exact even-odd parity (spec I4, F-49, F-50, decision D10).
         /// Accepts rings in either orientation, with or without a repeated closing vertex.
-        /// Returns <c>false</c> when the ring has no interior or no binary64 point lies strictly inside it.
+        /// Every point returned with <c>true</c> is strictly inside the ring; returns <c>false</c> when the ring has no interior,
+        /// no binary64 point lies strictly inside it, or only isolated sub-ULP diagonal lattice points exist off the probed scanlines.
         /// </summary>
         /// <param name="points">The point table referenced by <paramref name="ringIndices"/>.</param>
         /// <param name="ringIndices">Vertex indices into <paramref name="points"/> forming the ring in order.</param>

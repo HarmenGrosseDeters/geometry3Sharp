@@ -64,8 +64,6 @@ namespace g3
                 BigInteger rhs = (other.Exp > lo ? other.Num << (other.Exp - lo) : other.Num) * Den;
                 return lhs.CompareTo(rhs);
             }
-
-            public double ToDouble() => ExactPoint3.ToDoubleRounded(Num, Den, Exp);
         }
 
         public static bool TryGetInteriorPoint(IReadOnlyList<Vector2d> ring, out Vector2d point)
@@ -189,43 +187,47 @@ namespace g3
             var hSlabs = SelectSampledSlabs(ys);
             var vSlabs = SelectSampledSlabs(xs);
 
-            // Phase 1: Fast double-precision scanlines on sampled horizontal & vertical slabs (O(n)).
+            // Phase 1: Fast double-precision scanlines on sampled horizontal & vertical slabs (O(n log n)).
+            // Probing only the widest spans per scanline bounds Consider calls to O(1) per slab.
             var crossBuf = new List<double>(16);
+            var spanBuf = new List<(double width, double lo, double hi)>(16);
             for (int i = 0; i < hSlabs.Count; ++i) {
                 int j = hSlabs[i];
-                ProbeDoubleHorizontal(activeEdges, ys[j], ys[j + 1], crossBuf, Consider);
+                ProbeDoubleHorizontal(activeEdges, ys[j], ys[j + 1], crossBuf, spanBuf, Consider, maxSpansToTest: 4, stopOnHit: false);
             }
             for (int i = 0; i < vSlabs.Count; ++i) {
                 int j = vSlabs[i];
-                ProbeDoubleVertical(activeEdges, xs[j], xs[j + 1], crossBuf, Consider);
+                ProbeDoubleVertical(activeEdges, xs[j], xs[j + 1], crossBuf, spanBuf, Consider, maxSpansToTest: 4, stopOnHit: false);
             }
             if (found) { point = best; return true; }
 
             // Phase 2a: Exact rational scanlines on the sampled slabs (handles narrow slivers at UTM scale
-            // where double intersection rounding falls outside the interior).
-            for (int i = 0; i < hSlabs.Count; ++i) {
+            // where double intersection rounding falls outside the interior, and bowties crossing at slab midpoints).
+            long exactBudget = 64L * activeEdges.Length + 4096;
+            for (int i = 0; i < hSlabs.Count && exactBudget > 0; ++i) {
                 int j = hSlabs[i];
-                if (ProbeExactHorizontalSlab(activeEdges, ys[j], ys[j + 1], Consider)) {
+                if (ProbeExactHorizontalSlab(activeEdges, ys[j], ys[j + 1], Consider, ref exactBudget)) {
                     point = best;
                     return true;
                 }
             }
-            for (int i = 0; i < vSlabs.Count; ++i) {
+            for (int i = 0; i < vSlabs.Count && exactBudget > 0; ++i) {
                 int j = vSlabs[i];
-                if (ProbeExactVerticalSlab(activeEdges, xs[j], xs[j + 1], Consider)) {
+                if (ProbeExactVerticalSlab(activeEdges, xs[j], xs[j + 1], Consider, ref exactBudget)) {
                     point = best;
                     return true;
                 }
             }
 
-            // Phase 2b: Full sweep over all remaining horizontal & vertical slabs (O(n log n) active-edge maintenance
-            // for simple rings with many collinear vertices hiding one tiny lobe).
+            // Phase 2b: Sweep over remaining horizontal & vertical slabs with bounded active-edge work
+            // (finds a sole interior lobe hidden outside the 16 sampled slabs while keeping worst-case O(n log n)).
+            long sweepBudget = 64L * activeEdges.Length + 8192;
             if (ys.Length - 1 > hSlabs.Count) {
-                SweepAllHorizontal(activeEdges, ys, hSlabs, crossBuf, Consider, () => found);
+                SweepAllHorizontal(activeEdges, ys, hSlabs, crossBuf, spanBuf, Consider, () => found, ref sweepBudget, ref exactBudget);
                 if (found) { point = best; return true; }
             }
             if (xs.Length - 1 > vSlabs.Count) {
-                SweepAllVertical(activeEdges, xs, vSlabs, crossBuf, Consider, () => found);
+                SweepAllVertical(activeEdges, xs, vSlabs, crossBuf, spanBuf, Consider, () => found, ref sweepBudget, ref exactBudget);
                 if (found) { point = best; return true; }
             }
 
@@ -304,7 +306,8 @@ namespace g3
             return selected;
         }
 
-        static void ProbeDoubleHorizontal(IReadOnlyList<Edge> edges, double y0, double y1, List<double> cross, Func<Vector2d, bool> consider)
+        static void ProbeDoubleHorizontal(IReadOnlyList<Edge> edges, double y0, double y1, List<double> cross,
+            List<(double width, double lo, double hi)> spans, Func<Vector2d, bool> consider, int maxSpansToTest, bool stopOnHit)
         {
             double yMid = Midpoint(y0, y1);
             if (!(yMid > y0 && yMid < y1)) return;
@@ -318,13 +321,38 @@ namespace g3
             }
             if (cross.Count < 2) return;
             cross.Sort();
+            spans.Clear();
             for (int k = 0; k + 1 < cross.Count; k += 2) {
-                double xMid = Midpoint(cross[k], cross[k + 1]);
-                consider(new Vector2d(xMid, yMid));
+                double lo = cross[k], hi = cross[k + 1];
+                double xMid = Midpoint(lo, hi);
+                if (xMid > lo && xMid < hi)
+                    spans.Add((hi - lo, lo, hi));
+            }
+            if (spans.Count == 0) return;
+            spans.Sort((a, b) => {
+                int c = b.width.CompareTo(a.width);
+                return c != 0 ? c : a.lo.CompareTo(b.lo);
+            });
+            int limit = Math.Min(spans.Count, maxSpansToTest);
+            for (int i = 0; i < limit; ++i) {
+                var (_, lo, hi) = spans[i];
+                double xMid = Midpoint(lo, hi);
+                bool hit = consider(new Vector2d(xMid, yMid));
+                // If an internal retraced slit passes through the midpoint, test quarter-points so clearance stays high.
+                if (!hit) {
+                    double q1 = Midpoint(lo, xMid);
+                    if (q1 > lo && q1 < xMid) hit = consider(new Vector2d(q1, yMid));
+                    if (!hit) {
+                        double q3 = Midpoint(xMid, hi);
+                        if (q3 > xMid && q3 < hi) hit = consider(new Vector2d(q3, yMid));
+                    }
+                }
+                if (hit && stopOnHit) return;
             }
         }
 
-        static void ProbeDoubleVertical(IReadOnlyList<Edge> edges, double x0, double x1, List<double> cross, Func<Vector2d, bool> consider)
+        static void ProbeDoubleVertical(IReadOnlyList<Edge> edges, double x0, double x1, List<double> cross,
+            List<(double width, double lo, double hi)> spans, Func<Vector2d, bool> consider, int maxSpansToTest, bool stopOnHit)
         {
             double xMid = Midpoint(x0, x1);
             if (!(xMid > x0 && xMid < x1)) return;
@@ -338,104 +366,152 @@ namespace g3
             }
             if (cross.Count < 2) return;
             cross.Sort();
+            spans.Clear();
             for (int k = 0; k + 1 < cross.Count; k += 2) {
-                double yMid = Midpoint(cross[k], cross[k + 1]);
-                consider(new Vector2d(xMid, yMid));
+                double lo = cross[k], hi = cross[k + 1];
+                double yMid = Midpoint(lo, hi);
+                if (yMid > lo && yMid < hi)
+                    spans.Add((hi - lo, lo, hi));
+            }
+            if (spans.Count == 0) return;
+            spans.Sort((a, b) => {
+                int c = b.width.CompareTo(a.width);
+                return c != 0 ? c : a.lo.CompareTo(b.lo);
+            });
+            int limit = Math.Min(spans.Count, maxSpansToTest);
+            for (int i = 0; i < limit; ++i) {
+                var (_, lo, hi) = spans[i];
+                double yMid = Midpoint(lo, hi);
+                bool hit = consider(new Vector2d(xMid, yMid));
+                if (!hit) {
+                    double q1 = Midpoint(lo, yMid);
+                    if (q1 > lo && q1 < yMid) hit = consider(new Vector2d(xMid, q1));
+                    if (!hit) {
+                        double q3 = Midpoint(yMid, hi);
+                        if (q3 > yMid && q3 < hi) hit = consider(new Vector2d(xMid, q3));
+                    }
+                }
+                if (hit && stopOnHit) return;
             }
         }
 
-        static bool ProbeExactHorizontalSlab(IReadOnlyList<Edge> edges, double y0, double y1, Func<Vector2d, bool> consider)
+        static bool ProbeExactHorizontalSlab(IReadOnlyList<Edge> edges, double y0, double y1, Func<Vector2d, bool> consider, ref long exactBudget)
         {
             double yMid = Midpoint(y0, y1);
             if (!(yMid > y0 && yMid < y1)) return false;
-            bool hasNonEmptySpan = ProbeExactHorizontalLine(edges, yMid, consider, out bool hit);
+            bool hasActiveEdges = ProbeExactHorizontalLine(edges, yMid, consider, ref exactBudget, out bool hit);
             if (hit) return true;
-            if (!hasNonEmptySpan) return false;
+            // Only skip extra lines when fewer than 2 edges cross the slab at all (no vertex lies strictly inside (y0, y1)).
+            // When 2+ edges cross at yMid (e.g. a bowtie crossing at yMid), extraY still finds the interior!
+            if (!hasActiveEdges || exactBudget <= 0) return false;
 
-            // A thin diagonal sliver may have rational width > 0 yet < 1 ULP at yMid, while widening near y0 or y1.
             double[] extraY = { Midpoint(y0, yMid), Midpoint(yMid, y1), NextUp(y0), NextDown(y1) };
-            for (int i = 0; i < extraY.Length; ++i) {
+            for (int i = 0; i < extraY.Length && exactBudget > 0; ++i) {
                 double ys = extraY[i];
                 if (ys > y0 && ys < y1 && ys != yMid) {
-                    ProbeExactHorizontalLine(edges, ys, consider, out hit);
+                    ProbeExactHorizontalLine(edges, ys, consider, ref exactBudget, out hit);
                     if (hit) return true;
                 }
             }
             return false;
         }
 
-        static bool ProbeExactHorizontalLine(IReadOnlyList<Edge> edges, double yLine, Func<Vector2d, bool> consider, out bool foundAny)
+        static bool ProbeExactHorizontalLine(IReadOnlyList<Edge> edges, double yLine, Func<Vector2d, bool> consider, ref long exactBudget, out bool foundAny)
         {
             foundAny = false;
-            var xs = new List<ExactRat>();
+            int activeCount = 0;
+            for (int i = 0; i < edges.Count; ++i) {
+                if (edges[i].Lo.y < yLine && yLine < edges[i].Hi.y) ++activeCount;
+            }
+            if (activeCount < 2) return false;
+            if (activeCount > exactBudget) { exactBudget = 0; return true; }
+            exactBudget -= activeCount;
+
+            var xs = new List<ExactRat>(activeCount);
             for (int i = 0; i < edges.Count; ++i) {
                 var e = edges[i];
                 if (e.Lo.y < yLine && yLine < e.Hi.y)
                     xs.Add(ExactIntercept(e.Lo.x, e.Lo.y, e.Hi.x, e.Hi.y, yLine));
             }
-            if (xs.Count < 2) return false;
             xs.Sort();
-            bool anySpan = false;
-            for (int k = 0; k + 1 < xs.Count; k += 2) {
+            int testedSpans = 0;
+            for (int k = 0; k + 1 < xs.Count && testedSpans < 8; k += 2) {
                 if (xs[k].CompareTo(xs[k + 1]) >= 0) continue;
-                anySpan = true;
+                ++testedSpans;
                 double xMid = ExactMidpointDouble(xs[k], xs[k + 1]);
+                double xQ1 = ExactQuarterDouble(xs[k], xs[k + 1], firstQuarter: true);
+                double xQ3 = ExactQuarterDouble(xs[k], xs[k + 1], firstQuarter: false);
                 if (consider(new Vector2d(xMid, yLine))
+                    || consider(new Vector2d(xQ1, yLine))
+                    || consider(new Vector2d(xQ3, yLine))
                     || consider(new Vector2d(NextUp(xMid), yLine))
                     || consider(new Vector2d(NextDown(xMid), yLine))) {
                     foundAny = true;
                     return true;
                 }
             }
-            return anySpan;
+            return true;
         }
 
-        static bool ProbeExactVerticalSlab(IReadOnlyList<Edge> edges, double x0, double x1, Func<Vector2d, bool> consider)
+        static bool ProbeExactVerticalSlab(IReadOnlyList<Edge> edges, double x0, double x1, Func<Vector2d, bool> consider, ref long exactBudget)
         {
             double xMid = Midpoint(x0, x1);
             if (!(xMid > x0 && xMid < x1)) return false;
-            bool hasNonEmptySpan = ProbeExactVerticalLine(edges, xMid, consider, out bool hit);
+            bool hasActiveEdges = ProbeExactVerticalLine(edges, xMid, consider, ref exactBudget, out bool hit);
             if (hit) return true;
-            if (!hasNonEmptySpan) return false;
+            if (!hasActiveEdges || exactBudget <= 0) return false;
 
             double[] extraX = { Midpoint(x0, xMid), Midpoint(xMid, x1), NextUp(x0), NextDown(x1) };
-            for (int i = 0; i < extraX.Length; ++i) {
+            for (int i = 0; i < extraX.Length && exactBudget > 0; ++i) {
                 double xs = extraX[i];
                 if (xs > x0 && xs < x1 && xs != xMid) {
-                    ProbeExactVerticalLine(edges, xs, consider, out hit);
+                    ProbeExactVerticalLine(edges, xs, consider, ref exactBudget, out hit);
                     if (hit) return true;
                 }
             }
             return false;
         }
 
-        static bool ProbeExactVerticalLine(IReadOnlyList<Edge> edges, double xLine, Func<Vector2d, bool> consider, out bool foundAny)
+        static bool ProbeExactVerticalLine(IReadOnlyList<Edge> edges, double xLine, Func<Vector2d, bool> consider, ref long exactBudget, out bool foundAny)
         {
             foundAny = false;
-            var ys = new List<ExactRat>();
+            int activeCount = 0;
+            for (int i = 0; i < edges.Count; ++i) {
+                if (edges[i].Left.x < xLine && xLine < edges[i].Right.x) ++activeCount;
+            }
+            if (activeCount < 2) return false;
+            if (activeCount > exactBudget) { exactBudget = 0; return true; }
+            exactBudget -= activeCount;
+
+            var ys = new List<ExactRat>(activeCount);
             for (int i = 0; i < edges.Count; ++i) {
                 var e = edges[i];
                 if (e.Left.x < xLine && xLine < e.Right.x)
                     ys.Add(ExactIntercept(e.Left.y, e.Left.x, e.Right.y, e.Right.x, xLine));
             }
-            if (ys.Count < 2) return false;
             ys.Sort();
-            bool anySpan = false;
-            for (int k = 0; k + 1 < ys.Count; k += 2) {
+            int testedSpans = 0;
+            for (int k = 0; k + 1 < ys.Count && testedSpans < 8; k += 2) {
                 if (ys[k].CompareTo(ys[k + 1]) >= 0) continue;
-                anySpan = true;
+                ++testedSpans;
                 double yMid = ExactMidpointDouble(ys[k], ys[k + 1]);
+                double yQ1 = ExactQuarterDouble(ys[k], ys[k + 1], firstQuarter: true);
+                double yQ3 = ExactQuarterDouble(ys[k], ys[k + 1], firstQuarter: false);
                 if (consider(new Vector2d(xLine, yMid))
+                    || consider(new Vector2d(xLine, yQ1))
+                    || consider(new Vector2d(xLine, yQ3))
                     || consider(new Vector2d(xLine, NextUp(yMid)))
                     || consider(new Vector2d(xLine, NextDown(yMid)))) {
                     foundAny = true;
                     return true;
                 }
             }
-            return anySpan;
+            return true;
         }
 
-        static void SweepAllHorizontal(Edge[] edges, double[] ys, List<int> alreadyChecked, List<double> crossBuf, Func<Vector2d, bool> consider, Func<bool> isFound)
+        static void SweepAllHorizontal(Edge[] edges, double[] ys, List<int> alreadyChecked, List<double> crossBuf,
+            List<(double width, double lo, double hi)> spanBuf, Func<Vector2d, bool> consider, Func<bool> isFound,
+            ref long sweepBudget, ref long exactBudget)
         {
             var skip = new HashSet<int>(alreadyChecked);
             var byLo = new Edge[edges.Length];
@@ -448,28 +524,61 @@ namespace g3
                 c = a.Hi.y.CompareTo(b.Hi.y);
                 return c != 0 ? c : a.Hi.x.CompareTo(b.Hi.x);
             });
+            // Bucket edge expirations by Hi.y slab index so active-edge removal is O(1) amortized instead of O(|active|).
+            var expireAt = new Dictionary<int, List<int>>();
             var active = new List<Edge>();
+            var activePos = new int[byLo.Length];
+            var activeIds = new List<int>();
             int nextAdd = 0;
-            for (int j = 0; j + 1 < ys.Length; ++j) {
+            for (int j = 0; j + 1 < ys.Length && sweepBudget > 0; ++j) {
                 double y0 = ys[j], y1 = ys[j + 1];
+                if (expireAt.TryGetValue(j, out var expiring)) {
+                    for (int k = 0; k < expiring.Count; ++k) {
+                        int id = expiring[k];
+                        int pos = activePos[id];
+                        if (pos >= 0) {
+                            int lastPos = active.Count - 1;
+                            if (pos != lastPos) {
+                                int movedId = activeIds[lastPos];
+                                active[pos] = active[lastPos];
+                                activeIds[pos] = movedId;
+                                activePos[movedId] = pos;
+                            }
+                            active.RemoveAt(lastPos);
+                            activeIds.RemoveAt(lastPos);
+                            activePos[id] = -1;
+                        }
+                    }
+                    expireAt.Remove(j);
+                }
                 while (nextAdd < byLo.Length && byLo[nextAdd].Lo.y <= y0) {
-                    if (byLo[nextAdd].Hi.y > y0) active.Add(byLo[nextAdd]);
+                    if (byLo[nextAdd].Hi.y > y0) {
+                        int id = nextAdd;
+                        int hiIdx = Array.BinarySearch(ys, byLo[id].Hi.y);
+                        activePos[id] = active.Count;
+                        active.Add(byLo[id]);
+                        activeIds.Add(id);
+                        if (hiIdx > j && hiIdx < ys.Length - 1) {
+                            if (!expireAt.TryGetValue(hiIdx, out var list)) expireAt[hiIdx] = list = new List<int>();
+                            list.Add(id);
+                        }
+                    } else {
+                        activePos[nextAdd] = -1;
+                    }
                     ++nextAdd;
                 }
-                for (int k = active.Count - 1; k >= 0; --k) {
-                    if (active[k].Hi.y <= y0) {
-                        active[k] = active[active.Count - 1];
-                        active.RemoveAt(active.Count - 1);
-                    }
-                }
                 if (skip.Contains(j) || active.Count < 2) continue;
-                ProbeDoubleHorizontal(active, y0, y1, crossBuf, consider);
+                if (active.Count > sweepBudget) { sweepBudget = 0; return; }
+                sweepBudget -= active.Count;
+                ProbeDoubleHorizontal(active, y0, y1, crossBuf, spanBuf, consider, maxSpansToTest: 2, stopOnHit: true);
                 if (isFound()) return;
-                if (ProbeExactHorizontalSlab(active, y0, y1, consider) && isFound()) return;
+                if (exactBudget > 0 && ProbeExactHorizontalSlab(active, y0, y1, consider, ref exactBudget)) return;
             }
         }
 
-        static void SweepAllVertical(Edge[] edges, double[] xs, List<int> alreadyChecked, List<double> crossBuf, Func<Vector2d, bool> consider, Func<bool> isFound)
+        static void SweepAllVertical(Edge[] edges, double[] xs, List<int> alreadyChecked, List<double> crossBuf,
+            List<(double width, double lo, double hi)> spanBuf, Func<Vector2d, bool> consider, Func<bool> isFound,
+            ref long sweepBudget, ref long exactBudget)
         {
             var skip = new HashSet<int>(alreadyChecked);
             var byLeft = new Edge[edges.Length];
@@ -482,24 +591,54 @@ namespace g3
                 c = a.Right.x.CompareTo(b.Right.x);
                 return c != 0 ? c : a.Right.y.CompareTo(b.Right.y);
             });
+            var expireAt = new Dictionary<int, List<int>>();
             var active = new List<Edge>();
+            var activePos = new int[byLeft.Length];
+            var activeIds = new List<int>();
             int nextAdd = 0;
-            for (int j = 0; j + 1 < xs.Length; ++j) {
+            for (int j = 0; j + 1 < xs.Length && sweepBudget > 0; ++j) {
                 double x0 = xs[j], x1 = xs[j + 1];
+                if (expireAt.TryGetValue(j, out var expiring)) {
+                    for (int k = 0; k < expiring.Count; ++k) {
+                        int id = expiring[k];
+                        int pos = activePos[id];
+                        if (pos >= 0) {
+                            int lastPos = active.Count - 1;
+                            if (pos != lastPos) {
+                                int movedId = activeIds[lastPos];
+                                active[pos] = active[lastPos];
+                                activeIds[pos] = movedId;
+                                activePos[movedId] = pos;
+                            }
+                            active.RemoveAt(lastPos);
+                            activeIds.RemoveAt(lastPos);
+                            activePos[id] = -1;
+                        }
+                    }
+                    expireAt.Remove(j);
+                }
                 while (nextAdd < byLeft.Length && byLeft[nextAdd].Left.x <= x0) {
-                    if (byLeft[nextAdd].Right.x > x0) active.Add(byLeft[nextAdd]);
+                    if (byLeft[nextAdd].Right.x > x0) {
+                        int id = nextAdd;
+                        int hiIdx = Array.BinarySearch(xs, byLeft[id].Right.x);
+                        activePos[id] = active.Count;
+                        active.Add(byLeft[id]);
+                        activeIds.Add(id);
+                        if (hiIdx > j && hiIdx < xs.Length - 1) {
+                            if (!expireAt.TryGetValue(hiIdx, out var list)) expireAt[hiIdx] = list = new List<int>();
+                            list.Add(id);
+                        }
+                    } else {
+                        activePos[nextAdd] = -1;
+                    }
                     ++nextAdd;
                 }
-                for (int k = active.Count - 1; k >= 0; --k) {
-                    if (active[k].Right.x <= x0) {
-                        active[k] = active[active.Count - 1];
-                        active.RemoveAt(active.Count - 1);
-                    }
-                }
                 if (skip.Contains(j) || active.Count < 2) continue;
-                ProbeDoubleVertical(active, x0, x1, crossBuf, consider);
+                if (active.Count > sweepBudget) { sweepBudget = 0; return; }
+                sweepBudget -= active.Count;
+                ProbeDoubleVertical(active, x0, x1, crossBuf, spanBuf, consider, maxSpansToTest: 2, stopOnHit: true);
                 if (isFound()) return;
-                if (ProbeExactVerticalSlab(active, x0, x1, consider) && isFound()) return;
+                if (exactBudget > 0 && ProbeExactVerticalSlab(active, x0, x1, consider, ref exactBudget)) return;
             }
         }
 
@@ -547,6 +686,27 @@ namespace g3
             BigInteger num = na * b.Den + nb * a.Den;
             BigInteger den = a.Den * b.Den;
             return ExactPoint3.ToDoubleRounded(num, den, lo - 1);
+        }
+
+        /// <summary> (3a + b)/4 when firstQuarter, else (a + 3b)/4, rounded to nearest double. </summary>
+        static double ExactQuarterDouble(ExactRat a, ExactRat b, bool firstQuarter)
+        {
+            int wa = firstQuarter ? 3 : 1;
+            int wb = firstQuarter ? 1 : 3;
+            if (a.Num.IsZero) return ExactPoint3.ToDoubleRounded(wb * b.Num, b.Den, b.Exp - 2);
+            if (b.Num.IsZero) return ExactPoint3.ToDoubleRounded(wa * a.Num, a.Den, a.Exp - 2);
+
+            long magA = ExactPoint3.BitLength(a.Num) - ExactPoint3.BitLength(a.Den) + a.Exp;
+            long magB = ExactPoint3.BitLength(b.Num) - ExactPoint3.BitLength(b.Den) + b.Exp;
+            if (magA - magB > 64) return ExactPoint3.ToDoubleRounded(wa * a.Num, a.Den, a.Exp - 2);
+            if (magB - magA > 64) return ExactPoint3.ToDoubleRounded(wb * b.Num, b.Den, b.Exp - 2);
+
+            int lo = Math.Min(a.Exp, b.Exp);
+            BigInteger na = a.Exp > lo ? a.Num << (a.Exp - lo) : a.Num;
+            BigInteger nb = b.Exp > lo ? b.Num << (b.Exp - lo) : b.Num;
+            BigInteger num = wa * na * b.Den + wb * nb * a.Den;
+            BigInteger den = a.Den * b.Den;
+            return ExactPoint3.ToDoubleRounded(num, den, lo - 2);
         }
 
         /// <summary> Exact strictly-inside check under even-odd parity (zero tolerance; never accepts boundary points). </summary>

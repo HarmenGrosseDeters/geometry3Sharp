@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using g3;
@@ -73,7 +74,7 @@ namespace geometry3Sharp.Tests
                 AssertStrictlyInside(rot, pr);
             }
 
-            // 2. Valid obtuse triangles at scales 1e-3 and 1e6 (plus UTM offset)
+            // 2. Valid obtuse triangles at scales 1e-3, 1.0, and 1e6 (plus UTM offset including s = 1e-3)
             double[] triScales = { 1e-3, 1.0, 1e6 };
             foreach (double s in triScales) {
                 var obtuse = new[] {
@@ -84,12 +85,9 @@ namespace geometry3Sharp.Tests
                 Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(obtuse, out var pt));
                 AssertStrictlyInside(obtuse, pt);
 
-                // Shifted to UTM offset
                 var utm = obtuse.Select(p => new Vector2d(p.x + 500000.0, p.y + 5700000.0)).ToArray();
-                if (s >= 1.0) {
-                    Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(utm, out var putm));
-                    AssertStrictlyInside(utm, putm);
-                }
+                Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(utm, out var putm));
+                AssertStrictlyInside(utm, putm);
             }
 
             // 3. Random star polygons across multiple scales
@@ -117,7 +115,6 @@ namespace geometry3Sharp.Tests
                 Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(tri, out var seed));
                 AssertStrictlyInside(tri, seed);
 
-                // Verify seed works as a hole seed in ConstrainedDelaunayMesh2 on a subset to keep runtime fast
                 if (i < 15) {
                     var input = new ConstrainedMesh2Input();
                     input.Points.AddRange(new[] {
@@ -149,11 +146,11 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void UltraNarrowExactFallback_FindsPointWhenOneExists_AndReturnsFalseWhenNoneExists()
+        public void UltraNarrowExactFallback_AndBowtieCrossingAtMidpoint_WorkExact()
         {
             double ulp = Math.Pow(2, -52); // 1 ULP at 1.0
 
-            // 3-ULP right triangle: (1 + ulp, 1 + ulp) is strictly inside (only interior double!)
+            // 3-ULP right triangle: (1 + ulp, 1 + ulp) is strictly inside (only interior double)
             var threeUlp = new[] {
                 new Vector2d(1.0, 1.0),
                 new Vector2d(1.0 + 3.0 * ulp, 1.0),
@@ -164,8 +161,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.0 + ulp, p3.x);
             Assert.Equal(1.0 + ulp, p3.y);
 
-            // Same 3-ULP triangle with a 4th vertex on the bottom edge (skips triangle fast path and misses Phase 1 midpoints,
-            // requiring Phase 2 exact rational scanline fallback with near-endpoint probe).
+            // 4-vertex 3-ULP triangle: bypasses triangle fast path and misses Phase 1 midpoints,
+            // exercising Phase 2a exact horizontal scanline fallback with near-endpoint probe.
             var threeUlpQuad = new[] {
                 new Vector2d(1.0, 1.0),
                 new Vector2d(1.0 + ulp, 1.0),
@@ -177,7 +174,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(1.0 + ulp, p3q.x);
             Assert.Equal(1.0 + ulp, p3q.y);
 
-            // 2-ULP right triangle: (1 + ulp, 1 + ulp) lies ON the hypotenuse; NO binary64 point is strictly inside!
+            // 2-ULP right triangle: (1 + ulp, 1 + ulp) lies ON hypotenuse; NO binary64 point is strictly inside.
             var twoUlp = new[] {
                 new Vector2d(1.0, 1.0),
                 new Vector2d(1.0 + 2.0 * ulp, 1.0),
@@ -185,13 +182,25 @@ namespace geometry3Sharp.Tests
             };
             Assert.False(ConstrainedDelaunayMesh2.TryGetInteriorPoint(twoUlp, out _));
 
-            // 1-ULP right triangle: no binary64 coordinate even between vertices
+            // 1-ULP right triangle: no binary64 coordinate even between vertices.
             var oneUlp = new[] {
                 new Vector2d(1.0, 1.0),
                 new Vector2d(1.0 + ulp, 1.0),
                 new Vector2d(1.0, 1.0 + ulp)
             };
             Assert.False(ConstrainedDelaunayMesh2.TryGetInteriorPoint(oneUlp, out _));
+
+            // Bowtie whose two diagonals cross exactly at (12, 12) = (xMid, yMid) of its only interior-width slabs:
+            // must NOT early-exit on zero-width span at the crossing!
+            double u49 = Math.Pow(2, -49); // 1 ULP in [8, 16)
+            var crossingBowtie = new[] {
+                new Vector2d(9.0, 9.0),
+                new Vector2d(15.0, 15.0),
+                new Vector2d(15.0 - u49, 15.0 + u49),
+                new Vector2d(9.0 + u49, 9.0 - u49)
+            };
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(crossingBowtie, out var pBowCross));
+            AssertStrictlyInside(crossingBowtie, pBowCross);
 
             // Diagonal sliver at UTM scale with width 4 ULPs (around 5.7e6, ULP is 2^-30)
             double utmUlp = Math.Pow(2, -30);
@@ -204,27 +213,6 @@ namespace geometry3Sharp.Tests
             Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(utmSliver, out var pUtm));
             AssertStrictlyInside(utmSliver, pUtm);
 
-            // Nearly-vertical 2-ULP-wide sliver: X spans only 2 ULPs (1.0 -> 1.0 + 2*ulp), Y spans 100;
-            // forces exact horizontal scanline fallback (vertical slabs have xMid on/outside boundary).
-            var narrowVertical = new[] {
-                new Vector2d(1.0, 0.0),
-                new Vector2d(1.0 + 2.0 * ulp, 100.0),
-                new Vector2d(1.0, 100.0),
-                new Vector2d(1.0, 50.0) // 4 vertices so triangle fast path does not run
-            };
-            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(narrowVertical, out var pVert));
-            AssertStrictlyInside(narrowVertical, pVert);
-
-            // Symmetric nearly-horizontal 2-ULP-tall sliver: forces exact vertical scanline fallback.
-            var narrowHorizontal = new[] {
-                new Vector2d(0.0, 1.0),
-                new Vector2d(100.0, 1.0),
-                new Vector2d(100.0, 1.0 + 2.0 * ulp),
-                new Vector2d(50.0, 1.0)
-            };
-            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(narrowHorizontal, out var pHoriz));
-            AssertStrictlyInside(narrowHorizontal, pHoriz);
-
             // Reflex vertex at exact same Y as candidate midpoint: tests half-open ray parity (no vertex double-count).
             var chevron = new[] {
                 new Vector2d(0, 0), new Vector2d(10, 5), new Vector2d(0, 10), new Vector2d(4, 5)
@@ -236,34 +224,76 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ManyVerticesWithSingleTinyLobe_SweepFindsInterior()
+        public void Phase2aVerticalAndPhase2bSweep_AreGenuinelyExercised()
         {
-            // 100 vertices forming a folded staircase where 96 edges retrace identically and ONE tiny non-quantile
-            // narrow triangle sits at slab index 3 (between quantiles 0 and 12, and narrower than the 8 widest slabs).
-            var bump = new List<Vector2d>();
-            double y = 0;
-            for (int i = 0; i < 100; ++i) {
-                bump.Add(new Vector2d(i * 10.0, y));
-                if (i == 3) {
-                    // Tiny horizontal ear completely inside slab [y, y + 1e-4], avoiding quantile/widest slabs
-                    bump.Add(new Vector2d(i * 10.0 + 1.0, y + 5e-5));
-                    bump.Add(new Vector2d(i * 10.0, y + 1e-4));
-                }
-                y += i >= 90 ? 100.0 : (i == 3 ? 1e-4 : 1.0);
-            }
-            // Retrace the main spine back to the start (without retracing the tiny ear)
-            double yr = y;
-            for (int i = 99; i >= 0; --i) {
-                yr -= i >= 90 ? 100.0 : (i == 3 ? 1e-4 : 1.0);
-                if (i != 3) bump.Add(new Vector2d(i * 10.0, yr));
-            }
+            double ulp = Math.Pow(2, -52);
 
-            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(bump, out var pt));
-            AssertStrictlyInside(bump, pt);
+            // Helper: build a ring with 32 non-cancelling split-edge collinear retraces on Y (so > 16 horizontal slabs
+            // survive CancelDuplicateEdgesMod2) and ONE 3-ULP lobe at horizontal slab index 3 (unsampled by horizontal
+            // Phase 1/2a: quantiles are 0,4,8,12,16,20,24,28 and widest slabs are indices >= 24), while X has only 2 slabs
+            // so Phase 2a vertical exact scanline (ProbeExactVerticalSlab) hits it directly!
+            var vertExactRing = new List<Vector2d>();
+            double[] ySpine = new double[33];
+            for (int i = 0; i <= 32; ++i)
+                ySpine[i] = i < 24 ? 1.0 + i * 3.0 * ulp : 1.0 + 72.0 * ulp + (i - 23) * 1.0;
+
+            // Forward along x = 1.0 through even+odd ySpine points, inserting the 3-ULP lobe at slab 3
+            for (int i = 0; i < 32; ++i) {
+                vertExactRing.Add(new Vector2d(1.0, ySpine[i]));
+                if (i == 3) {
+                    // 3-ULP right triangle in slab [ySpine[3], ySpine[4]] = [1 + 9*ulp, 1 + 12*ulp]
+                    vertExactRing.Add(new Vector2d(1.0 + 3.0 * ulp, ySpine[3]));
+                    vertExactRing.Add(new Vector2d(1.0, ySpine[4]));
+                    continue;
+                }
+            }
+            vertExactRing.Add(new Vector2d(1.0, ySpine[32]));
+            // Return along x = 1.0 using DIFFERENT intermediate vertices (split at 1-step-shifted positions) so
+            // CancelDuplicateEdgesMod2 does NOT cancel the vertical spine edges!
+            for (int i = 31; i >= 1; i -= 2)
+                vertExactRing.Add(new Vector2d(1.0, ySpine[i]));
+
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(vertExactRing, out var pVertExact));
+            AssertStrictlyInside(vertExactRing, pVertExact);
+
+            // Now hide a sole tiny interior lobe in BOTH unsampled horizontal AND unsampled vertical slabs
+            // (32 non-cancelling horizontal slabs AND 32 non-cancelling vertical slabs, exact integer coordinates
+            // with zero FP drift!), so Phase 1 and Phase 2a both miss and Phase 2b SweepAllHorizontal finds it!
+            var sweepRing = new List<Vector2d>();
+            // Build an exact L-shaped retraced spine along x=0 (32 y-steps) and y=0 (32 x-steps), with the
+            // return path skipping every other vertex so edges don't cancel mod 2.
+            double[] coord = new double[33];
+            for (int i = 0; i <= 32; ++i)
+                coord[i] = i < 24 ? i * 4.0 : 96.0 + (i - 24) * 100.0;
+
+            // Go up along x = 0 from y = 0 to y = coord[32], inserting a tiny lobe strictly inside
+            // x in [coord[2], coord[3]] = [8, 12] and y in [coord[2], coord[3]] = [8, 12]
+            // (indices 2 is neither a quantile 0,4,8,12,16,20,24,28 nor among the 8 widest slabs 24..31!).
+            for (int i = 0; i <= 32; ++i) sweepRing.Add(new Vector2d(0, coord[i]));
+            for (int i = 31; i >= 1; i -= 2) sweepRing.Add(new Vector2d(0, coord[i]));
+            // Go right along y = 0 from x = 0 to x = coord[32], detouring via a retraced bridge to the tiny lobe at [8, 12]^2
+            for (int i = 0; i <= 32; ++i) {
+                sweepRing.Add(new Vector2d(coord[i], 0));
+                if (i == 2) {
+                    // Exact retraced bridge up to (8, 8), tiny square [8, 12] x [8, 12], exact retraced bridge back down
+                    sweepRing.Add(new Vector2d(8, 8));
+                    sweepRing.Add(new Vector2d(12, 8));
+                    sweepRing.Add(new Vector2d(12, 12));
+                    sweepRing.Add(new Vector2d(8, 12));
+                    sweepRing.Add(new Vector2d(8, 8));
+                    sweepRing.Add(new Vector2d(8, 0));
+                }
+            }
+            for (int i = 31; i >= 1; i -= 2) sweepRing.Add(new Vector2d(coord[i], 0));
+
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(sweepRing, out var pSweep));
+            AssertStrictlyInside(sweepRing, pSweep);
+            Assert.InRange(pSweep.x, 8.0, 12.0);
+            Assert.InRange(pSweep.y, 8.0, 12.0);
         }
 
         [Fact]
-        public void RingConventions_ClosedOpenOrientationDuplicatesBowtieSpike()
+        public void RingConventions_ClosedOpenOrientationDuplicatesBowtieSlitAndOverlaps()
         {
             // GIS closed ring vs open ring -> identical result
             var open = new[] { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 4), new Vector2d(3, 4), new Vector2d(3, 10), new Vector2d(0, 10) };
@@ -295,12 +325,39 @@ namespace geometry3Sharp.Tests
             // Square with retraced spike: interior point must lie in square, NOT on spike
             var withSpike = new[] {
                 new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 5),
-                new Vector2d(20, 5), new Vector2d(10, 5), // spike
+                new Vector2d(20, 5), new Vector2d(10, 5),
                 new Vector2d(10, 10), new Vector2d(0, 10)
             };
             Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(withSpike, out var pSpike));
             AssertStrictlyInside(withSpike, pSpike);
             Assert.InRange(pSpike.x, 0.0, 10.0);
+
+            // Square [0,10]^2 with an internal retraced diagonal slit through (5,5):
+            // quarter-point probing should give a well-centered point (distance from diagonal > 1.0, not 1 ULP).
+            var withSlit = new[] {
+                new Vector2d(0, 0), new Vector2d(10, 10), new Vector2d(0, 0),
+                new Vector2d(10, 0), new Vector2d(10, 10), new Vector2d(0, 10)
+            };
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(withSlit, out var pSlit));
+            AssertStrictlyInside(withSlit, pSlit);
+            double distToDiag = Math.Abs(pSlit.x - pSlit.y) / Math.Sqrt(2.0);
+            Assert.True(distToDiag > 1.0, $"Expected high clearance from diagonal slit, got {distToDiag}");
+
+            // Partially overlapping collinear edges (split-edge overlap not cancelled by CancelDuplicateEdgesMod2)
+            var partialOverlap = new[] {
+                new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 10),
+                new Vector2d(0, 10), new Vector2d(0, 6), new Vector2d(0, 3), new Vector2d(0, 8), new Vector2d(0, 0)
+            };
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(partialOverlap, out var pOverlap));
+            AssertStrictlyInside(partialOverlap, pOverlap);
+
+            // Odd-multiplicity duplicate edge (3 copies of bottom edge)
+            var oddDup = new[] {
+                new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(0, 0), new Vector2d(10, 0),
+                new Vector2d(10, 10), new Vector2d(0, 10)
+            };
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(oddDup, out var pOdd));
+            AssertStrictlyInside(oddDup, pOdd);
         }
 
         [Fact]
@@ -323,7 +380,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ExtremeScales_AndNegativeZero_AreExact()
+        public void ExtremeScales_MixedMagnitudes_Subnormals_AndNegativeZero_AreExact()
         {
             foreach (double s in new[] { 1e-160, 1e-60, 1e60 }) {
                 var poly = new[] {
@@ -334,6 +391,32 @@ namespace geometry3Sharp.Tests
                 Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(poly, out var p));
                 AssertStrictlyInside(poly, p);
             }
+
+            // Mixed magnitudes in one ring (1e-160 combined with 1e50)
+            var mixed = new[] {
+                new Vector2d(0, 0), new Vector2d(1e50, 0), new Vector2d(1e-160, 1e-160)
+            };
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(mixed, out var pMix));
+            AssertStrictlyInside(mixed, pMix);
+
+            // Subnormal triangle and 4-vertex quad
+            double sub = 1e-315;
+            var subTri = new[] { new Vector2d(0, 0), new Vector2d(10 * sub, 0), new Vector2d(0, 10 * sub) };
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(subTri, out var pSubTri));
+            AssertStrictlyInside(subTri, pSubTri);
+
+            var subQuad = new[] {
+                new Vector2d(0, 0), new Vector2d(4 * double.Epsilon, 0),
+                new Vector2d(4 * double.Epsilon, 4 * double.Epsilon), new Vector2d(0, 4 * double.Epsilon)
+            };
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(subQuad, out var pSubQuad));
+            AssertStrictlyInside(subQuad, pSubQuad);
+
+            // CoordinateLimit boundary (±1e70 accepted)
+            double lim = DelaunayMesh2.CoordinateLimit;
+            var atLimit = new[] { new Vector2d(-lim, -lim), new Vector2d(lim, -lim), new Vector2d(0, lim) };
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(atLimit, out var pLim));
+            AssertStrictlyInside(atLimit, pLim);
 
             // Negative zero coordinates normalize cleanly
             var nz = new[] { new Vector2d(-0.0, -0.0), new Vector2d(2.0, -0.0), new Vector2d(-0.0, 2.0) };
@@ -350,35 +433,101 @@ namespace geometry3Sharp.Tests
             Assert.Throws<ArgumentNullException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(null, new[] { 0, 1, 2 }, out _));
             Assert.Throws<ArgumentNullException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(new[] { Vector2d.Zero }, null, out _));
 
-            var pts = new[] { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(0, 1) };
-            Assert.Throws<ArgumentOutOfRangeException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(pts, new[] { 0, 1, 3 }, out _));
+            var pts = new[] { new Vector2d(0, 0), new Vector2d(1, 0), new Vector2d(0, 1), new Vector2d(double.NaN, double.PositiveInfinity) };
+            Assert.Throws<ArgumentOutOfRangeException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(pts, new[] { 0, 1, 4 }, out _));
             Assert.Throws<ArgumentOutOfRangeException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(pts, new[] { -1, 1, 2 }, out _));
+            // Indexed overload ignores unreferenced invalid vertices and rejects referenced ones
+            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(pts, new[] { 0, 1, 2 }, out var pValid));
+            AssertStrictlyInside(new[] { pts[0], pts[1], pts[2] }, pValid);
+            Assert.Throws<ArgumentException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(pts, new[] { 0, 1, 3 }, out _));
 
             Assert.Throws<ArgumentException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(new[] { new Vector2d(double.NaN, 0), new Vector2d(1, 0), new Vector2d(0, 1) }, out _));
+            Assert.Throws<ArgumentException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(new[] { new Vector2d(0, double.NaN), new Vector2d(1, 0), new Vector2d(0, 1) }, out _));
             Assert.Throws<ArgumentException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(new[] { new Vector2d(0, double.PositiveInfinity), new Vector2d(1, 0), new Vector2d(0, 1) }, out _));
-            Assert.Throws<ArgumentException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(new[] { new Vector2d(1e71, 0), new Vector2d(1, 0), new Vector2d(0, 1) }, out _));
+            Assert.Throws<ArgumentException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(new[] { new Vector2d(double.NegativeInfinity, 0), new Vector2d(1, 0), new Vector2d(0, 1) }, out _));
+            double overLimit = RingInterior2.NextUp(DelaunayMesh2.CoordinateLimit);
+            Assert.Throws<ArgumentException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(new[] { new Vector2d(overLimit, 0), new Vector2d(1, 0), new Vector2d(0, 1) }, out _));
+            Assert.Throws<ArgumentException>(() => ConstrainedDelaunayMesh2.TryGetInteriorPoint(new[] { new Vector2d(0, -overLimit), new Vector2d(1, 0), new Vector2d(0, 1) }, out _));
         }
 
         [Fact]
-        public void Similarity_All2D_IsStrictInterior_AndPow2ScalesAreBitIdentical()
+        public void Similarity_All2D_IsStrictInterior_AndPow2ScalesAreBitIdenticalAcrossAllPhases()
         {
-            var baseRing = new[] {
-                new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 3),
-                new Vector2d(4, 3), new Vector2d(4, 8), new Vector2d(0, 8)
+            double ulp = Math.Pow(2, -52);
+            var rings = new Vector2d[][] {
+                // Phase 1 (L-shape)
+                new[] { new Vector2d(0, 0), new Vector2d(10, 0), new Vector2d(10, 3), new Vector2d(4, 3), new Vector2d(4, 8), new Vector2d(0, 8) },
+                // Triangle fast path (obtuse triangle)
+                new[] { new Vector2d(0, 0), new Vector2d(2, 0), new Vector2d(15, 0.5) },
+                // Phase 2a exact fallback (4-vertex 3-ULP right triangle)
+                new[] { new Vector2d(1.0, 1.0), new Vector2d(1.0 + ulp, 1.0), new Vector2d(1.0 + 3.0 * ulp, 1.0), new Vector2d(1.0, 1.0 + 3.0 * ulp) }
             };
-            Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(baseRing, out var basePt));
-            AssertStrictlyInside(baseRing, basePt);
 
-            foreach (var sim in Similarity.All2D()) {
-                var transformed = baseRing.Select(p => sim.Apply2d(p)).ToArray();
-                Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(transformed, out var pt),
-                    $"Failed for similarity {sim.Name}");
-                AssertStrictlyInside(transformed, pt);
+            for (int r = 0; r < rings.Length; ++r) {
+                var baseRing = rings[r];
+                Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(baseRing, out var basePt));
+                AssertStrictlyInside(baseRing, basePt);
 
-                if (sim.IsExact) {
-                    Assert.Equal(BitConverter.DoubleToInt64Bits(basePt.x * sim.Scale), BitConverter.DoubleToInt64Bits(pt.x));
-                    Assert.Equal(BitConverter.DoubleToInt64Bits(basePt.y * sim.Scale), BitConverter.DoubleToInt64Bits(pt.y));
+                foreach (var sim in Similarity.All2D()) {
+                    var transformed = baseRing.Select(p => sim.Apply2d(p)).ToArray();
+                    // At 3-ULP resolution, non-exact transforms (rotation/translation) can collapse the 3-ULP triangle to <= 2 ULPs
+                    if (r == 2 && !sim.IsExact) continue;
+                    Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(transformed, out var pt),
+                        $"Ring {r} failed for similarity {sim.Name}");
+                    AssertStrictlyInside(transformed, pt);
+
+                    if (sim.IsExact) {
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(basePt.x * sim.Scale), BitConverter.DoubleToInt64Bits(pt.x));
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(basePt.y * sim.Scale), BitConverter.DoubleToInt64Bits(pt.y));
+                    }
                 }
+
+                // Extreme power-of-two scales (2^-500 and 2^200) must also be bit-identical
+                foreach (int exp in new[] { -500, 200 }) {
+                    var scaled = baseRing.Select(p => new Vector2d(ExactPoint3.ScaleB(p.x, exp), ExactPoint3.ScaleB(p.y, exp))).ToArray();
+                    Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(scaled, out var pt));
+                    AssertStrictlyInside(scaled, pt);
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(ExactPoint3.ScaleB(basePt.x, exp)), BitConverter.DoubleToInt64Bits(pt.x));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(ExactPoint3.ScaleB(basePt.y, exp)), BitConverter.DoubleToInt64Bits(pt.y));
+                }
+            }
+        }
+
+        [Fact]
+        public void AdversarialCombRings_ScaleSubquadratically_WithinTimeBudget()
+        {
+            // 1. Comb ring with interior (many teeth crossing every horizontal scanline): n = 500 and n = 2000
+            foreach (int teeth in new[] { 250, 1000 }) {
+                var comb = new List<Vector2d>(2 * teeth + 2);
+                comb.Add(new Vector2d(0, 0));
+                comb.Add(new Vector2d(2 * teeth + 1, 0));
+                for (int i = teeth - 1; i >= 0; --i) {
+                    comb.Add(new Vector2d(2 * i + 2, 10.0));
+                    comb.Add(new Vector2d(2 * i + 1, 1.0));
+                }
+                var sw = Stopwatch.StartNew();
+                Assert.True(ConstrainedDelaunayMesh2.TryGetInteriorPoint(comb, out var pt));
+                sw.Stop();
+                AssertStrictlyInside(comb, pt);
+                Assert.True(sw.ElapsedMilliseconds < 2000, $"Comb (teeth={teeth}) took {sw.ElapsedMilliseconds} ms");
+            }
+
+            // 2. Zero-interior adversarial comb of 1-ULP teeth (edges do not cancel mod 2): must return false quickly!
+            double ulp = Math.Pow(2, -52);
+            foreach (int teeth in new[] { 200, 800 }) {
+                var zeroComb = new List<Vector2d>(2 * teeth + 2);
+                double baseX = 1.0;
+                zeroComb.Add(new Vector2d(baseX, 0));
+                zeroComb.Add(new Vector2d(baseX + (2 * teeth) * ulp, 0));
+                for (int i = teeth - 1; i >= 0; --i) {
+                    zeroComb.Add(new Vector2d(baseX + (2 * i + 1) * ulp, 10.0));
+                    zeroComb.Add(new Vector2d(baseX + (2 * i) * ulp, 0.0));
+                }
+                var sw = Stopwatch.StartNew();
+                bool ok = ConstrainedDelaunayMesh2.TryGetInteriorPoint(zeroComb, out var pt);
+                sw.Stop();
+                if (ok) AssertStrictlyInside(zeroComb, pt);
+                Assert.True(sw.ElapsedMilliseconds < 2000, $"Zero-interior comb (teeth={teeth}) took {sw.ElapsedMilliseconds} ms");
             }
         }
 
