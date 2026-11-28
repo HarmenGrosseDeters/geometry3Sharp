@@ -1534,6 +1534,11 @@ python3 data/certify_thingi.py run <cases> <dir> <out> --command region-compare 
 python3 data/certify_thingi.py summary --region <rows>...           the counts by verdict, the differences, the time with and without by size
 ```
 
+Re-run controls and the log (2026-11-27): the workflow prints the whole report and every row that is not `same` (with `exact`, `exact_tris`, `min_edge`, `round_res`, `repair_tol`,
+the message and, for a failing case, the last 20 lines of the tool's stderr) to the job log as well as the step summary; `run` keeps those stderr lines in the row (`stderr_tail`) and prints
+them; the inputs `procedural` (on/off), `thingi_kinds` (a comma list of self, pairs, contact) and `contact_variants` (a comma list; plan `--variants`) make a re-run cheaper.
+Tests: `test_certify_thingi.py` (python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_certify_thingi.py').
+
 The run is `.github/workflows/region-clipping-corpus.yml` (workflow_dispatch; the Thingi10K models are fetched at run time on GitHub-hosted runners, nothing is committed;
 the rows go to the artifacts and the job summary; `run` and `summary --region` exit non-zero on any verdict other than `same` and `not compared (not clean)`, so a difference, a
 timeout or an error makes the job red). The procedural corpora are also a test, `RegionClippingCorpusTests` (6 seeds per family in the PR tier, 300 per family in the Nightly tier).
