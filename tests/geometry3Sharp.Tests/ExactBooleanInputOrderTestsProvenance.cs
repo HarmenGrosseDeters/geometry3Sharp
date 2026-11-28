@@ -836,16 +836,23 @@ namespace geometry3Sharp.Tests
             // Degenerate triangles: coincident vertices (a == b == c), collapsed edges, and collinear points never yield NaN
             Vector3d q = new Vector3d(3.0, 2.0, -1.0);
             Assert.Equal((q - a).Length, ExactMeshBoolean.cand_point_triangle_dist(q, a, a, a), 12);
-            Assert.Equal(ExactMeshBoolean.cand_point_triangle_dist(q, a, b, c), ExactMeshBoolean.cand_point_triangle_dist(q, a, b, c), 12);
+            double tSegAB = Math.Max(0.0, Math.Min(1.0, (q - a).Dot(ab) / ab.LengthSquared));
+            double expectedSegAB = (q - (a + tSegAB * ab)).Length;
+            Assert.Equal(expectedSegAB, ExactMeshBoolean.cand_point_triangle_dist(q, a, a, b), 12);
+            Assert.Equal(expectedSegAB, ExactMeshBoolean.cand_point_triangle_dist(q, a, b, b), 12);
+            Assert.Equal(expectedSegAB, ExactMeshBoolean.cand_point_triangle_dist(q, a, b, a), 12);
             double dCollinear = ExactMeshBoolean.cand_point_triangle_dist(new Vector3d(2.0, 1.0, 0.0), Vector3d.Zero, new Vector3d(4.0, 0.0, 0.0), new Vector3d(2.0, 0.0, 0.0));
             Assert.Equal(1.0, dCollinear, 12);
             double dTinyEdge = ExactMeshBoolean.point_triangle_dist_sq(new Vector3d(0.5, 1.0, 0.0), Vector3d.Zero, new Vector3d(1e-200, 0, 0), new Vector3d(0, 1e-200, 0));
             Assert.False(double.IsNaN(dTinyEdge));
             Assert.Equal(1.25, dTinyEdge, 12);
 
-            // Special inputs: all zeros, NaN, Infinity
+            // Special inputs: all zeros, NaN in any argument (including alongside zero vectors), Infinity
             Assert.Equal(0.0, ExactMeshBoolean.cand_point_triangle_dist(Vector3d.Zero, Vector3d.Zero, Vector3d.Zero, Vector3d.Zero));
             Assert.True(double.IsPositiveInfinity(ExactMeshBoolean.cand_point_triangle_dist(new Vector3d(double.NaN, 0, 0), a, b, c)));
+            Assert.True(double.IsPositiveInfinity(ExactMeshBoolean.cand_point_triangle_dist(Vector3d.Zero, new Vector3d(double.NaN, 0, 0), Vector3d.Zero, Vector3d.Zero)));
+            Assert.True(double.IsPositiveInfinity(ExactMeshBoolean.cand_point_triangle_dist(Vector3d.Zero, Vector3d.Zero, new Vector3d(0, double.NaN, 0), Vector3d.Zero)));
+            Assert.True(double.IsPositiveInfinity(ExactMeshBoolean.cand_point_triangle_dist(Vector3d.Zero, Vector3d.Zero, Vector3d.Zero, new Vector3d(0, 0, double.NaN))));
             Assert.True(double.IsPositiveInfinity(ExactMeshBoolean.cand_point_triangle_dist(pFace, new Vector3d(double.PositiveInfinity, 0, 0), b, c)));
 
             // Power-of-two scaling invariance across 2^600 and 2^-600 (and subnormal 2^-1030)

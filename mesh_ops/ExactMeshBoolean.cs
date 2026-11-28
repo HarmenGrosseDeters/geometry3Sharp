@@ -7429,7 +7429,7 @@ namespace g3
             double ma = max_abs_vec(a); if (ma > m) m = ma;
             double mb = max_abs_vec(b); if (mb > m) m = mb;
             double mc = max_abs_vec(c); if (mc > m) m = mc;
-            if (double.IsNaN(m) || double.IsInfinity(m))
+            if (double.IsNaN(m + ma + mb + mc) || double.IsInfinity(m))
                 return double.PositiveInfinity;
             if (m == 0)
                 return 0.0;
@@ -7471,10 +7471,8 @@ namespace g3
                 return bpx * bpx + bpy * bpy + bpz * bpz;
 
             double vc = d1 * d4 - d3 * d2;
-            if (vc <= 0 && d1 >= 0 && d3 <= 0) {
-                double denom1 = d1 - d3;
-                if (denom1 <= 0)
-                    return min_vertex_dist_sq(p, a, b, c);
+            double denom1 = d1 - d3;
+            if (vc <= 0 && d1 >= 0 && d3 <= 0 && denom1 > 0) {
                 double v = d1 / denom1;
                 double dx = apx - v * abx, dy = apy - v * aby, dz = apz - v * abz;
                 return dx * dx + dy * dy + dz * dz;
@@ -7487,20 +7485,16 @@ namespace g3
                 return cpx * cpx + cpy * cpy + cpz * cpz;
 
             double vb = d5 * d2 - d1 * d6;
-            if (vb <= 0 && d2 >= 0 && d6 <= 0) {
-                double denom2 = d2 - d6;
-                if (denom2 <= 0)
-                    return min_vertex_dist_sq(p, a, b, c);
+            double denom2 = d2 - d6;
+            if (vb <= 0 && d2 >= 0 && d6 <= 0 && denom2 > 0) {
                 double w = d2 / denom2;
                 double dx = apx - w * acx, dy = apy - w * acy, dz = apz - w * acz;
                 return dx * dx + dy * dy + dz * dz;
             }
 
             double va = d3 * d6 - d5 * d4;
-            if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
-                double denom3 = (d4 - d3) + (d5 - d6);
-                if (denom3 <= 0)
-                    return min_vertex_dist_sq(p, a, b, c);
+            double denom3 = (d4 - d3) + (d5 - d6);
+            if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 && denom3 > 0) {
                 double w = (d4 - d3) / denom3;
                 double dx = bpx - w * (c.x - b.x), dy = bpy - w * (c.y - b.y), dz = bpz - w * (c.z - b.z);
                 return dx * dx + dy * dy + dz * dz;
