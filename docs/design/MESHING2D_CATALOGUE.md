@@ -1,6 +1,6 @@
 # 2D meshing: the failure catalogue
 
-The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 110 covered, 8 pending, 8 deferred by the owner's scope, 3 blocked.
+The F cases of [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 2, as procedural fixtures, one state per row. Rows now: 111 covered, 8 pending, 8 deferred by the owner's scope, 2 blocked.
 The table is generated from `benchmarks/Meshing2Benchmark/Oracle/Catalogue.cs` by `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- catalogue`; a test keeps it in sync.
 
 - **covered**: runs now through the oracle (or the named test), on the registered production mesher.
@@ -114,7 +114,7 @@ as beyond this brief (`m4.*`) wait for grid, wedge and Steiner post-processing, 
 | F-48/b | Degenerate hole ring, back and forth | covered | f-48/b |  |
 | F-48/c | Degenerate hole ring, folded | covered | f-48/c |  |
 | F-49 | Triangular hole at UTM scale | covered | f-49 | with ring semantics there is no seed to misplace; the helper of I4 is F-50 |
-| F-50 | Interior point of thin or small contours | blocked |  | needs the API of the helper of I4 (decision D10); session 2 writes the fixture with it. Feature m2.ring-interior |
+| F-50 | Interior point of thin or small contours | covered | RingInterior2Tests.F50_ThinObtuseAndStarContours_FindStrictInterior | I4 / D10: ConstrainedDelaunayMesh2.TryGetInteriorPoint |
 | F-51/a | Tiny coordinates | covered | m1/tiny-64 |  |
 | F-51/b | Huge coordinates | covered | m1/huge-64 |  |
 | F-51/c | Mixed magnitudes | covered | m1/mixed-48 |  |

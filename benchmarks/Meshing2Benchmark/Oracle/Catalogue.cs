@@ -39,7 +39,7 @@ namespace Meshing2Acceptance
         /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
-        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap };
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap, Feature.RingInterior };
 
         /// <summary>
         /// Rows whose results are large (Steiner limits of 10 000 to 100 000, or dense refinement), or whose many crossing constraints
@@ -188,7 +188,7 @@ namespace Meshing2Acceptance
             Mesh("F-48", "b", "Degenerate hole ring, back and forth", Feature.Domain, M3, S().Hole(2, 2, 8, 8, 2, 2).Min(25), Hundred);
             Mesh("F-48", "c", "Degenerate hole ring, folded", Feature.Domain, M3, S().Hole(2, 2, 8, 8, 5, 5, 2, 2).Min(25), Hundred);
             Mesh("F-49", null, "Triangular hole at UTM scale", Feature.Domain, M2, new B().Rect(500000, 5700000, 500064, 5700064).Hole(500010.25, 5700011.5, 500020.5, 5700011.75, 500015.125, 5700030.5), note: "with ring semantics there is no seed to misplace; the helper of I4 is F-50");
-            Blocked("F-50", null, "Interior point of thin or small contours", "needs the API of the helper of I4 (decision D10); session 2 writes the fixture with it. Feature " + Feature.RingInterior);
+            rows.Add(new CatalogueRow { F = "F-50", Part = null, Title = "Interior point of thin or small contours", State = CaseState.Covered, Feature = Feature.RingInterior, Test = "RingInterior2Tests.F50_ThinObtuseAndStarContours_FindStrictInterior", Note = "I4 / D10: ConstrainedDelaunayMesh2.TryGetInteriorPoint" });
 
             // 2.5 exact arithmetic
             M1("F-51", "a", "Tiny coordinates", "m1/tiny-64");
