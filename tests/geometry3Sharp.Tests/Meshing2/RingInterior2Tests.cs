@@ -512,22 +512,44 @@ namespace geometry3Sharp.Tests
                 Assert.True(sw.ElapsedMilliseconds < 2000, $"Comb (teeth={teeth}) took {sw.ElapsedMilliseconds} ms");
             }
 
-            // 2. Zero-interior adversarial comb of 1-ULP teeth (edges do not cancel mod 2): must return false quickly!
+            // 2. Genuinely zero-interior comb of 1-ULP-wide right-triangle teeth (no binary64 point strictly inside any tooth)
             double ulp = Math.Pow(2, -52);
             foreach (int teeth in new[] { 200, 800 }) {
-                var zeroComb = new List<Vector2d>(2 * teeth + 2);
+                var zeroComb = new List<Vector2d>(3 * teeth + 2);
                 double baseX = 1.0;
-                zeroComb.Add(new Vector2d(baseX, 0));
-                zeroComb.Add(new Vector2d(baseX + (2 * teeth) * ulp, 0));
+                zeroComb.Add(new Vector2d(baseX, 0.0));
+                zeroComb.Add(new Vector2d(baseX + (2 * teeth) * ulp, 0.0));
                 for (int i = teeth - 1; i >= 0; --i) {
+                    // Each tooth spans x in [baseX + 2*i*ulp, baseX + (2*i + 1)*ulp] (width = 1 ULP: zero interior doubles!)
+                    zeroComb.Add(new Vector2d(baseX + (2 * i + 1) * ulp, 0.0));
                     zeroComb.Add(new Vector2d(baseX + (2 * i + 1) * ulp, 10.0));
                     zeroComb.Add(new Vector2d(baseX + (2 * i) * ulp, 0.0));
                 }
                 var sw = Stopwatch.StartNew();
-                bool ok = ConstrainedDelaunayMesh2.TryGetInteriorPoint(zeroComb, out var pt);
+                Assert.False(ConstrainedDelaunayMesh2.TryGetInteriorPoint(zeroComb, out _));
                 sw.Stop();
-                if (ok) AssertStrictlyInside(zeroComb, pt);
                 Assert.True(sw.ElapsedMilliseconds < 2000, $"Zero-interior comb (teeth={teeth}) took {sw.ElapsedMilliseconds} ms");
+            }
+
+            // 3. Sparse 1-ULP-wide vertical-walled staircase (1000 horizontal slabs, active.Count == 2 per slab,
+            // every slab is [1 + k*ulp, 1 + (k+1)*ulp] x [10*k, 10*(k+1)] with provably 0 binary64 interior points):
+            // must stay O(n log n) via O(1) ExactRat.IsStrictlyBetween without calling O(n) Consider on every slab.
+            {
+                const int steps = 1000;
+                var stair = new List<Vector2d>(4 * steps);
+                for (int k = 0; k < steps; ++k) {
+                    stair.Add(new Vector2d(1.0 + k * ulp, 10.0 * k));
+                    stair.Add(new Vector2d(1.0 + k * ulp, 10.0 * (k + 1)));
+                }
+                stair.Add(new Vector2d(1.0 + steps * ulp, 10.0 * steps));
+                for (int k = steps - 1; k >= 0; --k) {
+                    stair.Add(new Vector2d(1.0 + (k + 1) * ulp, 10.0 * k));
+                    if (k > 0) stair.Add(new Vector2d(1.0 + k * ulp, 10.0 * k));
+                }
+                var sw = Stopwatch.StartNew();
+                Assert.False(ConstrainedDelaunayMesh2.TryGetInteriorPoint(stair, out _));
+                sw.Stop();
+                Assert.True(sw.ElapsedMilliseconds < 2000, $"1-ULP staircase (n={stair.Count}) took {sw.ElapsedMilliseconds} ms");
             }
         }
 

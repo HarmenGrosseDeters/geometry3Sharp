@@ -64,6 +64,19 @@ namespace g3
                 BigInteger rhs = (other.Exp > lo ? other.Num << (other.Exp - lo) : other.Num) * Den;
                 return lhs.CompareTo(rhs);
             }
+
+            public static ExactRat FromDouble(double v)
+            {
+                ExactPoint3.Decompose(v, out var m, out int e);
+                return new ExactRat(m, BigInteger.One, e);
+            }
+
+            public static bool IsStrictlyBetween(ExactRat lo, ExactRat hi, double v)
+            {
+                if (double.IsNaN(v) || double.IsInfinity(v)) return false;
+                var r = FromDouble(v);
+                return lo.CompareTo(r) < 0 && r.CompareTo(hi) < 0;
+            }
         }
 
         public static bool TryGetInteriorPoint(IReadOnlyList<Vector2d> ring, out Vector2d point)
@@ -203,17 +216,18 @@ namespace g3
 
             // Phase 2a: Exact rational scanlines on the sampled slabs (handles narrow slivers at UTM scale
             // where double intersection rounding falls outside the interior, and bowties crossing at slab midpoints).
-            long exactBudget = 64L * activeEdges.Length + 4096;
+            int totalEdges = edges.Length;
+            long exactBudget = 64L * totalEdges + 4096;
             for (int i = 0; i < hSlabs.Count && exactBudget > 0; ++i) {
                 int j = hSlabs[i];
-                if (ProbeExactHorizontalSlab(activeEdges, ys[j], ys[j + 1], Consider, ref exactBudget)) {
+                if (ProbeExactHorizontalSlab(activeEdges, ys[j], ys[j + 1], Consider, totalEdges, ref exactBudget)) {
                     point = best;
                     return true;
                 }
             }
             for (int i = 0; i < vSlabs.Count && exactBudget > 0; ++i) {
                 int j = vSlabs[i];
-                if (ProbeExactVerticalSlab(activeEdges, xs[j], xs[j + 1], Consider, ref exactBudget)) {
+                if (ProbeExactVerticalSlab(activeEdges, xs[j], xs[j + 1], Consider, totalEdges, ref exactBudget)) {
                     point = best;
                     return true;
                 }
@@ -221,13 +235,13 @@ namespace g3
 
             // Phase 2b: Sweep over remaining horizontal & vertical slabs with bounded active-edge work
             // (finds a sole interior lobe hidden outside the 16 sampled slabs while keeping worst-case O(n log n)).
-            long sweepBudget = 64L * activeEdges.Length + 8192;
+            long sweepBudget = 64L * totalEdges + 8192;
             if (ys.Length - 1 > hSlabs.Count) {
-                SweepAllHorizontal(activeEdges, ys, hSlabs, crossBuf, spanBuf, Consider, () => found, ref sweepBudget, ref exactBudget);
+                SweepAllHorizontal(activeEdges, ys, hSlabs, crossBuf, spanBuf, Consider, () => found, totalEdges, ref sweepBudget, ref exactBudget);
                 if (found) { point = best; return true; }
             }
             if (xs.Length - 1 > vSlabs.Count) {
-                SweepAllVertical(activeEdges, xs, vSlabs, crossBuf, spanBuf, Consider, () => found, ref sweepBudget, ref exactBudget);
+                SweepAllVertical(activeEdges, xs, vSlabs, crossBuf, spanBuf, Consider, () => found, totalEdges, ref sweepBudget, ref exactBudget);
                 if (found) { point = best; return true; }
             }
 
@@ -395,11 +409,11 @@ namespace g3
             }
         }
 
-        static bool ProbeExactHorizontalSlab(IReadOnlyList<Edge> edges, double y0, double y1, Func<Vector2d, bool> consider, ref long exactBudget)
+        static bool ProbeExactHorizontalSlab(IReadOnlyList<Edge> edges, double y0, double y1, Func<Vector2d, bool> consider, int considerCost, ref long exactBudget)
         {
             double yMid = Midpoint(y0, y1);
             if (!(yMid > y0 && yMid < y1)) return false;
-            bool hasActiveEdges = ProbeExactHorizontalLine(edges, yMid, consider, ref exactBudget, out bool hit);
+            bool hasActiveEdges = ProbeExactHorizontalLine(edges, yMid, consider, considerCost, ref exactBudget, out bool hit);
             if (hit) return true;
             // Only skip extra lines when fewer than 2 edges cross the slab at all (no vertex lies strictly inside (y0, y1)).
             // When 2+ edges cross at yMid (e.g. a bowtie crossing at yMid), extraY still finds the interior!
@@ -409,14 +423,14 @@ namespace g3
             for (int i = 0; i < extraY.Length && exactBudget > 0; ++i) {
                 double ys = extraY[i];
                 if (ys > y0 && ys < y1 && ys != yMid) {
-                    ProbeExactHorizontalLine(edges, ys, consider, ref exactBudget, out hit);
+                    ProbeExactHorizontalLine(edges, ys, consider, considerCost, ref exactBudget, out hit);
                     if (hit) return true;
                 }
             }
             return false;
         }
 
-        static bool ProbeExactHorizontalLine(IReadOnlyList<Edge> edges, double yLine, Func<Vector2d, bool> consider, ref long exactBudget, out bool foundAny)
+        static bool ProbeExactHorizontalLine(IReadOnlyList<Edge> edges, double yLine, Func<Vector2d, bool> consider, int considerCost, ref long exactBudget, out bool foundAny)
         {
             foundAny = false;
             int activeCount = 0;
@@ -435,29 +449,37 @@ namespace g3
             }
             xs.Sort();
             int testedSpans = 0;
-            for (int k = 0; k + 1 < xs.Count && testedSpans < 8; k += 2) {
-                if (xs[k].CompareTo(xs[k + 1]) >= 0) continue;
+            for (int k = 0; k + 1 < xs.Count && testedSpans < 8 && exactBudget > 0; k += 2) {
+                var lo = xs[k];
+                var hi = xs[k + 1];
+                if (lo.CompareTo(hi) >= 0) continue;
                 ++testedSpans;
-                double xMid = ExactMidpointDouble(xs[k], xs[k + 1]);
-                double xQ1 = ExactQuarterDouble(xs[k], xs[k + 1], firstQuarter: true);
-                double xQ3 = ExactQuarterDouble(xs[k], xs[k + 1], firstQuarter: false);
-                if (consider(new Vector2d(xMid, yLine))
-                    || consider(new Vector2d(xQ1, yLine))
-                    || consider(new Vector2d(xQ3, yLine))
-                    || consider(new Vector2d(NextUp(xMid), yLine))
-                    || consider(new Vector2d(NextDown(xMid), yLine))) {
-                    foundAny = true;
-                    return true;
+                double xMid = ExactMidpointDouble(lo, hi);
+                double xQ1 = ExactQuarterDouble(lo, hi, firstQuarter: true);
+                double xQ3 = ExactQuarterDouble(lo, hi, firstQuarter: false);
+                double xUp = NextUp(xMid);
+                double xDown = NextDown(xMid);
+                double[] cands = { xMid, xQ1, xQ3, xUp, xDown };
+                for (int ci = 0; ci < cands.Length && exactBudget > 0; ++ci) {
+                    double xc = cands[ci];
+                    bool dup = false;
+                    for (int pj = 0; pj < ci; ++pj) if (cands[pj] == xc) { dup = true; break; }
+                    if (dup || !ExactRat.IsStrictlyBetween(lo, hi, xc)) continue;
+                    if (consider(new Vector2d(xc, yLine))) {
+                        foundAny = true;
+                        return true;
+                    }
+                    exactBudget -= considerCost;
                 }
             }
             return true;
         }
 
-        static bool ProbeExactVerticalSlab(IReadOnlyList<Edge> edges, double x0, double x1, Func<Vector2d, bool> consider, ref long exactBudget)
+        static bool ProbeExactVerticalSlab(IReadOnlyList<Edge> edges, double x0, double x1, Func<Vector2d, bool> consider, int considerCost, ref long exactBudget)
         {
             double xMid = Midpoint(x0, x1);
             if (!(xMid > x0 && xMid < x1)) return false;
-            bool hasActiveEdges = ProbeExactVerticalLine(edges, xMid, consider, ref exactBudget, out bool hit);
+            bool hasActiveEdges = ProbeExactVerticalLine(edges, xMid, consider, considerCost, ref exactBudget, out bool hit);
             if (hit) return true;
             if (!hasActiveEdges || exactBudget <= 0) return false;
 
@@ -465,14 +487,14 @@ namespace g3
             for (int i = 0; i < extraX.Length && exactBudget > 0; ++i) {
                 double xs = extraX[i];
                 if (xs > x0 && xs < x1 && xs != xMid) {
-                    ProbeExactVerticalLine(edges, xs, consider, ref exactBudget, out hit);
+                    ProbeExactVerticalLine(edges, xs, consider, considerCost, ref exactBudget, out hit);
                     if (hit) return true;
                 }
             }
             return false;
         }
 
-        static bool ProbeExactVerticalLine(IReadOnlyList<Edge> edges, double xLine, Func<Vector2d, bool> consider, ref long exactBudget, out bool foundAny)
+        static bool ProbeExactVerticalLine(IReadOnlyList<Edge> edges, double xLine, Func<Vector2d, bool> consider, int considerCost, ref long exactBudget, out bool foundAny)
         {
             foundAny = false;
             int activeCount = 0;
@@ -491,19 +513,27 @@ namespace g3
             }
             ys.Sort();
             int testedSpans = 0;
-            for (int k = 0; k + 1 < ys.Count && testedSpans < 8; k += 2) {
-                if (ys[k].CompareTo(ys[k + 1]) >= 0) continue;
+            for (int k = 0; k + 1 < ys.Count && testedSpans < 8 && exactBudget > 0; k += 2) {
+                var lo = ys[k];
+                var hi = ys[k + 1];
+                if (lo.CompareTo(hi) >= 0) continue;
                 ++testedSpans;
-                double yMid = ExactMidpointDouble(ys[k], ys[k + 1]);
-                double yQ1 = ExactQuarterDouble(ys[k], ys[k + 1], firstQuarter: true);
-                double yQ3 = ExactQuarterDouble(ys[k], ys[k + 1], firstQuarter: false);
-                if (consider(new Vector2d(xLine, yMid))
-                    || consider(new Vector2d(xLine, yQ1))
-                    || consider(new Vector2d(xLine, yQ3))
-                    || consider(new Vector2d(xLine, NextUp(yMid)))
-                    || consider(new Vector2d(xLine, NextDown(yMid)))) {
-                    foundAny = true;
-                    return true;
+                double yMid = ExactMidpointDouble(lo, hi);
+                double yQ1 = ExactQuarterDouble(lo, hi, firstQuarter: true);
+                double yQ3 = ExactQuarterDouble(lo, hi, firstQuarter: false);
+                double yUp = NextUp(yMid);
+                double yDown = NextDown(yMid);
+                double[] cands = { yMid, yQ1, yQ3, yUp, yDown };
+                for (int ci = 0; ci < cands.Length && exactBudget > 0; ++ci) {
+                    double yc = cands[ci];
+                    bool dup = false;
+                    for (int pj = 0; pj < ci; ++pj) if (cands[pj] == yc) { dup = true; break; }
+                    if (dup || !ExactRat.IsStrictlyBetween(lo, hi, yc)) continue;
+                    if (consider(new Vector2d(xLine, yc))) {
+                        foundAny = true;
+                        return true;
+                    }
+                    exactBudget -= considerCost;
                 }
             }
             return true;
@@ -511,7 +541,7 @@ namespace g3
 
         static void SweepAllHorizontal(Edge[] edges, double[] ys, List<int> alreadyChecked, List<double> crossBuf,
             List<(double width, double lo, double hi)> spanBuf, Func<Vector2d, bool> consider, Func<bool> isFound,
-            ref long sweepBudget, ref long exactBudget)
+            int considerCost, ref long sweepBudget, ref long exactBudget)
         {
             var skip = new HashSet<int>(alreadyChecked);
             var byLo = new Edge[edges.Length];
@@ -570,15 +600,22 @@ namespace g3
                 if (skip.Contains(j) || active.Count < 2) continue;
                 if (active.Count > sweepBudget) { sweepBudget = 0; return; }
                 sweepBudget -= active.Count;
-                ProbeDoubleHorizontal(active, y0, y1, crossBuf, spanBuf, consider, maxSpansToTest: 2, stopOnHit: true);
+                long localSweep = sweepBudget;
+                ProbeDoubleHorizontal(active, y0, y1, crossBuf, spanBuf, p => {
+                    if (localSweep <= 0) return false;
+                    if (consider(p)) return true;
+                    localSweep -= considerCost;
+                    return false;
+                }, maxSpansToTest: 2, stopOnHit: true);
+                sweepBudget = localSweep;
                 if (isFound()) return;
-                if (exactBudget > 0 && ProbeExactHorizontalSlab(active, y0, y1, consider, ref exactBudget)) return;
+                if (exactBudget > 0 && ProbeExactHorizontalSlab(active, y0, y1, consider, considerCost, ref exactBudget)) return;
             }
         }
 
         static void SweepAllVertical(Edge[] edges, double[] xs, List<int> alreadyChecked, List<double> crossBuf,
             List<(double width, double lo, double hi)> spanBuf, Func<Vector2d, bool> consider, Func<bool> isFound,
-            ref long sweepBudget, ref long exactBudget)
+            int considerCost, ref long sweepBudget, ref long exactBudget)
         {
             var skip = new HashSet<int>(alreadyChecked);
             var byLeft = new Edge[edges.Length];
@@ -636,9 +673,16 @@ namespace g3
                 if (skip.Contains(j) || active.Count < 2) continue;
                 if (active.Count > sweepBudget) { sweepBudget = 0; return; }
                 sweepBudget -= active.Count;
-                ProbeDoubleVertical(active, x0, x1, crossBuf, spanBuf, consider, maxSpansToTest: 2, stopOnHit: true);
+                long localSweep = sweepBudget;
+                ProbeDoubleVertical(active, x0, x1, crossBuf, spanBuf, p => {
+                    if (localSweep <= 0) return false;
+                    if (consider(p)) return true;
+                    localSweep -= considerCost;
+                    return false;
+                }, maxSpansToTest: 2, stopOnHit: true);
+                sweepBudget = localSweep;
                 if (isFound()) return;
-                if (exactBudget > 0 && ProbeExactVerticalSlab(active, x0, x1, consider, ref exactBudget)) return;
+                if (exactBudget > 0 && ProbeExactVerticalSlab(active, x0, x1, consider, considerCost, ref exactBudget)) return;
             }
         }
 
