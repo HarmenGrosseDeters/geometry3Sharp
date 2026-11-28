@@ -12,8 +12,9 @@ range obligations on mesh_ops/AlphaWrapEstimate.cs:
      distinct coordinates up to 16 * alpha apart to collapse in Cell.
    - When span / cell > 2^54, cell < 0.5 * (span * 2^-52), strictly smaller than half a ULP for
      coordinates of magnitude Theta(span) (in [1, 2) of the normalized frame); exact-bit welding
-     agrees with infinite-precision cells at magnitude Theta(span) and serves as a non-collapsing
-     fallback beyond binary64 grid-index precision (not claiming exact equivalence near lo).
+     agrees with infinite-precision cells on [1, 2) once workCell < 2^-52 (2 / workCell > 2^53),
+     and acts as a conservative non-collapsing fallback in [2^-52, 2^-51) before v / workCell
+     exceeds binary64's exact integer range (not claiming exact equivalence near lo).
    - Negative control (SAT): at span / cell = 2^50, a grid cell still spans multiple ULPs.
 2. Thin-plate classifier scale invariance and geometry bounds (Terms):
    - Under positive rescaling s > 0 (V = s^3 V', A = s^2 A', alpha = s alpha'),
@@ -52,7 +53,8 @@ WRAP_SOURCE = 'mesh_ops/MeshAlphaWrap.cs'
 
 ESTIMATE_ANCHORS = [
     ('public const double OpeningFactor = 4.0;', 'static int Pow2Exp(', '48455ac1f4c74f5a9dd54ba138d80f009c507a2a0b917dab2b679c19a92d6d29'),
-    ('static long NormBits(', 'public static double OpenArea(', 'c2f9ac581494eb5992fc33edd4c2d328a2ca03e126426317933b709de62875ce'),
+    ('static int Pow2Exp(', 'static long NormBits(', '53d6b9eb1c20797a17e100a5db734841b37dd5b434f98381f4a87291281b0a73'),
+    ('static long NormBits(', 'public static double OpenArea(', 'f6c165e7536c359263f95ac40c8c455b1e5f2b6c3952744242b393c5cf6e107a'),
     ('public static readonly double ThinFactor = 0.2;', 'public static EstimateTerms Terms(', 'dca2a8cccf779bbb923b1cc4d94d24c92bc00f6879c18c4a15775977abe90ab2'),
     ('for (int root = 0; root < nv; ++root)', 'public static double LargestOpening(', '125cb92e84bfe9f67f61a15102bf1dd6443a3217822806b369118acb9d80c886'),
     ('static void Analyze(', 'int nv = ids.Count;', '312952cff7f1edc6ea6ff6d606a581c79f93b5699fc90cff88a6018615e236d2'),
@@ -233,11 +235,17 @@ def _pow2_exp(v):
     return ((sbits >> 52) & 0x7FF) - 1023 - 54
 
 
+def _max_abs3(vx, vy, vz):
+    if math.isnan(vx) or math.isnan(vy) or math.isnan(vz):
+        return float('nan')
+    return max(abs(vx), abs(vy), abs(vz))
+
+
 def _safe_length(vx, vy, vz):
     d2 = vx * vx + vy * vy + vz * vz
     if d2 >= 4.0 * _MIN_NORMAL and not math.isinf(d2):
         return math.sqrt(d2)
-    m = max(abs(vx), abs(vy), abs(vz))
+    m = _max_abs3(vx, vy, vz)
     if math.isnan(m):
         return float('nan')
     if m == 0.0:
@@ -250,7 +258,7 @@ def _safe_length(vx, vy, vz):
 
 
 def _safe_unit(vx, vy, vz):
-    m = max(abs(vx), abs(vy), abs(vz))
+    m = _max_abs3(vx, vy, vz)
     if not (m > 0.0) or math.isinf(m):
         return None
     e = _pow2_exp(m)
@@ -357,14 +365,14 @@ def replay_fp():
     old_open_small = math.sqrt(d_small * d_small + d_small * d_small)
     new_open_big = _safe_length(d_big, d_big, 0.0)
     new_open_small = _safe_length(d_small, d_small, 0.0)
+    new_exact = (math.isfinite(new_open_big) and abs(new_open_big - math.ldexp(math.sqrt(2.0), 600)) == 0.0
+                 and (new_open_small > 0.0) and abs(new_open_small - math.ldexp(math.sqrt(2.0), -600)) == 0.0)
     replays.append(dict(
         name='largest_opening_2p600_and_2m600',
         old_big_inf=math.isinf(old_open_big),
         old_small_zero=(old_open_small == 0.0),
-        new_finite=(math.isfinite(new_open_big) and abs(new_open_big - math.ldexp(math.sqrt(2.0), 600)) == 0.0
-                    and (new_open_small > 0.0) and abs(new_open_small - math.ldexp(math.sqrt(2.0), -600)) == 0.0),
-        passed=(math.isinf(old_open_big) and (old_open_small == 0.0)
-                and math.isfinite(new_open_big) and (new_open_small > 0.0)),
+        new_finite=new_exact,
+        passed=math.isinf(old_open_big) and (old_open_small == 0.0) and new_exact,
     ))
 
     # 6. Thingi10K 40118 budget cliff replay (docs/perf/ALPHA_DEFAULTS_800.md: E = 2.70M, B = 300k, neck cliff in (1.22, 1.50))

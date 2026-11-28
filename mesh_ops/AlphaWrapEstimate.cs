@@ -98,11 +98,15 @@ namespace g3
         {
             if (!(area > 0)) return false;
             double limit = ThinFactor * workAlpha;
-            if (scaleExp == 0 || limit > 0)
+            if (limit > 0)
                 return 2 * absVolume / area < limit;
             // ThinFactor * workAlpha underflowed to 0 while alpha > 0: a zero-volume plate is still thin.
             if (absVolume == 0) return true;
-            return ExactPoint3.ScaleB(2 * absVolume / area, scaleExp) < ThinFactor * alpha;
+            double rawLimit = ThinFactor * alpha;
+            if (rawLimit > 0)
+                return ExactPoint3.ScaleB(2 * absVolume / area, scaleExp) < rawLimit;
+            // alpha <= 2^-1073: shift both sides up by 2^64 so ThinFactor * alpha stays normal.
+            return ExactPoint3.ScaleB(2 * absVolume / area, scaleExp + 64) < ThinFactor * ExactPoint3.ScaleB(alpha, 64);
         }
 
         // Prepares either the original list (ordinary scale, bit-identical to master) or a shifted, power-of-two
@@ -153,9 +157,10 @@ namespace g3
             workAlpha = ExactPoint3.ScaleB(alpha, -scaleExp);
             double workCell = workAlpha / WeldCells;
             // In the normalized frame coordinates lie in [0, 2); when 2 / workCell > 2^52, v / workCell can exceed binary64's
-            // exact integer range (ulp > 1) and grid-cell division loses resolution. Fall back to exact-bit welding, which agrees
-            // with infinite-precision cells for coordinates of magnitude Theta(span) (in [1, 2)) and avoids collapse without
-            // claiming exact equivalence near lo.
+            // exact integer range (ulp > 1) and grid-cell division loses resolution. Fall back to exact-bit welding: once
+            // workCell < 2^-52 (2 / workCell > 2^53; sub-half-ULP at span / cell > 2^54) it agrees with infinite-precision cells
+            // on [1, 2), and in the narrow band workCell in [2^-52, 2^-51) it acts as a conservative non-collapsing fallback
+            // without claiming exact equivalence near lo.
             exactKeys = !(workCell > 0) || (2.0 / workCell > SafeGridLimit);
             work = new List<Vector3d>(tris.Count);
             if (pre == 0) {

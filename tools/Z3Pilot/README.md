@@ -1151,8 +1151,9 @@ python3 -m unittest discover -s tools/Z3Pilot -p test_local_arithmetic_and_topol
 * `alpha_wrap_estimate.py` checks range obligations and documented performance cliffs of
   `AlphaWrapEstimate` and budget coarsening (`MaxAlphaCoarsening`): exact binary64 integer range
   (`<= 2^52 < 2^53`) and `Int64` non-saturation under `SafeGridLimit = 2^52`, sub-half-ULP behavior
-  of exact-bit keys at magnitude `Theta(span)` when `span / cell > 2^54` (non-collapsing fallback
-  beyond binary64 grid-index precision), scale invariance and slab/cube/disc-rim bounds of the
+  of exact-bit keys on `[1, 2)` when `span / cell > 2^54` (exact agreement with infinite-precision
+  cells on `[1, 2)` once `workCell < 2^-52`, and conservative non-collapsing fallback in
+  `[2^-52, 2^-51)`), scale invariance and slab/cube/disc-rim bounds of the
   thin-plate classifier, the documented narrow-slit over-estimation witness (`w < 0.5 alpha`,
   `L > 4 alpha`), and the `40118` neck-closure cliff (`2 * UsedAlpha` vs full neck width) under
   capped vs uncapped coarsening, together with `binary64` replays mirroring `PrepareFrame`,

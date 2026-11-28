@@ -355,7 +355,7 @@ namespace geometry3Sharp.Tests
                 new Vector3d(-big, -big, 0), new Vector3d(big, big, 0), new Vector3d(-big, big, 0)
             };
             double hugeOpening = AlphaWrapEstimate.LargestOpening(hugeSpan, 1e305);
-            Assert.True(double.IsInfinity(hugeOpening) || hugeOpening > 1e308);
+            Assert.True(double.IsPositiveInfinity(hugeOpening));
             // Narrower axis-aligned open square spanning [-1e308, +1e308] on x and [-1e307, +1e307] on y:
             // hi.x - lo.x = 2e308 overflows double -> pre == 1, while perimeter and opening along x stay finite? No, 2e308 overflows;
             // use [-9e307, +9e307] so hi - lo = 1.8e308 overflows (pre == 1), while a 0.25x sub-square stays finite on outputs.
@@ -466,7 +466,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(Math.Abs(t.OpenBoundary - ExactPoint3.ScaleB(4.0, exp)) <= ExactPoint3.ScaleB(1e-12, exp), $"exp {exp}: OpenBoundary {t.OpenBoundary}");
             }
 
-            // 4. Extreme span / alpha (> 2^1072) where workAlpha underflows to 0: zero-volume closed plate must still classify as thin
+            // 4. Extreme span / alpha (> 2^1072) and subnormal alpha (double.Epsilon at scaleExp == 0): zero-volume closed plate stays thin
             var zeroVolPlate = new List<Vector3d> {
                 // top face (+z normal) and coincident bottom face (-z normal) forming a closed zero-volume 2-sided square
                 new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0),
@@ -478,6 +478,12 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.0, tUnderflow.OpenArea);
             Assert.Equal(0.0, tUnderflow.ThickSharp);
             Assert.True(tUnderflow.ThinRim > 0, $"workAlpha underflow ThinRim {tUnderflow.ThinRim}");
+
+            AlphaWrapEstimate.EstimateTerms tSub0 = AlphaWrapEstimate.Terms(zeroVolPlate, ExactPoint3.ScaleB(1.0, -1074));
+            AlphaWrapEstimate.EstimateTerms tSub1 = AlphaWrapEstimate.Terms(ScaleAndShift(zeroVolPlate, 1, Vector3d.Zero), ExactPoint3.ScaleB(1.0, -1073));
+            Assert.Equal(2.0, tSub0.ThinArea, 9);
+            Assert.Equal(8.0, tSub1.ThinArea, 9);
+            Assert.Equal(2.0 * tSub0.ThinRim, tSub1.ThinRim, 9);
         }
     }
 }
