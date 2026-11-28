@@ -32,6 +32,11 @@ namespace gs
         public double GenusBefore, GenusAfter;
         /// <summary> what changed in the topology (components, handles, boundary loops) from the input to the result </summary>
         public MeshTopologySummary.Changes TopologyChanges;
+        /// <summary>
+        /// the closed components' nesting depths and volume signs are the same as multisets. NOT EXACT: the depths are read by
+        /// floating-point winding numbers at sample points slightly inside each component (a vote, as
+        /// MeshPostRepairCleanup.FindInvertedComponents reads them), so this is a check, not a certificate; the volume signs are exact
+        /// </summary>
         public bool NestingPreserved;
         /// <summary> both Hausdorff upper bounds within the band (false if no band was given) </summary>
         public bool WithinBand;

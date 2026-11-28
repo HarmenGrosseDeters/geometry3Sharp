@@ -453,6 +453,48 @@ On the gears (200 - 1000 triangles) the pass costs 6-7 times the remesh: half of
 certificates (a profile with stopwatches, not committed; large flat faces triangulated as fans make the cascade subdivide). Accepted by the
 coordinator (2026-11-28, opt-in, at most 0.4 s per case); no speed-up is built. On the Thingi10K set it is 1.07x.
 
+## Remesher.MaxDeviation, the band guard (`band=<f>`)
+
+`band=<f>` sets `Remesher.MaxDeviation = f x the input's diagonal` in the "on" runs (docs/design/CERTIFIED_REMESHING.md section 10, item 1) and
+adds the `RemeshCertificate` of every result to the JSON (`CertFwd` / `CertBwd`: the certified Hausdorff upper bounds over the diagonal, `CertPassed`,
+`CertWithinBand`, `CertNesting`, `CertTopology`, `DeviationRejected`). Both runs at `MinTriangleQuality = 0.2` (`base=0.2`), so the difference
+is the band alone.
+
+```
+dotnet run -c Release --project benchmarks/RemeshQualityBenchmark -- thingi=benchmarks/RemeshBenchmark/data/meshes 'only=^[0-9]+$' base=0.2 quality=0.2 band=0.005 runs=3
+```
+
+4 cores, net10.0, 2026-11-28; raw output [perf/band_guard_2026-11-28.txt](perf/band_guard_2026-11-28.txt). Thingi10K (20), off = `MinTriangleQuality 0.2`,
+on = the same with the band at 0.5 % of the diagonal:
+
+| measure | off | on |
+|---|---:|---:|
+| result to input, certified upper bound / diagonal, max over the 20 | 0.1154 | 0.0050 (all 20 within the band) |
+| input to result, certified upper bound / diagonal, mean | 0.0413 | 0.0064 |
+| cases within the band both ways / certificate passed | 2 / 1 | 8 / 5 |
+| mean Hausdorff / target (the benchmark's own measure) | 0.945 | 0.267 |
+| F-score 0.1 % / 0.5 % | 0.723 / 0.912 | 0.765 / 0.998 |
+| normal consistency | 0.946 | 0.981 |
+| edge recall 0.5 % | 0.929 | 0.986 |
+| self-intersecting pairs (cases) | 1962 (15) | 878 (8) |
+| q < 0.1 / q < 1e-3 | 1530 / 210 | 1456 / 207 |
+| min angle, 1 % worst | 9.67 | 10.32 |
+| band refusals (operations and moves) | - | 169765 |
+| time s | 9.9 | 81.7 (8.3x) |
+
+With `si=1` (the safe preset and the band) the pairs fall to 1173 in 5 cases (the inputs' own intersections stay), at 168.2 s; the band is held
+the same way. The procedural groups (`runs=1`): primitives 129 -> 0 pairs, Hausdorff / target 0.348 -> 0.044, 5.0 -> 22.0 s; tubes (thin walls far
+below the edge length) 5324 -> 0 pairs, F 0.5 % 0.267 -> 0.958, 0.2 -> 9.4 s; gears unchanged in quality at 0.3 -> 14.1 s.
+
+Cost: the band test of every new and moved triangle (TriangleDeviationBounds.IsWithin; profile: 45 s in the edge operations' tests, 27 s in the
+moves', of 85 s). Measured and dropped: the patch bound (111 s), a cache of the answers by corner positions (3 % hits, 99 s); a split is not tested
+(its halves lie in the old triangles; 85 -> 82 s). The certificate with the band fails on 15 of 20:
+- **7 on the band alone:** input to result is 1.02-1.6 x the band. The guard is one-sided: a thin part of the input can be cut off.
+- **5 on the band and self-intersections.**
+- **3 on self-intersections alone:** all 3 inputs already self-intersect (148, 32 and 1298 pairs).
+
+The reverse direction is what the stage 1 coverage (`RemeshQualityPass.TwoSided`) would guard inside the remesher, an open item.
+
 ## Decision
 - `g3cli remesh` turns the option on: `min_quality` defaults to 0.2 (`--min-quality 0` for the old behaviour). On the
   inputs the command sees (Thingi10K, CAD-like gears) every fidelity mean is equal or better with it (F-score,

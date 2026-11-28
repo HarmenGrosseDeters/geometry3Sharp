@@ -204,15 +204,15 @@ namespace geometry3Sharp.Tests
         public void OffPath_Fingerprints_AsOnMaster()
         {
             DMesh3 input = Cylinder();
-            Assert.Equal("PIN1", Fingerprint(Remesh(input, 0.1, 0, 6)));
-            Assert.Equal("PIN2", Fingerprint(Remesh(input, 0.1, 0, 6, true, true, r => r.ApplySafePreset())));
+            Assert.Equal("BB7EAD3227870DAE", Fingerprint(Remesh(input, 0.1, 0, 6)));
+            Assert.Equal("43677C0567C712C6", Fingerprint(Remesh(input, 0.1, 0, 6, true, true, r => r.ApplySafePreset())));
             DMesh3 m = new DMesh3(input);
             var pro = new RemesherPro(m) { SmoothSpeedT = 0.5 };
             pro.SetProjectionTarget(MeshProjectionTarget.Auto(input));
             MeshConstraintUtil.PreserveBoundaryAndFeatures(pro, 30);
             pro.SetTargetEdgeLength(0.1);
             pro.FastestRemesh(10);
-            Assert.Equal("PIN3", Fingerprint(m));
+            Assert.Equal("51F2225920DC73BB", Fingerprint(m));
         }
 
         /// <summary> the parallel buffered moves give the serial result, and repeated runs the same </summary>
