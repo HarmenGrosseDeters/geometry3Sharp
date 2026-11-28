@@ -39,7 +39,7 @@ namespace Meshing2Acceptance
         /// Features whose mesher exists: their rows are covered, all others stay pending. A feature moves here only when
         /// every one of its rows passes (MESHING2D_PLAN.md, section 4).
         /// </summary>
-        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.Snap };
+        public static readonly HashSet<string> CoveredFeatures = new HashSet<string> { Feature.Kernel, Feature.Api, Feature.Cdt, Feature.Domain, Feature.Regions, Feature.Noding, Feature.Refine, Feature.RefineAgain, Feature.Snap };
 
         /// <summary>
         /// Rows whose results are large (Steiner limits of 10 000 to 100 000, or dense refinement), or whose many crossing constraints
@@ -153,7 +153,9 @@ namespace Meshing2Acceptance
             Mesh("F-31", "a", "Min angle and area with locked outer boundary", Feature.Locks, M3, new B().Outer(0, 0, 16, 1, 19, 9, 13, 17, 2, 15).RandomPoints(10, 8, 31).Area(4).Min(20));
             Deferred("F-31", "b", "The same with a max angle", "Q3: no maximum angle bound in scope");
             Mesh("F-32", null, "Extreme edge lengths in refinement", Feature.Refine, M3, new B().Outer(0, 0, Math.Pow(2, 200), 0, Math.Pow(2, 200), Math.Pow(2, 200), 0, Math.Pow(2, 200)).Point(1, 1).Point(1 + Math.Pow(2, -500), 1).Min(20).Limit(10000), tweak: e => e.AngleGuaranteed = false);
-            Mesh("F-33", null, "Per-triangle area limits on a point-set mesh", Feature.RefineAgain, M3, new B().RandomPoints(16, 12, 33), note: "I8. The input to refine again is the mesh of this point set; session 2 adds the area map to the fixture when the API exists");
+            Mesh("F-33", null, "Per-triangle area limits on a point-set mesh", Feature.RefineAgain, M3,
+                new B().RandomPoints(16, 12, 33).TriangleArea(0, 1, 6, 0.25).TriangleArea(1, 5, 6, 0.25).TriangleArea(3, 4, 6, 0.25).Min(20),
+                note: "I8. Per-triangle area limits 1/4 on three unique Delaunay triangles around vertices 1 and 6 of the point-set mesh");
             Mesh("F-34", null, "Area-only refinement (performance row)", Feature.Refine, M3, new B().Square(1).Area(1.0 / 1024), 1, note: "time target about 14 ms; the time is measured by the benchmark");
             Mesh("F-35", null, "Refining a point-set mesh keeps the hull", Feature.Refine, M3, new B().RandomPoints(100, 40, 35).Min(20).Limit(20000));
             Mesh("F-36", null, "Crossing locked breaklines: no vertex outside", Feature.Locks, M3, new B().Square(96).RandomPoints(96, 30, 36).RandomSegments(96, 5, 37, locked: true, marker: 7).Min(20), 9216);

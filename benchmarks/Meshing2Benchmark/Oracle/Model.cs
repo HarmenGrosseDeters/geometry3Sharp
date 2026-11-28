@@ -27,6 +27,14 @@ namespace Meshing2Acceptance
         public double? MaxArea;
     }
 
+    /// <summary> Per-triangle area limit on an existing triangulation (spec I8, F-33): the triangle of input points (A, B, C) must be refined to at most MaxArea. </summary>
+    public sealed class TriangleAreaInput
+    {
+        public int A, B, C;
+        public double MaxArea;
+        public TriangleAreaInput(int a, int b, int c, double maxArea) { A = a; B = b; C = c; MaxArea = maxArea; }
+    }
+
     /// <summary>What goes into a mesher: plain data, one type for all milestones.</summary>
     public sealed class Mesh2Input
     {
@@ -35,6 +43,7 @@ namespace Meshing2Acceptance
         public List<RingInput> Rings = new List<RingInput>();
         public List<double[]> HoleSeeds = new List<double[]>();
         public List<RegionInput> Regions = new List<RegionInput>();
+        public List<TriangleAreaInput> TriangleAreas = new List<TriangleAreaInput>();
         public double? MinAngleDeg, MaxArea;
         public int? SteinerLimit;
         public double SnapTolerance;     // 0 = automatic

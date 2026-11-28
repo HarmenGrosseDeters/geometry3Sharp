@@ -314,6 +314,10 @@ namespace Meshing2Acceptance
                     if (region.Ring != null)
                         foreach (int i in region.Ring)
                             if (i < 0 || i >= input.Count) { r.Add(Violation.InputInvalid, "region vertex out of range"); return false; }
+                foreach (var ta in input.TriangleAreas) {
+                    if (ta.A < 0 || ta.A >= input.Count || ta.B < 0 || ta.B >= input.Count || ta.C < 0 || ta.C >= input.Count) { r.Add(Violation.InputInvalid, "triangle area vertex out of range"); return false; }
+                    if (!Finite(ta.MaxArea) || !(ta.MaxArea > 0)) { r.Add(Violation.InputInvalid, "triangle area max area must be positive and finite"); return false; }
+                }
                 inPts = new Pt[input.Count];
                 for (int i = 0; i < inPts.Length; ++i) inPts[i] = Pt.FromDoubles(input.X[i], input.Y[i]);
                 return true;
@@ -1228,7 +1232,7 @@ namespace Meshing2Acceptance
             /// --no-oracle); a hull domain meshed with it at angle 0 may be judged against the wrong hull model
             /// </summary>
             bool Refining => e.Milestone == Milestone.M3 && ((input.MinAngleDeg ?? 0) > 0 || input.MaxArea != null || input.SizeFunction != null
-                || input.SizeConstant != null || input.Regions.Any(g => g.MaxArea != null)
+                || input.SizeConstant != null || input.Regions.Any(g => g.MaxArea != null) || input.TriangleAreas.Count > 0
                 || (!input.ConstrainedQuality && (input.Conforming || input.MinAngleDeg != null || input.MaxArea != null || input.SizeFunction != null)));
 
             /// <summary> option C: with a tolerance, the mesher snap-rounds a hull domain's hull edges with the segments when it refines </summary>
@@ -3782,7 +3786,7 @@ namespace Meshing2Acceptance
             void Delaunay()
             {
                 // O2: conforming is always on when quality is on. Not across a locked segment, which may not be split to get there (O9).
-                bool quality = e.Milestone == Milestone.M3 && (input.MinAngleDeg != null || input.MaxArea != null || input.SizeFunction != null);
+                bool quality = e.Milestone == Milestone.M3 && (input.MinAngleDeg != null || input.MaxArea != null || input.SizeFunction != null || input.TriangleAreas.Count > 0);
                 // At the Steiner limit refinement stops with a valid mesh whose quality is not guaranteed (O7); conforming is part of
                 // that quality (O2), so the mesh is judged as a constrained Delaunay triangulation then (found with M3, F-22/a, F-27, F-42).
                 // the constrained quality mode asks for constrained Delaunay only (owner decision 2026-11-02)
@@ -4037,22 +4041,44 @@ namespace Meshing2Acceptance
                 // merged input slots stay in the list as aliases (Q8) but are no vertices of the mesh, so they do not count
                 if (e.MaxVertices != null && v.Length - aliases > e.MaxVertices.Value) r.Add(Violation.CountOutOfRange, (v.Length - aliases) + " vertices, at most " + e.MaxVertices.Value + " allowed");
                 var labelArea = RegionAreaBounds();
-                bool anySize = input.MaxArea != null || input.SizeFunction != null || labelArea != null;
+                bool hasTriangleAreas = input.TriangleAreas.Count > 0;
+                bool anySize = input.MaxArea != null || input.SizeFunction != null || labelArea != null || hasTriangleAreas;
                 if (!anySize || o.SteinerLimitReached) return;
                 Q? maxArea = input.MaxArea == null ? (Q?)null : Q.FromDouble(input.MaxArea.Value);
+                (Pt a, Pt b, Pt c, Q area)[] triAreas = null;
+                if (hasTriangleAreas) {
+                    triAreas = new (Pt, Pt, Pt, Q)[input.TriangleAreas.Count];
+                    for (int k = 0; k < triAreas.Length; ++k) {
+                        var ta = input.TriangleAreas[k];
+                        Pt pa = inPts[ta.A], pb = inPts[ta.B], pc = inPts[ta.C];
+                        if (Exact.Orient(pa, pb, pc) < 0) { var tmp = pb; pb = pc; pc = tmp; }
+                        triAreas[k] = (pa, pb, pc, Q.FromDouble(ta.MaxArea));
+                    }
+                }
                 for (int i = 0; i < o.Triangles.Length; ++i) {
                     var t = o.Triangles[i];
                     Pt a = v[t[0]], b = v[t[1]], c = v[t[2]];
                     Q area = Exact.Area2(a, b, c) * new Q(1, 2);
                     Q? bound = maxArea;
                     if (labelArea != null && labelArea[i] != null) bound = bound == null ? labelArea[i] : Q.Min(bound.Value, labelArea[i].Value);
+                    Pt? centroidCache = null;
+                    if (triAreas != null) {
+                        Pt centroid = Centroid(t);
+                        centroidCache = centroid;
+                        for (int k = 0; k < triAreas.Length; ++k) {
+                            var ta = triAreas[k];
+                            if (Exact.Orient(ta.a, ta.b, ta.c) == 0) continue;
+                            if (Exact.Orient(ta.a, ta.b, centroid) >= 0 && Exact.Orient(ta.b, ta.c, centroid) >= 0 && Exact.Orient(ta.c, ta.a, centroid) >= 0)
+                                bound = bound == null ? ta.area : Q.Min(bound.Value, ta.area);
+                        }
+                    }
                     Q locked2 = LongestLockedEdge2(t);
                     // O5, O9: a triangle over an edge that may not be split cannot shrink below a needle. Exempt while its height is at
                     // most half of that edge (area < L^2 / 4); beyond that a vertex would shrink it without a needle. A choice, not a spec value.
                     bool areaExempt = locked2 > area * 4;
                     if (bound != null && area > bound.Value && !areaExempt) r.Add(Violation.AreaAboveBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " has area " + area);
                     if (input.SizeFunction != null) {
-                        Pt centroid = Centroid(t);
+                        Pt centroid = centroidCache ?? Centroid(t);
                         Q h = input.SizeFunction(centroid.Qx, centroid.Qy);
                         if (Q.Max(Exact.Len2(a, b), Q.Max(Exact.Len2(b, c), Exact.Len2(c, a))) > Q.Max(h * h, locked2))
                             r.Add(Violation.SizeAboveBound, "triangle " + t[0] + " " + t[1] + " " + t[2] + " has an edge longer than the size " + h);
