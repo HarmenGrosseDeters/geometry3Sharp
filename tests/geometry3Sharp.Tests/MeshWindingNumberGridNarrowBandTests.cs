@@ -474,5 +474,57 @@ namespace geometry3Sharp.Tests
             grid = (float[])g.Grid.Buffer.Clone();
             points = new HashSet<Vector3d>(tree.Points.Keys);
         }
+
+        [Fact]
+        public void NarrowBand_RowBatchedBFS_BitIdenticalToSubclassAndSerialAndRespectsCancelF()
+        {
+            DMesh3 openSphere = new Sphere3Generator_NormalizedCube() { Radius = 1.0, EdgeVertices = 8 }.Generate().MakeDMesh();
+            foreach (int tid in openSphere.TriangleIndices().ToArray())
+                if (openSphere.GetTriCentroid(tid).z > 0.35)
+                    openSphere.RemoveTriangle(tid, true, false);
+
+            DMesh3 flippedSphere = new Sphere3Generator_NormalizedCube() { Radius = 1.0, EdgeVertices = 8 }.Generate().MakeDMesh();
+            foreach (int tid in flippedSphere.TriangleIndices().ToArray()) {
+                if (flippedSphere.GetTriCentroid(tid).z > 0.35) {
+                    Index3i tv = flippedSphere.GetTriangle(tid);
+                    flippedSphere.RemoveTriangle(tid, false, false);
+                    flippedSphere.AppendTriangle(tv.a, tv.c, tv.b);
+                }
+            }
+
+            foreach (DMesh3 mesh in new[] { openSphere, flippedSphere }) {
+                const double cell = 0.25;
+                MeshWindingNumberGrid rowParallel = Make(mesh, cell, MeshWindingNumberGrid.ComputeModes.NarrowBand, 0.5f, Path.RowCache);
+                MeshWindingNumberGrid subParallel = Make(mesh, cell, MeshWindingNumberGrid.ComputeModes.NarrowBand, 0.5f, Path.Subclass);
+
+                Assert.Equal(subParallel.Dimensions, rowParallel.Dimensions);
+                Assert.True(SameBits(subParallel.Grid.Buffer, rowParallel.Grid.Buffer));
+                Assert.True(rowParallel.WindingEvaluations > 0 && rowParallel.WindingEvaluations <= subParallel.WindingEvaluations);
+
+                // Row-batched BFS must be bit-identical between parallel and serial schedules, with identical WindingEvaluations.
+                bool prevSerial = gParallel.SerialOnThisThread;
+                int prevOrder = gParallel.SerialOrderOnThisThread;
+                try {
+                    gParallel.SerialOnThisThread = true;
+                    gParallel.SerialOrderOnThisThread = -1;
+                    MeshWindingNumberGrid rowSerial = Make(mesh, cell, MeshWindingNumberGrid.ComputeModes.NarrowBand, 0.5f, Path.RowCache);
+                    Assert.True(SameBits(rowParallel.Grid.Buffer, rowSerial.Grid.Buffer));
+                    Assert.Equal(rowParallel.WindingEvaluations, rowSerial.WindingEvaluations);
+                } finally {
+                    gParallel.SerialOnThisThread = prevSerial;
+                    gParallel.SerialOrderOnThisThread = prevOrder;
+                }
+            }
+
+            // CancelF during row-batched BFS exits cleanly without throwing and evaluates fewer nodes than full completion.
+            MeshWindingNumberGrid fullRun = Make(openSphere, 0.2, MeshWindingNumberGrid.ComputeModes.NarrowBand, 0.5f, Path.RowCache);
+            int cancelCalls = 0;
+            var cancelled = new MeshWindingNumberGrid(openSphere, new DMeshAABBTree3(openSphere, true), 0.2) {
+                ComputeMode = MeshWindingNumberGrid.ComputeModes.NarrowBand,
+                CancelF = () => System.Threading.Interlocked.Increment(ref cancelCalls) > 60
+            };
+            cancelled.Compute();
+            Assert.True(cancelled.WindingEvaluations < fullRun.WindingEvaluations);
+        }
     }
 }

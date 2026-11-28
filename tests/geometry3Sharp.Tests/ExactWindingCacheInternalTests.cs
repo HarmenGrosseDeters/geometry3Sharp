@@ -700,5 +700,365 @@ namespace geometry3Sharp.Tests
             for (int i = 0; i < pts.Length; ++i)
                 Assert.Equal(expected[i], actual[i]);
         }
+
+        static int FloatBits(float v) => BitConverter.ToInt32(BitConverter.GetBytes(v), 0);
+
+        static double BruteForceWinding(DMesh3 mesh, Vector3d p)
+        {
+            double sum = 0.0;
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            foreach (int tid in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                sum += MathUtil.TriSolidAngle(a, b, c, ref p);
+            }
+            return sum / MathUtil.FourPI;
+        }
+
+        static double UnbatchedBoundarySumX(DMesh3 mesh, Vector3d p)
+        {
+            var edgeWeights = new System.Collections.Generic.Dictionary<(Vector3d, Vector3d), int>();
+            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+            void Add(Vector3d u, Vector3d v)
+            {
+                int cmp = u.x != v.x ? u.x.CompareTo(v.x) : (u.y != v.y ? u.y.CompareTo(v.y) : u.z.CompareTo(v.z));
+                if (cmp == 0) return;
+                var key = cmp < 0 ? (u, v) : (v, u);
+                int delta = cmp < 0 ? 1 : -1;
+                edgeWeights.TryGetValue(key, out int prev);
+                int next = prev + delta;
+                if (next == 0) edgeWeights.Remove(key);
+                else edgeWeights[key] = next;
+            }
+            foreach (int tid in mesh.TriangleIndices()) {
+                mesh.GetTriVertices(tid, ref a, ref b, ref c);
+                Add(a, b); Add(b, c); Add(c, a);
+            }
+            double sum = 0.0;
+            foreach (var kv in edgeWeights) {
+                int w = kv.Value;
+                if (w > 0)
+                    sum += w * ExactWindingCache.boundary_edge_angle_x(p, kv.Key.Item1, kv.Key.Item2);
+                else
+                    sum += (-w) * ExactWindingCache.boundary_edge_angle_x(p, kv.Key.Item2, kv.Key.Item1);
+            }
+            return sum / MathUtil.TwoPI;
+        }
+
+        [Fact]
+        public void BoundarySumBatching_MatchesBruteForceAcrossWeightsScalesAndNearEdgeCases()
+        {
+            // 1. Open sphere with > 30 boundary edges (triggers multiple MaxAngleBatch = 12 flushes plus remainder).
+            DMesh3 open = Sphere(12);
+            foreach (int tid in open.TriangleIndices().ToArray())
+                if (open.GetTriCentroid(tid).z > 0.35)
+                    open.RemoveTriangle(tid, true, false);
+            ExactWindingCache openCache = new DMeshAABBTree3(open, true).GetExactWindingCache();
+            Assert.True(openCache.BoundaryCount >= 30);
+
+            var rnd = new Random(137);
+            var queries = new System.Collections.Generic.List<Vector3d>();
+            for (int i = 0; i < 60; ++i)
+                queries.Add(new Vector3d(rnd.NextDouble() * 4.0 - 2.0, rnd.NextDouble() * 4.0 - 2.0, rnd.NextDouble() * 4.0 - 2.0));
+
+            // Add near-boundary-edge points, on-x-ray-of-vertex points (allOk == false), and near-antiparallel points (den <= 0).
+            foreach (int eid in open.BoundaryEdgeIndices().Take(6)) {
+                Index2i ev = open.GetEdgeV(eid);
+                Vector3d a = open.GetVertex(ev.a), b = open.GetVertex(ev.b);
+                Vector3d mid = 0.5 * (a + b);
+                queries.Add(mid + new Vector3d(1e-4, 2e-5, -3e-5));
+                queries.Add(mid + new Vector3d(1e-9, -1e-9, 2e-9));
+                queries.Add(new Vector3d(a.x - 0.5, a.y, a.z));
+                queries.Add(new Vector3d(a.x + 0.5, a.y, a.z));
+                queries.Add(new Vector3d(mid.x - 0.2, mid.y, mid.z + 1e-6));
+            }
+
+            foreach (Vector3d p in queries) {
+                double actual = openCache.Evaluate(p);
+                double unbatched = UnbatchedBoundarySumX(open, p);
+                double fracErr = Math.Abs((actual - unbatched) - Math.Round(actual - unbatched));
+                Assert.True(fracErr < 1e-14, $"open batched vs unbatched mismatch at {p}: fracErr={fracErr:E3}");
+                double brute = BruteForceWinding(open, p);
+                Assert.True(Math.Abs(actual - brute) < 1e-8, $"open vs brute mismatch at {p}: actual={actual:R}, brute={brute:R}");
+            }
+
+            // 2. Flipped-cap sphere (Weight == 2 boundary edges) + extra stacked triangles (Weight == 3 and Weight == 5 > MaxBatchWeight).
+            DMesh3 flipped = Sphere(12);
+            foreach (int tid in flipped.TriangleIndices().ToArray()) {
+                if (flipped.GetTriCentroid(tid).z > 0.35) {
+                    Index3i tv = flipped.GetTriangle(tid);
+                    flipped.RemoveTriangle(tid, false, false);
+                    flipped.AppendTriangle(tv.a, tv.c, tv.b);
+                }
+            }
+            ExactWindingCache flippedCache = new DMeshAABBTree3(flipped, true).GetExactWindingCache();
+            Assert.True(flippedCache.BoundaryCount >= 30);
+
+            // Add a small heavy-weight patch (5 coincident copies of one triangle -> Weight == 5 > MaxBatchWeight = 4)
+            // plus 3 coincident copies of another (Weight == 3 <= MaxBatchWeight).
+            DMesh3 mixedWeight = new DMesh3(flipped);
+            Vector3d h0 = new Vector3d(2.0, 0.0, 0.0), h1 = new Vector3d(2.5, 0.4, 0.1), h2 = new Vector3d(2.1, 0.5, 0.6);
+            for (int copy = 0; copy < 5; ++copy)
+                mixedWeight.AppendTriangle(mixedWeight.AppendVertex(h0), mixedWeight.AppendVertex(h1), mixedWeight.AppendVertex(h2));
+            Vector3d m0 = new Vector3d(-2.0, -0.2, 0.1), m1 = new Vector3d(-1.6, 0.3, -0.1), m2 = new Vector3d(-1.8, 0.1, 0.5);
+            for (int copy = 0; copy < 3; ++copy)
+                mixedWeight.AppendTriangle(mixedWeight.AppendVertex(m0), mixedWeight.AppendVertex(m1), mixedWeight.AppendVertex(m2));
+            ExactWindingCache mixedCache = new DMeshAABBTree3(mixedWeight, true).GetExactWindingCache();
+
+            foreach (Vector3d p in queries.Take(40)) {
+                double wf = flippedCache.Evaluate(p);
+                double uf = UnbatchedBoundarySumX(flipped, p);
+                Assert.True(Math.Abs((wf - uf) - Math.Round(wf - uf)) < 1e-14, $"flipped batched vs unbatched at {p}");
+                Assert.True(Math.Abs(wf - BruteForceWinding(flipped, p)) < 1e-12, $"flipped vs brute at {p}");
+
+                double wm = mixedCache.Evaluate(p);
+                double um = UnbatchedBoundarySumX(mixedWeight, p);
+                Assert.True(Math.Abs((wm - um) - Math.Round(wm - um)) < 1e-14, $"mixed batched vs unbatched at {p}");
+                Assert.True(Math.Abs(wm - BruteForceWinding(mixedWeight, p)) < 1e-12, $"mixedWeight vs brute at {p}");
+            }
+
+            // 3. Bit-for-bit positive 2^k scale invariance on both open (w=1) and flipped (w=2) across extreme scales.
+            foreach (int exp in new[] { -250, 250 }) {
+                double s = Math.Pow(2.0, exp);
+                DMesh3 openS = new DMesh3(open);
+                MeshTransforms.Scale(openS, s);
+                ExactWindingCache openSCache = new DMeshAABBTree3(openS, true).GetExactWindingCache();
+
+                DMesh3 flippedS = new DMesh3(flipped);
+                MeshTransforms.Scale(flippedS, s);
+                ExactWindingCache flippedSCache = new DMeshAABBTree3(flippedS, true).GetExactWindingCache();
+
+                foreach (Vector3d p in queries.Take(20)) {
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(openCache.Evaluate(p)),
+                                 BitConverter.DoubleToInt64Bits(openSCache.Evaluate(s * p)));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(flippedCache.Evaluate(p)),
+                                 BitConverter.DoubleToInt64Bits(flippedSCache.Evaluate(s * p)));
+                }
+            }
+
+            // 4. Extreme mixed-exponent queries exercising prodExp > 180 (far -x) and prodExp < -180 (far +x, including -3073 bit-wrap) in try_extreme_edge_batch_t.
+            DMesh3 tri = new DMesh3();
+            int tv0 = tri.AppendVertex(new Vector3d(0.0, 0.1, 0.2));
+            int tv1 = tri.AppendVertex(new Vector3d(0.0, 0.4, 0.3));
+            int tv2 = tri.AppendVertex(new Vector3d(0.0, 0.2, 0.6));
+            tri.AppendTriangle(tv0, tv1, tv2);
+            ExactWindingCache triCache = new DMeshAABBTree3(tri, true).GetExactWindingCache();
+            foreach (Vector3d pFar in new[] { new Vector3d(1e40, 0.0, 0.0), new Vector3d(-1e40, 0.0, 0.0), new Vector3d(1e200, 0.0, 0.0), new Vector3d(-1e200, 0.0, 0.0) }) {
+                double w = triCache.Evaluate(pFar);
+                double expected = (ExactWindingCache.boundary_edge_angle_x(pFar, new Vector3d(0.0, 0.1, 0.2), new Vector3d(0.0, 0.4, 0.3))
+                                 + ExactWindingCache.boundary_edge_angle_x(pFar, new Vector3d(0.0, 0.4, 0.3), new Vector3d(0.0, 0.2, 0.6))
+                                 + ExactWindingCache.boundary_edge_angle_x(pFar, new Vector3d(0.0, 0.2, 0.6), new Vector3d(0.0, 0.1, 0.2))) / MathUtil.TwoPI;
+                Assert.True(Math.Abs(w - expected) < 1e-13, $"far mixed-exp mismatch at {pFar}: {w:R} vs {expected:R}");
+            }
+
+            // Tiny-yz triangle queried from far -x inside its yz projection so chi = +-1 and daExp + dbExp = -3074 (< -180):
+            // unguarded pow2(-3074) wraps to +2^1022, zeroing batched edge angles so chi + boundary_sum != 0.
+            DMesh3 tinyYz = new DMesh3();
+            double yzScale = Math.Pow(2.0, -700);
+            int ty0 = tinyYz.AppendVertex(new Vector3d(0.0, 0.0, 0.0));
+            int ty1 = tinyYz.AppendVertex(new Vector3d(0.0, 4.0 * yzScale, 0.0));
+            int ty2 = tinyYz.AppendVertex(new Vector3d(0.0, 2.0 * yzScale, 4.0 * yzScale));
+            tinyYz.AppendTriangle(ty0, ty1, ty2);
+            ExactWindingCache tinyYzCache = new DMeshAABBTree3(tinyYz, true).GetExactWindingCache();
+            Vector3d pWrap = new Vector3d(-Math.Pow(2.0, 837), 2.0 * yzScale, 1.0 * yzScale);
+            double wWrap = tinyYzCache.Evaluate(pWrap);
+            Assert.True(Math.Abs(wWrap) < 1e-12, $"prodExp wrap mismatch: {wWrap:R}");
+
+            // 5. 32-gon open disk at x = +1 queried at origin: 32 positive small-tangent edges sum to ~5.36 rad > pi,
+            //    so skipping the MaxAngleBatch = 12 flush wraps Atan2 by -2*pi (winding error = -1.0) on both single and row paths.
+            DMesh3 disk = new DMesh3();
+            const int nSides = 32;
+            int center = disk.AppendVertex(new Vector3d(1.0, 0.0, 0.0));
+            int[] ring = new int[nSides];
+            for (int k = 0; k < nSides; ++k) {
+                double ang = MathUtil.TwoPI * k / nSides;
+                ring[k] = disk.AppendVertex(new Vector3d(1.0, Math.Cos(ang), Math.Sin(ang)));
+            }
+            for (int k = 0; k < nSides; ++k)
+                disk.AppendTriangle(center, ring[k], ring[(k + 1) % nSides]);
+            ExactWindingCache diskCache = new DMeshAABBTree3(disk, true).GetExactWindingCache();
+            double wDisk = diskCache.Evaluate(Vector3d.Zero);
+            double bDisk = BruteForceWinding(disk, Vector3d.Zero);
+            Assert.True(Math.Abs(wDisk - bDisk) < 1e-13, $"32-gon single mismatch: {wDisk:R} vs {bDisk:R}");
+            var dHits = new System.Collections.Generic.List<ExactWindingCache.LineHit>();
+            var dLeaves = new System.Collections.Generic.List<int>();
+            var dRowOut = new float[1];
+            diskCache.EvaluateSparseRowX(0.0, 1.0, new[] { 0 }, 1, 0.0, 0.0, dHits, dLeaves, dRowOut);
+            Assert.Equal(FloatBits((float)wDisk), FloatBits(dRowOut[0]));
+        }
+
+        [Fact]
+        public void EvaluateSparseRowX_AndEvaluateFullRowX_BitIdenticalToEvaluateAndDefensiveGuards()
+        {
+            DMesh3 open = Sphere(12);
+            foreach (int tid in open.TriangleIndices().ToArray())
+                if (open.GetTriCentroid(tid).z > 0.35)
+                    open.RemoveTriangle(tid, true, false);
+
+            DMesh3 flipped = Sphere(12);
+            foreach (int tid in flipped.TriangleIndices().ToArray()) {
+                if (flipped.GetTriCentroid(tid).z > 0.35) {
+                    Index3i tv = flipped.GetTriangle(tid);
+                    flipped.RemoveTriangle(tid, false, false);
+                    flipped.AppendTriangle(tv.a, tv.c, tv.b);
+                }
+            }
+            // Add a Weight == 5 triangle so EvaluateFullRowX/EvaluateSparseRowX cover both batched and unbatched weights.
+            Vector3d h0 = new Vector3d(0.2, 0.1, 0.0), h1 = new Vector3d(0.5, 0.4, 0.1), h2 = new Vector3d(0.1, 0.5, 0.4);
+            for (int copy = 0; copy < 5; ++copy)
+                flipped.AppendTriangle(flipped.AppendVertex(h0), flipped.AppendVertex(h1), flipped.AppendVertex(h2));
+
+            // Add an extreme-scale open mesh so row-prepared !allOk path is also exercised bit-identically.
+            double s = Math.Pow(2.0, 250);
+            DMesh3 openScaled = new DMesh3(open);
+            MeshTransforms.Scale(openScaled, s);
+
+            var hits = new System.Collections.Generic.List<ExactWindingCache.LineHit>();
+            var leaves = new System.Collections.Generic.List<int>();
+
+            foreach (var pair in new[] {
+                (new DMeshAABBTree3(open, true).GetExactWindingCache(), 1.0),
+                (new DMeshAABBTree3(flipped, true).GetExactWindingCache(), 1.0),
+                (new DMeshAABBTree3(openScaled, true).GetExactWindingCache(), s)
+            }) {
+                ExactWindingCache cache = pair.Item1;
+                double sc = pair.Item2;
+                int ni = 17;
+                double ox = -1.2 * sc, dx = 0.15 * sc;
+                var diffBuf = new int[ni];
+                var fullRow = new float[ni];
+                int[] sparseIdx = { 16, 0, 7, 3, 12, 1, 9, 15, 5 };
+                var sparseOut = new float[sparseIdx.Length];
+
+                // Include rows that pass right through boundary vertices (allOk == false) and ordinary rows.
+                double[] ys = { -0.7 * sc, 0.0, 0.35 * sc };
+                double[] zs = { -0.4 * sc, 0.0, 0.35 * sc };
+                foreach (double y in ys) {
+                    foreach (double z in zs) {
+                        cache.EvaluateFullRowX(ox, dx, ni, y, z, hits, leaves, diffBuf, fullRow);
+                        for (int i = 0; i < ni; ++i) {
+                            float expected = (float)cache.Evaluate(new Vector3d((double)i * dx + ox, y, z));
+                            Assert.Equal(FloatBits(expected), FloatBits(fullRow[i]));
+                        }
+
+                        cache.EvaluateSparseRowX(ox, dx, sparseIdx, sparseIdx.Length, y, z, hits, leaves, sparseOut);
+                        for (int m = 0; m < sparseIdx.Length; ++m) {
+                            int i = sparseIdx[m];
+                            float expected = (float)cache.Evaluate(new Vector3d((double)i * dx + ox, y, z));
+                            Assert.Equal(FloatBits(expected), FloatBits(sparseOut[m]));
+                        }
+                    }
+                }
+            }
+
+            // Defensive guards on EvaluateSparseRowX: xCount == 0, non-finite y/z/xi (+Inf and NaN), empty cache, direct-sum soup.
+            ExactWindingCache openCache = new DMeshAABBTree3(open, true).GetExactWindingCache();
+            var guardOut = new float[] { 7.0f, 7.0f, 7.0f };
+            openCache.EvaluateSparseRowX(0.0, 0.25, new[] { 0, 1, 2 }, 0, 0.0, 0.0, hits, leaves, guardOut);
+            Assert.Equal(7.0f, guardOut[0]);
+
+            openCache.EvaluateSparseRowX(0.0, 0.25, new[] { 0, 1 }, 2, double.NaN, 0.0, hits, leaves, guardOut);
+            Assert.Equal(0.0f, guardOut[0]);
+            Assert.Equal(0.0f, guardOut[1]);
+
+            guardOut[0] = 4.0f;
+            guardOut[1] = 4.0f;
+            openCache.EvaluateSparseRowX(0.0, 0.25, new[] { 0, 1 }, 2, 0.0, double.NaN, hits, leaves, guardOut);
+            Assert.Equal(0.0f, guardOut[0]);
+            Assert.Equal(0.0f, guardOut[1]);
+
+            openCache.EvaluateSparseRowX(double.MaxValue * 0.9, double.MaxValue * 0.5, new[] { 0, 1 }, 2, 0.1, 0.2, hits, leaves, guardOut);
+            Assert.Equal((float)openCache.Evaluate(new Vector3d(double.MaxValue * 0.9, 0.1, 0.2)), guardOut[0]);
+            Assert.Equal(0.0f, guardOut[1]);
+
+            guardOut[0] = 3.0f;
+            openCache.EvaluateSparseRowX(double.NaN, 0.25, new[] { 0 }, 1, 0.1, 0.2, hits, leaves, guardOut);
+            Assert.Equal(0.0f, guardOut[0]);
+
+            // On-surface query on EvaluateSparseRowX exercises row_surface_correction (w -= scVal) and xi <= hit.MaxX.
+            DMesh3 unitTri = new DMesh3();
+            int ut0 = unitTri.AppendVertex(new Vector3d(1.0, -1.0, -1.0));
+            int ut1 = unitTri.AppendVertex(new Vector3d(1.0, 1.0, -1.0));
+            int ut2 = unitTri.AppendVertex(new Vector3d(1.0, 0.0, 1.0));
+            unitTri.AppendTriangle(ut0, ut1, ut2);
+            ExactWindingCache unitTriCache = new DMeshAABBTree3(unitTri, true).GetExactWindingCache();
+            var surfOut = new float[2];
+            unitTriCache.EvaluateSparseRowX(0.5, 0.5, new[] { 0, 1 }, 2, 0.0, 0.0, hits, leaves, surfOut);
+            Assert.Equal(FloatBits((float)unitTriCache.Evaluate(new Vector3d(0.5, 0.0, 0.0))), FloatBits(surfOut[0]));
+            Assert.Equal(FloatBits((float)unitTriCache.Evaluate(new Vector3d(1.0, 0.0, 0.0))), FloatBits(surfOut[1]));
+            Assert.True(Math.Abs(surfOut[1]) < 1e-6f);
+
+            ExactWindingCache emptyCache = new DMeshAABBTree3(new DMesh3(), true).GetExactWindingCache();
+            guardOut[0] = 5.0f;
+            emptyCache.EvaluateSparseRowX(0.0, 0.5, new[] { 0 }, 1, 0.0, 0.0, hits, leaves, guardOut);
+            Assert.Equal(0.0f, guardOut[0]);
+
+            var soupRnd = new Random(43);
+            DMesh3 soup = new DMesh3();
+            for (int i = 0; i < 80; ++i) {
+                Vector3d o = new Vector3d(soupRnd.NextDouble(), soupRnd.NextDouble(), soupRnd.NextDouble());
+                soup.AppendTriangle(soup.AppendVertex(o), soup.AppendVertex(o + new Vector3d(0.1, 0, 0)), soup.AppendVertex(o + new Vector3d(0, 0.1, 0)));
+            }
+            ExactWindingCache directCache = new DMeshAABBTree3(soup, true).GetExactWindingCache();
+            Assert.True(directCache.UseDirectSum);
+            directCache.EvaluateSparseRowX(double.MaxValue * 0.9, double.MaxValue * 0.5, new[] { 0, 1 }, 2, 0.2, 0.2, hits, leaves, guardOut);
+            Assert.Equal((float)directCache.Evaluate(new Vector3d(double.MaxValue * 0.9, 0.2, 0.2)), guardOut[0]);
+            Assert.Equal(0.0f, guardOut[1]);
+
+            // Cancellation-sensitive geometry:
+            // (a) Edge ((0,0,-1),(0,0,1)) queried at p = (1e-12, 1e-13, 0): den ~ 2e-12 > 0 and |num| = 2e-13 <= 0.25 * den,
+            //     so only FastAngleRatio rejects the catastrophic cancellation in den (ordinary, row, and extreme-scale 2^250 paths).
+            DMesh3 cancelTri = new DMesh3();
+            int c0 = cancelTri.AppendVertex(new Vector3d(0.0, 0.0, -1.0));
+            int c1 = cancelTri.AppendVertex(new Vector3d(0.0, 0.0, 1.0));
+            int c2 = cancelTri.AppendVertex(new Vector3d(0.0, 1.0, 0.0));
+            cancelTri.AppendTriangle(c0, c1, c2);
+            ExactWindingCache cancelCache = new DMeshAABBTree3(cancelTri, true).GetExactWindingCache();
+
+            Vector3d pCancel = new Vector3d(1e-12, 1e-13, 0.0);
+            double wCancel = cancelCache.Evaluate(pCancel);
+            double uCancel = UnbatchedBoundarySumX(cancelTri, pCancel);
+            Assert.True(Math.Abs((wCancel - uCancel) - Math.Round(wCancel - uCancel)) < 1e-14);
+
+            var cSparseOut = new float[2];
+            cancelCache.EvaluateSparseRowX(1e-12, 1.0, new[] { 0, 1 }, 2, 1e-13, 0.0, hits, leaves, cSparseOut);
+            Assert.Equal(FloatBits((float)uCancel), FloatBits(cSparseOut[0]));
+
+            // Same cancellation geometry scaled by 2^250 exercises FastAngleRatio inside try_extreme_edge_batch_t.
+            DMesh3 cancelTriExt = new DMesh3(cancelTri);
+            MeshTransforms.Scale(cancelTriExt, s);
+            ExactWindingCache cancelCacheExt = new DMeshAABBTree3(cancelTriExt, true).GetExactWindingCache();
+            double wCancelExt = cancelCacheExt.Evaluate(s * pCancel);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(wCancel), BitConverter.DoubleToInt64Bits(wCancelExt));
+
+            // (b) Extreme |ax| >> |yz| on row path (c0 has ax = +1e8 so la - ax cancels to 0, while c1 has bx = -1e7 finite)
+            //     so flipping ax > 0 in boundary_sum_prepared_row_x shifts the angle by ~0.018 rad (well above float precision).
+            DMesh3 vdaTri = new DMesh3();
+            int vt0 = vdaTri.AppendVertex(new Vector3d(1e8, 1.0, 0.0));
+            int vt1 = vdaTri.AppendVertex(new Vector3d(-1e7, 1.0, 0.2));
+            int vt2 = vdaTri.AppendVertex(new Vector3d(0.0, 2.0, 0.5));
+            vdaTri.AppendTriangle(vt0, vt1, vt2);
+            ExactWindingCache vdaCache = new DMeshAABBTree3(vdaTri, true).GetExactWindingCache();
+            var vdaOut = new float[1];
+            vdaCache.EvaluateSparseRowX(0.0, 1.0, new[] { 0 }, 1, 0.0, 0.0, hits, leaves, vdaOut);
+            double uVda = UnbatchedBoundarySumX(vdaTri, Vector3d.Zero);
+            Assert.True(Math.Abs(vdaOut[0] - (float)uVda) <= 1e-6f);
+            Assert.Equal(FloatBits((float)vdaCache.Evaluate(Vector3d.Zero)), FloatBits(vdaOut[0]));
+
+            // (c) mA = 1.0 in [2^-100, 2^100] with yzMax = 2^-600 < FastLowThresh * mA (ay * ay underflows to 0):
+            //     tests the yzMax >= FastLowThresh * mA guard on both Evaluate and EvaluateSparseRowX.
+            double tinyYzVal = Math.Pow(2.0, -600);
+            DMesh3 subYzTri = new DMesh3();
+            int sy0 = subYzTri.AppendVertex(new Vector3d(1.0, tinyYzVal, 0.0));
+            int sy1 = subYzTri.AppendVertex(new Vector3d(1.0, tinyYzVal, tinyYzVal));
+            int sy2 = subYzTri.AppendVertex(new Vector3d(1.0, 2.0 * tinyYzVal, 0.0));
+            subYzTri.AppendTriangle(sy0, sy1, sy2);
+            ExactWindingCache subYzCache = new DMeshAABBTree3(subYzTri, true).GetExactWindingCache();
+            Vector3d pSubYz = new Vector3d(0.0, 1.25 * tinyYzVal, 0.2 * tinyYzVal);
+            double wSubYz = subYzCache.Evaluate(pSubYz);
+            Assert.True(Math.Abs(wSubYz) < 1e-12, $"subnormal-yz guard mismatch: {wSubYz:R}");
+            var subYzOut = new float[1];
+            subYzCache.EvaluateSparseRowX(0.0, 1.0, new[] { 0 }, 1, pSubYz.y, pSubYz.z, hits, leaves, subYzOut);
+            Assert.Equal(FloatBits((float)wSubYz), FloatBits(subYzOut[0]));
+        }
     }
 }
