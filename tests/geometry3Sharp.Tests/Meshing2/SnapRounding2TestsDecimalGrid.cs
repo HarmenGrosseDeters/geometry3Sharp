@@ -20,8 +20,6 @@ namespace geometry3Sharp.Tests
             string fmt = "F" + decimalPlaces.ToString(CultureInfo.InvariantCulture);
             for (int i = 0; i < mesh.Vertices.Count; ++i) {
                 var p = mesh.Vertices[i];
-                // Alias slots of merged inputs keep original input coordinates by D17; only check surviving mesh vertices.
-                if (i < mesh.InputCount && mesh.InputToVertex[i] != i) continue;
                 Assert.False(double.IsNaN(p.x) || double.IsInfinity(p.x));
                 Assert.False(double.IsNaN(p.y) || double.IsInfinity(p.y));
                 double rx = Math.Round(p.x, decimalPlaces, MidpointRounding.ToEven);
@@ -88,7 +86,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(BitConverter.DoubleToInt64Bits(k57 * 0.01), BitConverter.DoubleToInt64Bits(binGrid.Centre(57)));
             Assert.Equal(BitConverter.DoubleToInt64Bits(0.0), BitConverter.DoubleToInt64Bits(binGrid.Centre(0)));
 
-            // Check all d in 0..15 across negative, zero, positive, and large UTM-like indices
+            // Check all d in 0..15 across negative, zero, positive, and large UTM-like indices, plus the 2^51 bound
             long[] ks = { -571204329L, -57L, -1L, 0L, 1L, 29L, 57L, 571204329L };
             for (int d = 0; d <= 15; ++d) {
                 double scale = SnapGrid.Pow10(d);
@@ -107,31 +105,59 @@ namespace geometry3Sharp.Tests
                     }
                 }
             }
+
+            // Decimal mode enforces the tighter 2^51 pixel-index bound so Pixel(Centre(k)) == k holds everywhere
+            var g5 = new SnapGrid(1e-5, decimalPlaces: 5);
+            double edgeNear2_51 = g5.Centre((1L << 51) - 1000);
+            Assert.True(QualityMesh2.Refiner.RoundableOnGrid(g5, new Vector2d(edgeNear2_51, 0)));
+            Assert.True(g5.CircumcentrePixelCentre(new Vector2d(edgeNear2_51 - 1, 0), new Vector2d(edgeNear2_51 + 1, 0), new Vector2d(edgeNear2_51, 1), out _));
+            double edgePast2_51 = g5.Centre((1L << 51) + 1000);
+            Assert.False(QualityMesh2.Refiner.RoundableOnGrid(g5, new Vector2d(edgePast2_51, 0)));
+            Assert.False(g5.CircumcentrePixelCentre(new Vector2d(edgePast2_51 - 1, 0), new Vector2d(edgePast2_51 + 1, 0), new Vector2d(edgePast2_51, 1), out _));
+            // Binary mode still allows up to 2^52
+            var g5Bin = new SnapGrid(1e-5);
+            Assert.True(QualityMesh2.Refiner.RoundableOnGrid(g5Bin, new Vector2d(edgePast2_51, 0)));
+            Assert.True(g5Bin.CircumcentrePixelCentre(new Vector2d(edgePast2_51 - 1, 0), new Vector2d(edgePast2_51 + 1, 0), new Vector2d(edgePast2_51, 1), out _));
         }
 
         [Fact]
-        public void SnapRounding2_DecimalGrid_ChainPointsAndVertices_AreExactDecimal()
+        public void SnapRounding2_DecimalGrid_ChainPointsVerticesAndHeights_AreExactDecimal()
         {
+            // Diagonals (0.29, 0.29)-(0.85, 0.85) and (0.29, 0.85)-(0.85, 0.29) cross at pixel (57, 57),
+            // where 57 * 0.01 != 0.57 on BOTH x and y axes, testing extra hot-pixel centres, ChainPoints, and height interpolation.
             var input = new ConstrainedMesh2Input();
             input.Points.AddRange(new[] {
-                new Vector2d(0.574, 0.289),
-                new Vector2d(5.731, 0.571),
-                new Vector2d(5.734, 4.172),
-                new Vector2d(0.288, 4.169)
+                new Vector2d(0.291, 0.291),
+                new Vector2d(0.849, 0.291),
+                new Vector2d(0.849, 0.849),
+                new Vector2d(0.291, 0.849)
             });
+            input.Heights = new List<double> { 10.0, 20.0, 30.0, 40.0 };
             input.Segments.Add(new Mesh2Segment(0, 2));
             input.Segments.Add(new Mesh2Segment(1, 3));
 
             var snap = SnapRounding2.Apply(input, 0.01, decimalPlaces: 2);
+            Assert.True(snap.Result.Points.Count > 4, "Expected crossing hot pixel at (57, 57)");
+            Assert.Contains(snap.Result.Points, p =>
+                BitConverter.DoubleToInt64Bits(p.x) == BitConverter.DoubleToInt64Bits(0.57)
+                && BitConverter.DoubleToInt64Bits(p.y) == BitConverter.DoubleToInt64Bits(0.57));
             foreach (var p in snap.Result.Points) {
                 Assert.Equal(BitConverter.DoubleToInt64Bits(Math.Round(p.x, 2, MidpointRounding.ToEven)), BitConverter.DoubleToInt64Bits(p.x));
                 Assert.Equal(BitConverter.DoubleToInt64Bits(Math.Round(p.y, 2, MidpointRounding.ToEven)), BitConverter.DoubleToInt64Bits(p.y));
             }
-            var chain = snap.ChainPoints(0, 2);
-            Assert.True(chain.Count >= 2);
-            foreach (var p in chain) {
-                Assert.Equal(BitConverter.DoubleToInt64Bits(Math.Round(p.x, 2, MidpointRounding.ToEven)), BitConverter.DoubleToInt64Bits(p.x));
-                Assert.Equal(BitConverter.DoubleToInt64Bits(Math.Round(p.y, 2, MidpointRounding.ToEven)), BitConverter.DoubleToInt64Bits(p.y));
+            Assert.NotNull(snap.Result.Heights);
+            Assert.Equal(snap.Result.Points.Count, snap.Result.Heights.Count);
+            Assert.All(snap.Result.Heights, h => Assert.InRange(h, 10.0, 40.0));
+            foreach (var (a, b) in new[] { (0, 2), (1, 3) }) {
+                var chain = snap.ChainPoints(a, b);
+                Assert.True(chain.Count >= 3);
+                Assert.Contains(chain, p =>
+                    BitConverter.DoubleToInt64Bits(p.x) == BitConverter.DoubleToInt64Bits(0.57)
+                    && BitConverter.DoubleToInt64Bits(p.y) == BitConverter.DoubleToInt64Bits(0.57));
+                foreach (var p in chain) {
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(Math.Round(p.x, 2, MidpointRounding.ToEven)), BitConverter.DoubleToInt64Bits(p.x));
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(Math.Round(p.y, 2, MidpointRounding.ToEven)), BitConverter.DoubleToInt64Bits(p.y));
+                }
             }
         }
 
@@ -222,6 +248,19 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(Triangulation2Status.Success, r.Status);
                 AssertExactDecimalGrid(r.Mesh, d);
             }
+
+            // Maximum supported precision (d = 15) on a small [0, 1e-4]^2 domain (1e-4 * 10^15 = 1e11 < 2^40)
+            var micro = new ConstrainedMesh2Input();
+            micro.Points.AddRange(new[] {
+                new Vector2d(0, 0), new Vector2d(1e-4, 0),
+                new Vector2d(1e-4, 1e-4), new Vector2d(0, 1e-4),
+                new Vector2d(2.3e-5, 5.7e-5), new Vector2d(7.1e-5, 3.4e-5)
+            });
+            micro.Rings.Add(new Mesh2Ring(new[] { 0, 1, 2, 3 }, hole: false));
+            micro.Segments.Add(new Mesh2Segment(4, 5));
+            var r15 = new QualityMesh2 { MinAngle = 20, OutputDecimalPlaces = 15 }.Compute(micro);
+            Assert.Equal(Triangulation2Status.Success, r15.Status);
+            AssertExactDecimalGrid(r15.Mesh, 15);
         }
 
         [Fact]
@@ -235,19 +274,34 @@ namespace geometry3Sharp.Tests
             Assert.Throws<ArgumentOutOfRangeException>(() => new QualityMesh2 { MinAngle = 20, OutputDecimalPlaces = -1 }.Compute(input));
             Assert.Throws<ArgumentOutOfRangeException>(() => new QualityMesh2 { MinAngle = 20, OutputDecimalPlaces = 16 }.Compute(input));
 
-            // Conflicting SnapTolerance and OutputDecimalPlaces
-            Assert.Throws<ArgumentException>(() => new ConstrainedDelaunayMesh2 { SnapTolerance = 0.05, OutputDecimalPlaces = 2 }.Compute(input));
-            Assert.Throws<ArgumentException>(() => new QualityMesh2 { MinAngle = 20, SnapTolerance = 0.05, OutputDecimalPlaces = 2 }.Compute(input));
+            // Conflicting / invalid SnapTolerance paired with OutputDecimalPlaces
+            foreach (double badTol in new[] { 0.05, -0.01, double.NaN, double.PositiveInfinity, double.NegativeInfinity }) {
+                Assert.Throws<ArgumentException>(() => new ConstrainedDelaunayMesh2 { SnapTolerance = badTol, OutputDecimalPlaces = 2 }.Compute(input));
+                Assert.Throws<ArgumentException>(() => new QualityMesh2 { MinAngle = 20, SnapTolerance = badTol, OutputDecimalPlaces = 2 }.Compute(input));
+            }
 
-            // Matching SnapTolerance = 0.01 and OutputDecimalPlaces = 2 equals SnapTolerance = 0, OutputDecimalPlaces = 2 bit-for-bit
+            // Matching SnapTolerance = 0.01 or -0.0 with OutputDecimalPlaces = 2 equals SnapTolerance = 0, OutputDecimalPlaces = 2 bit-for-bit
             var mA = new QualityMesh2 { MinAngle = 25, OutputDecimalPlaces = 2 };
             var mB = new QualityMesh2 { MinAngle = 25, SnapTolerance = 0.01, OutputDecimalPlaces = 2 };
+            var mNegZero = new QualityMesh2 { MinAngle = 25, SnapTolerance = -0.0, OutputDecimalPlaces = 2 };
             var rA1 = mA.Compute(input);
             var rA2 = mA.Compute(input); // reuse on same instance
             var rB = mB.Compute(input);
+            var rNegZero = mNegZero.Compute(input);
             Assert.Equal(Triangulation2Status.Success, rA1.Status);
             AssertMeshesBitIdentical(rA1.Mesh, rA2.Mesh);
             AssertMeshesBitIdentical(rA1.Mesh, rB.Mesh);
+            AssertMeshesBitIdentical(rA1.Mesh, rNegZero.Mesh);
+
+            // Instance reuse across option changes (2 -> invalid exception -> null) stays clean and matches fresh instance
+            mA.OutputDecimalPlaces = 16;
+            Assert.Throws<ArgumentOutOfRangeException>(() => mA.Compute(input));
+            mA.OutputDecimalPlaces = null;
+            mA.SnapTolerance = 0.01;
+            var rAfterChange = mA.Compute(input);
+            var rFreshBin = new QualityMesh2 { MinAngle = 25, SnapTolerance = 0.01 }.Compute(input);
+            Assert.Equal(Triangulation2Status.Success, rAfterChange.Status);
+            AssertMeshesBitIdentical(rFreshBin.Mesh, rAfterChange.Mesh);
 
             // Parallel determinism
             var parallel = new ConstrainedMesh2[8];

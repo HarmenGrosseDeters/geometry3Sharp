@@ -968,7 +968,7 @@ namespace g3
                 foreach (var p in source.Keys.OrderBy(p => p.Item2).ThenBy(p => p.Item1)) {
                     var (a, b) = routed[source[p]];
                     double ax = input.Points[a].x, ay = input.Points[a].y, dx = input.Points[b].x - ax, dy = input.Points[b].y - ay;
-                    double t = MathUtil.MaxExact(0, MathUtil.MinExact(1, ((p.Item1 * w - ax) * dx + (p.Item2 * w - ay) * dy) / (dx * dx + dy * dy)));
+                    double t = MathUtil.MaxExact(0, MathUtil.MinExact(1, ((Grid.Centre(p.Item1) - ax) * dx + (Grid.Centre(p.Item2) - ay) * dy) / (dx * dx + dy * dy)));
                     heights.Add(input.Heights[a] + t * (input.Heights[b] - input.Heights[a]));
                 }
                 result.Heights = heights;
@@ -1106,13 +1106,10 @@ namespace g3
             return (long)q;
         }
 
-        public double Centre(long k)
-        {
-            double v = DecimalScale > 0 ? k / DecimalScale : k * W;
-            return v == 0 ? 0.0 : v;
-        }
+        public double Centre(long k) => DecimalScale > 0 ? k / DecimalScale : k * W;
 
-        /// <summary> the centre of the pixel holding the circumcentre of triangle abc, exactly (false for a degenerate triangle) </summary>
+        /// <summary> the centre of the pixel holding the circumcentre of triangle abc, exactly (false for a degenerate triangle;
+        /// requires |k| &lt; 2^52 in binary mode, or |k| &lt; 2^51 in decimal mode so Pixel(Centre(k)) == k holds everywhere) </summary>
         public bool CircumcentrePixelCentre(Vector2d a, Vector2d b, Vector2d c, out Vector2d centre)
         {
             centre = default(Vector2d);
@@ -1130,7 +1127,8 @@ namespace g3
             if (d.Sign < 0) { d = -d; ux = -ux; uy = -uy; }
             BigInteger Floor(BigInteger n, BigInteger q) { var f = BigInteger.DivRem(n, q, out var r); if (!r.IsZero && r.Sign < 0) f -= 1; return f; }
             BigInteger kx = Floor(2 * (ax * d + ux) + w * d, 2 * w * d), ky = Floor(2 * (ay * d + uy) + w * d, 2 * w * d);
-            if (BigInteger.Abs(kx) >= (BigInteger.One << 52) || BigInteger.Abs(ky) >= (BigInteger.One << 52)) return false;
+            BigInteger maxIndex = BigInteger.One << (DecimalScale > 0 ? 51 : 52);
+            if (BigInteger.Abs(kx) >= maxIndex || BigInteger.Abs(ky) >= maxIndex) return false;
             centre = new Vector2d(Centre((long)kx), Centre((long)ky));
             return true;
         }

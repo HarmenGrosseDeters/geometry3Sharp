@@ -53,7 +53,9 @@ namespace g3
         /// Optional decimal output grid precision (spec O12, F-65): when set to <c>d</c> in <c>0..15</c>, snaps the input and
         /// every constructed vertex onto the decimal grid of spacing <c>10^-d</c> with exact decimal centres <c>k / 10^d</c>
         /// (bit-identical to <see cref="Math.Round(double, int)"/> to <c>d</c> places, so post-export decimal rounding changes
-        /// no coordinate and flips no triangle). <c>null</c> (default): disabled (uses <see cref="SnapTolerance"/>).
+        /// no coordinate and flips no triangle). Inherits the snap-grid index limit (<c>|coord| * 10^d &lt; 2^40</c>); setting
+        /// a non-zero <see cref="SnapTolerance"/> that disagrees with <c>10^-d</c> throws <see cref="ArgumentException"/>.
+        /// <c>null</c> (default): disabled (uses <see cref="SnapTolerance"/>).
         /// </summary>
         public int? OutputDecimalPlaces;
 
